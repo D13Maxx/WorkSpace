@@ -4,6 +4,7 @@
 //! master spec s5 and s6 is unit- and property-testable without a database,
 //! a network, or a model.
 
+pub mod backend;
 pub mod config;
 pub mod error;
 pub mod ids;
@@ -13,6 +14,9 @@ pub mod summary;
 pub mod token;
 pub mod view;
 
+pub use backend::{
+    BackendError, BackendEvent, BackendRequest, ChatBackend, ModelInfo, StopReason, ThinkingMode,
+};
 pub use config::ContextConfig;
 pub use error::ContextError;
 pub use ids::{BackendId, BlobRef, ConvId, EventId, MsgId, SummaryId};

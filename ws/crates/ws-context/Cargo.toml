@@ -15,6 +15,12 @@ serde_json.workspace = true
 chrono.workspace = true
 ulid.workspace = true
 thiserror.workspace = true
+# Needed only by the `backend` module, for the ChatBackend trait signature.
+# The crate still performs no I/O: these supply the stream and cancellation
+# vocabulary, not an implementation.
+async-trait.workspace = true
+futures-util.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
