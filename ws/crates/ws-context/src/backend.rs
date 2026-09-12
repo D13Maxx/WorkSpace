@@ -123,7 +123,10 @@ impl BackendError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
     /// Local engine only: prompt tokens read so far.
-    PrefillProgress { done_tokens: u32, total_tokens: u32 },
+    PrefillProgress {
+        done_tokens: u32,
+        total_tokens: u32,
+    },
     TextDelta(String),
     /// Human-readable reasoning. Shown in the UI, never replayed to a model.
     ReasoningDelta(String),
