@@ -10,3 +10,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+keyring.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[features]
+# Touches the real Windows Credential Manager. Never enabled in CI
+# (master spec s7.6); run locally with --features live-tests.
+live-tests = []
