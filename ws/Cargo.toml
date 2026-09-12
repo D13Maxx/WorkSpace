@@ -1,0 +1,68 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ws-context",
+    "crates/ws-store",
+    "crates/ws-secrets",
+    "crates/ws-providers",
+    "crates/ws-engine",
+    "crates/ws-engine-cli",
+    "crates/ws-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Debargha Das"]
+
+# Shared dependency versions. Pinned from crates.io at scaffold time (2026-09-12).
+# Per master spec s0.3: never invent APIs; verify against docs.rs for these exact versions.
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+ulid = { version = "3.0.0", features = ["serde"] }
+async-trait = "0.1.92"
+futures-util = "0.3.34"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7.19"
+rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
+keyring = "4.2.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+# dev
+proptest = "1.11.0"
+
+# Internal crates
+ws-context = { path = "crates/ws-context" }
+ws-store = { path = "crates/ws-store" }
+ws-secrets = { path = "crates/ws-secrets" }
+ws-providers = { path = "crates/ws-providers" }
+ws-engine = { path = "crates/ws-engine" }
+ws-core = { path = "crates/ws-core" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+todo = "warn"
+
+# Master spec s8.10: never ship target-cpu=native.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+# Parity and engine tests are unusably slow in debug; optimise deps under test.
+[profile.test.package."*"]
+opt-level = 2
