@@ -15,7 +15,8 @@ pub mod token;
 pub mod view;
 
 pub use backend::{
-    BackendError, BackendEvent, BackendRequest, ChatBackend, ModelInfo, StopReason, ThinkingMode,
+    BackendError, BackendEvent, BackendRequest, ChatBackend, DefaultProfiles, InlineBlob,
+    ModelInfo, ModelProfiles, StopReason, ThinkingMode,
 };
 pub use config::ContextConfig;
 pub use error::ContextError;

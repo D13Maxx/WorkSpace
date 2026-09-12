@@ -96,7 +96,7 @@ impl From<String> for BackendId {
 }
 
 /// Content-addressed reference to a blob on disk (`blobs/{sha[0..2]}/{sha256}`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BlobRef(pub String);
 

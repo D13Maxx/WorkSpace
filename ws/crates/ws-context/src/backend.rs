@@ -8,7 +8,7 @@
 //! described in, and the trait says what a backend must offer. Nothing here
 //! opens a socket or touches a model.
 
-use crate::ids::{BackendId, MsgId};
+use crate::ids::{BackendId, BlobRef, MsgId};
 use crate::message::ProviderOpaque;
 use crate::model::{ModelCapabilities, ModelRef};
 use crate::view::RenderedView;
@@ -59,6 +59,20 @@ pub struct BackendRequest {
     /// rather than rebuilding it from canonical parts, because rebuilding is
     /// what produces 4xx errors on providers that sign their reasoning.
     pub raw_payloads: BTreeMap<MsgId, serde_json::Value>,
+    /// Bytes for the images in `view`, keyed by blob reference.
+    ///
+    /// Adapters cannot read the blob store themselves, so the orchestrator
+    /// resolves images before handing over a request. Only images that survived
+    /// the context builder appear here, and the token budget already bounds how
+    /// many that can be.
+    pub blobs: BTreeMap<BlobRef, InlineBlob>,
+}
+
+/// An image resolved from the blob store, ready to inline in a request body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineBlob {
+    pub mime: String,
+    pub bytes: Vec<u8>,
 }
 
 /// Why generation stopped.
@@ -146,6 +160,30 @@ pub enum BackendEvent {
         stop_reason: StopReason,
     },
     Error(BackendError),
+}
+
+/// Where a backend reads per-model settings.
+///
+/// Master spec s7.1 forbids hardcoding model names: capabilities come from a
+/// user-editable profile table, with conservative defaults for ids the user
+/// has not filled in yet.
+pub trait ModelProfiles: Send + Sync + std::fmt::Debug {
+    fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
+    fn thinking(&self, model: &ModelRef) -> ThinkingMode;
+}
+
+/// Profiles for a build with no configuration yet: conservative defaults and
+/// thinking off. Real deployments back this with the `model_profiles` table.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DefaultProfiles;
+
+impl ModelProfiles for DefaultProfiles {
+    fn capabilities(&self, _model: &ModelRef) -> ModelCapabilities {
+        ModelCapabilities::default()
+    }
+    fn thinking(&self, _model: &ModelRef) -> ThinkingMode {
+        ThinkingMode::Off
+    }
 }
 
 /// A source of model replies: one of the API adapters, or the local engine.
