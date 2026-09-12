@@ -173,6 +173,9 @@ mod tests {
     fn a_secret_inside_a_struct_stays_redacted() {
         #[derive(Debug)]
         struct Config {
+            // Read only by the derived Debug impl, which is exactly what this
+            // test exercises.
+            #[allow(dead_code)]
             key: Secret,
         }
         let c = Config {
