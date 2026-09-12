@@ -1,0 +1,43 @@
+name: CI
+
+# Master spec s13 C1: fmt, clippy and tests must pass on windows-latest.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Warnings are failures here; the workspace lints decide what warns.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ws
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-features
+
+      # Live provider smoke tests need real API keys and are never run in CI
+      # (master spec s7.6). Parity tests need multi-GB GGUFs and are gated the
+      # same way; see docs/checkpoints for how they are run locally.
