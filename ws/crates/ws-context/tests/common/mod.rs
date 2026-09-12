@@ -1,7 +1,6 @@
 //! Shared fixtures for context-builder tests. Each test binary uses only
 //! part of this module, so dead code is expected here.
 #![allow(dead_code)]
-
 // Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use chrono::{TimeZone, Utc};

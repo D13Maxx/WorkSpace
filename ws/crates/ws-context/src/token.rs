@@ -30,6 +30,9 @@ impl TokenCounter for ByteEstimateCounter {
 
 #[cfg(test)]
 mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

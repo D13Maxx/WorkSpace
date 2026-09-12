@@ -89,6 +89,12 @@ impl From<&str> for BackendId {
     }
 }
 
+impl From<String> for BackendId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
 /// Content-addressed reference to a blob on disk (`blobs/{sha[0..2]}/{sha256}`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

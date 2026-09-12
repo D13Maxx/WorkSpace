@@ -210,7 +210,8 @@ fn an_older_summary_covering_a_shorter_prefix_is_offered_for_extension() {
     let stale_end = req.covering.end / 2;
     let stale = summary_for(&path, stale_end, 30, &anthropic_model());
 
-    let ViewPlan::NeedsSummary(req2) = plan(&path, &c, std::slice::from_ref(&stale), None).unwrap() else {
+    let ViewPlan::NeedsSummary(req2) = plan(&path, &c, std::slice::from_ref(&stale), None).unwrap()
+    else {
         panic!("expected a summary request");
     };
     assert_eq!(
