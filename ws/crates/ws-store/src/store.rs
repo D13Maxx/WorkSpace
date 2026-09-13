@@ -11,6 +11,15 @@ use ws_context::{
     Message, ModelRef, MsgId, MsgStatus, Part, Role, SummaryId,
 };
 
+/// A stored model profile, with its JSON left unparsed (master spec s7.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredProfile {
+    pub model: ModelRef,
+    pub caps_json: String,
+    pub thinking_json: Option<String>,
+    pub user_edited: bool,
+}
+
 /// A draft reply being streamed, checkpointed so a crash cannot lose it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Draft {
@@ -579,6 +588,73 @@ impl Store {
             created.push(id);
         }
         Ok(created)
+    }
+
+    // ---- model profiles ------------------------------------------------
+
+    /// Save the user-editable settings for one model (master spec s7.1).
+    ///
+    /// # Errors
+    /// Fails on any database error.
+    pub fn save_model_profile(
+        &self,
+        model: &ModelRef,
+        caps_json: &str,
+        thinking_json: Option<&str>,
+        user_edited: bool,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO model_profiles
+               (backend, model_id, caps_json, thinking_json, user_edited, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(backend, model_id) DO UPDATE SET
+               caps_json = excluded.caps_json,
+               thinking_json = excluded.thinking_json,
+               user_edited = excluded.user_edited,
+               updated_at = excluded.updated_at",
+            params![
+                model.backend.as_str(),
+                model.model_id,
+                caps_json,
+                thinking_json,
+                i64::from(user_edited),
+                Utc::now(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Every stored profile.
+    ///
+    /// JSON is returned unparsed so a row written by a newer build cannot fail
+    /// startup; the caller decides what to do with something it cannot read.
+    ///
+    /// # Errors
+    /// Fails on any database error.
+    pub fn list_model_profiles(&self) -> Result<Vec<StoredProfile>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT backend, model_id, caps_json, thinking_json, user_edited FROM model_profiles",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (backend, model_id, caps, thinking, edited) = row?;
+            out.push(StoredProfile {
+                model: ModelRef::new(backend, model_id),
+                caps_json: caps,
+                thinking_json: thinking,
+                user_edited: edited != 0,
+            });
+        }
+        Ok(out)
     }
 
     // ---- conversation events -------------------------------------------

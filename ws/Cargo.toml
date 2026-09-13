@@ -8,6 +8,7 @@ members = [
     "crates/ws-engine",
     "crates/ws-engine-cli",
     "crates/ws-core",
+    "app/src-tauri",
 ]
 
 [workspace.package]
