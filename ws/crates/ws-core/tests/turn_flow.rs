@@ -523,3 +523,134 @@ async fn an_overflowing_conversation_is_summarised_and_an_unchanged_range_reuses
         "the same cached summary should back both answers"
     );
 }
+
+#[tokio::test]
+async fn an_in_progress_reply_is_checkpointed_so_a_crash_cannot_lose_it() {
+    // Master spec s10: the message row is written once, at the end. Until
+    // then the partial text lives in `drafts`. Crash recovery depends on that
+    // checkpoint actually happening, so this asserts it does.
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ws.db");
+    let store = Arc::new(Mutex::new(Store::open(&db).unwrap()));
+    let blobs = Arc::new(BlobStore::new(dir.path().join("blobs")).unwrap());
+
+    let profiles = Arc::new(ProfileTable::new());
+    profiles.set(
+        model(),
+        Profile {
+            user_edited: true,
+            ..Profile::default()
+        },
+    );
+
+    let backend = Arc::new(
+        FakeBackend::new(BACKEND, profiles.clone() as Arc<_>).scripted(Scripted::SlowText {
+            deltas: vec!["one ".into(), "two ".into(), "three".into()],
+            delay: Duration::from_millis(40),
+        }),
+    );
+
+    let orch = Orchestrator::new(store.clone(), blobs, profiles)
+        .with_backend(backend as Arc<_>)
+        // Checkpoint on every event, so the assertion does not wait a second.
+        .with_draft_interval(Duration::ZERO);
+
+    let conv = orch.create_conversation("crashy", model()).unwrap();
+    orch.append_user_message(conv, vec![Part::text("hi")])
+        .unwrap();
+
+    let (tx, mut rx) = mpsc::channel(64);
+    let turn = orch.run_turn(conv, tx, CancellationToken::new());
+
+    // Watch for a draft while the reply is still arriving.
+    let watcher = {
+        let store = store.clone();
+        async move {
+            let mut seen: Option<String> = None;
+            while let Some(event) = rx.recv().await {
+                if matches!(event, TurnEvent::TextDelta { .. }) {
+                    if let Ok(s) = store.lock() {
+                        if let Ok(drafts) = s.list_drafts() {
+                            if let Some(d) = drafts.first() {
+                                seen = Some(d.partial_text.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            seen
+        }
+    };
+
+    let (result, mid_flight) = tokio::join!(turn, watcher);
+    result.unwrap();
+
+    let partial = mid_flight.expect("a draft should exist while the reply streams");
+    assert!(
+        !partial.is_empty() && "one two three".starts_with(&partial),
+        "the draft should hold a prefix of the reply, got {partial:?}"
+    );
+
+    // Once the row is written, the draft is gone, so a later launch does not
+    // resurrect a reply that actually finished.
+    let s = store.lock().unwrap();
+    assert!(s.list_drafts().unwrap().is_empty());
+    assert_eq!(
+        s.load_active_path(conv)
+            .unwrap()
+            .last()
+            .unwrap()
+            .text_content(),
+        "one two three"
+    );
+}
+
+#[tokio::test]
+async fn a_reply_interrupted_by_a_crash_comes_back_as_a_failed_message() {
+    // Simulates the C1 acceptance item: kill the process mid-stream, relaunch,
+    // and find the partial text preserved rather than lost.
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ws.db");
+
+    let conv = {
+        let store = Store::open(&db).unwrap();
+        let conv = ws_context::ConvId::new();
+        store
+            .create_conversation(&ws_context::Conversation {
+                id: conv,
+                title: "interrupted".to_owned(),
+                system_prompt: None,
+                active_leaf_id: None,
+                current_model: model(),
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        // A checkpoint with no message row: exactly what a crash leaves.
+        store
+            .save_draft(&ws_store::Draft {
+                conversation_id: conv,
+                parent_id: None,
+                model: model(),
+                partial_text: "half a thought".to_owned(),
+                updated_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        conv
+    };
+
+    // Relaunch: a fresh Store over the same file, then recovery.
+    let store = Store::open(&db).unwrap();
+    let recovered = store.recover_drafts().unwrap();
+    assert_eq!(recovered.len(), 1);
+
+    let path = store.load_active_path(conv).unwrap();
+    let last = path.last().unwrap();
+    assert_eq!(last.text_content(), "half a thought");
+    assert!(
+        matches!(last.status, MsgStatus::Failed { .. }),
+        "an interrupted reply must be marked failed, not presented as complete"
+    );
+    assert!(store.list_drafts().unwrap().is_empty());
+}

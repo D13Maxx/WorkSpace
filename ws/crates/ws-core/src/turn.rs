@@ -47,6 +47,7 @@ pub struct Orchestrator {
     backends: HashMap<BackendId, Arc<dyn ChatBackend>>,
     profiles: Arc<ProfileTable>,
     cfg: ContextConfig,
+    draft_interval: Duration,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -71,7 +72,17 @@ impl Orchestrator {
             backends: HashMap::new(),
             profiles,
             cfg: ContextConfig::default(),
+            draft_interval: DRAFT_CHECKPOINT_INTERVAL,
         }
+    }
+
+    /// Override how often an in-progress reply is checkpointed. Exists so
+    /// tests can prove the checkpoint happens at all without waiting a second
+    /// of wall time per assertion.
+    #[must_use]
+    pub fn with_draft_interval(mut self, interval: Duration) -> Self {
+        self.draft_interval = interval;
+        self
     }
 
     #[must_use]
@@ -550,7 +561,7 @@ impl Orchestrator {
             }
 
             // Checkpoint the partial reply so a crash costs at most a second.
-            if last_checkpoint.elapsed() >= DRAFT_CHECKPOINT_INTERVAL {
+            if last_checkpoint.elapsed() >= self.draft_interval {
                 last_checkpoint = Instant::now();
                 let draft = Draft {
                     conversation_id: conv,

@@ -25,6 +25,9 @@ chrono.workspace = true
 base64.workspace = true
 bytes.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
 [features]
 # Talks to real provider APIs with real keys. Never enabled in CI
 # (master spec s7.6).

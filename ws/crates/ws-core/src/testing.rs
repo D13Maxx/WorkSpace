@@ -25,6 +25,12 @@ pub enum Scripted {
     FailsAfter { deltas: Vec<String>, error: String },
     /// Nothing streams; the request itself is refused.
     RefusesToStart { error: BackendError },
+    /// Text with a pause before each delta, so a draft checkpoint can land
+    /// while the reply is still arriving.
+    SlowText {
+        deltas: Vec<String>,
+        delay: std::time::Duration,
+    },
 }
 
 /// Records what each call received, so tests can assert on the request the
@@ -181,6 +187,38 @@ impl ChatBackend for FakeBackend {
                 }));
             }
             Scripted::RefusesToStart { error } => return Err(error),
+            Scripted::SlowText { deltas, delay } => {
+                let whole = deltas.concat();
+                let cancel_for_slow = cancel.clone();
+                let slow = stream::iter(deltas.into_iter().map(BackendEvent::TextDelta))
+                    .then(move |event| {
+                        let delay = delay;
+                        async move {
+                            tokio::time::sleep(delay).await;
+                            event
+                        }
+                    })
+                    .chain(stream::iter(vec![
+                        BackendEvent::RawPayload(raw_payload_for(&whole, None)),
+                        BackendEvent::Done {
+                            stop_reason: StopReason::EndTurn,
+                        },
+                    ]))
+                    .take_while(move |_| {
+                        let cancelled = cancel_for_slow.is_cancelled();
+                        async move { !cancelled }
+                    })
+                    .chain(stream::once(async move {
+                        BackendEvent::Done {
+                            stop_reason: if cancel.is_cancelled() {
+                                StopReason::Cancelled
+                            } else {
+                                StopReason::EndTurn
+                            },
+                        }
+                    }));
+                return Ok(slow.boxed());
+            }
         }
 
         // Cancellation is honoured between events, as a real adapter does.
