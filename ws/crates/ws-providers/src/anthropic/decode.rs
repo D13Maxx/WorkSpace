@@ -321,9 +321,12 @@ impl AnthropicDecoder {
 
     fn on_message_stop(&mut self) -> Vec<BackendEvent> {
         self.done = true;
-        vec![BackendEvent::Done {
-            stop_reason: self.stop_reason.clone().unwrap_or(StopReason::EndTurn),
-        }]
+        vec![
+            BackendEvent::RawPayload(self.raw_payload()),
+            BackendEvent::Done {
+                stop_reason: self.stop_reason.clone().unwrap_or(StopReason::EndTurn),
+            },
+        ]
     }
 
     fn on_error(&mut self, v: &Value) -> Vec<BackendEvent> {

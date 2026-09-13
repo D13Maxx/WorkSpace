@@ -7,8 +7,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::path::Path;
 use std::str::FromStr;
 use ws_context::{
-    ContextSummary, ContextView, ConvId, Conversation, Message, ModelRef, MsgId, MsgStatus, Part,
-    Role, SummaryId,
+    ContextSummary, ContextView, ConvId, Conversation, ConversationEvent, EventId, EventKind,
+    Message, ModelRef, MsgId, MsgStatus, Part, Role, SummaryId,
 };
 
 /// A draft reply being streamed, checkpointed so a crash cannot lose it.
@@ -579,6 +579,121 @@ impl Store {
             created.push(id);
         }
         Ok(created)
+    }
+
+    // ---- conversation events -------------------------------------------
+
+    /// Record something that happened but is not a message: a model switch,
+    /// say. Never sent to a model (master spec s5.3).
+    ///
+    /// # Errors
+    /// Fails on any database error, or if the event cannot be serialised.
+    pub fn record_event(
+        &self,
+        conv: ConvId,
+        after: Option<MsgId>,
+        kind: &EventKind,
+    ) -> Result<EventId> {
+        let id = EventId::new();
+        // The tag is stored separately from the payload so events can be
+        // filtered in SQL without parsing every row.
+        let tag = match kind {
+            EventKind::ModelSwitch { .. } => "model_switch",
+        };
+        self.conn.execute(
+            "INSERT INTO conversation_events
+               (id, conversation_id, after_message_id, kind, payload_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id.to_string(),
+                conv.to_string(),
+                after.map(|m| m.to_string()),
+                tag,
+                serde_json::to_string(kind)?,
+                Utc::now(),
+            ],
+        )?;
+        Ok(id)
+    }
+
+    /// Every event on a conversation, oldest first.
+    ///
+    /// # Errors
+    /// Fails on any database error, or if a stored event cannot be parsed.
+    pub fn list_events(&self, conv: ConvId) -> Result<Vec<ConversationEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, after_message_id, payload_json, created_at
+             FROM conversation_events WHERE conversation_id = ?1
+             ORDER BY created_at, rowid",
+        )?;
+        let rows = stmt.query_map(params![conv.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, DateTime<Utc>>(3)?,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, after, payload, at) = row?;
+            out.push(ConversationEvent {
+                id: parse_id(&id)?,
+                conversation_id: conv,
+                after_message_id: parse_opt_id(after)?,
+                kind: serde_json::from_str(&payload)?,
+                at,
+            });
+        }
+        Ok(out)
+    }
+
+    /// The model most recently switched away from, if the last thing that
+    /// happened was a switch.
+    ///
+    /// Master spec s6.5 prefers the outgoing model as summariser, because it
+    /// still holds the context being compressed. That preference only applies
+    /// when the switch just happened, so this returns `None` once a reply has
+    /// been generated on the new model.
+    ///
+    /// # Errors
+    /// Fails on any database error, or if a stored event cannot be parsed.
+    pub fn last_model_switch_from(&self, conv: ConvId) -> Result<Option<ModelRef>> {
+        let row: Option<(String, Option<String>)> = self
+            .conn
+            .query_row(
+                "SELECT payload_json, after_message_id FROM conversation_events
+                 WHERE conversation_id = ?1 AND kind = 'model_switch'
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                params![conv.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+
+        let Some((payload, after)) = row else {
+            return Ok(None);
+        };
+
+        // If the conversation has moved on past the message the switch was
+        // recorded after, a reply has already been generated on the new model
+        // and the outgoing one is no longer the natural summariser.
+        let leaf: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT active_leaf_id FROM conversations WHERE id = ?1",
+                params![conv.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        if leaf != after {
+            return Ok(None);
+        }
+
+        match serde_json::from_str::<EventKind>(&payload)? {
+            EventKind::ModelSwitch { from, .. } => Ok(Some(from)),
+        }
     }
 
     // ---- context views and summaries -----------------------------------

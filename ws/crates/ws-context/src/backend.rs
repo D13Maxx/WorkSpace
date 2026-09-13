@@ -156,6 +156,13 @@ pub enum BackendEvent {
         input_tokens: u32,
         output_tokens: u32,
     },
+    /// The provider's own reassembled response content, emitted once just
+    /// before `Done`.
+    ///
+    /// Master spec s5.2 requires storing this verbatim rather than rebuilding
+    /// it from canonical parts, so it has to reach the orchestrator somehow;
+    /// carrying it as an event keeps `ChatBackend` to a single output channel.
+    RawPayload(serde_json::Value),
     Done {
         stop_reason: StopReason,
     },

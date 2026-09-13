@@ -10,3 +10,25 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+ws-context.workspace = true
+ws-store.workspace = true
+ws-secrets.workspace = true
+ws-providers.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[features]
+# Exposes the in-memory fake backend so integration tests (and the app's own
+# smoke tests) can drive a turn without a network.
+testing = []
