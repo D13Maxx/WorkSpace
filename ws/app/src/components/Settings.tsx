@@ -1,37 +1,334 @@
-import { useEffect, useState } from "react";
-import { api, type ModelOption } from "../api";
-
-const ANTHROPIC = "anthropic";
+import { useCallback, useEffect, useState } from "react";
+import {
+  api,
+  type BackendInfo,
+  type CompatProvider,
+  type ModelOption,
+  type ModelProfile,
+} from "../api";
 
 interface Props {
   onClose: () => void;
   models: ModelOption[];
+  onModelsChanged: () => void;
 }
 
-export function Settings({ onClose, models }: Props) {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
-  const [keyInput, setKeyInput] = useState("");
+/** Keys: set, replace or delete, never read back (master spec s12). */
+function KeySection({
+  backends,
+  onChanged,
+}: {
+  backends: BackendInfo[];
+  onChanged: () => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
 
+  const save = async (id: string) => {
+    const key = (drafts[id] ?? "").trim();
+    if (!key) return;
+    await api.setApiKey(id, key);
+    setDrafts((d) => ({ ...d, [id]: "" }));
+    setMessage(`Key for ${id} saved to Windows Credential Manager.`);
+    onChanged();
+  };
+
+  const remove = async (id: string) => {
+    await api.deleteApiKey(id);
+    setMessage(`Key for ${id} deleted.`);
+    onChanged();
+  };
+
+  return (
+    <section>
+      <h3>API keys</h3>
+      <p className="muted">
+        Stored in Windows Credential Manager, never in the database or in logs. A key cannot be
+        read back here once saved.
+      </p>
+      {backends.map((b) => (
+        <div key={b.id} className="key-row">
+          <div className="key-head">
+            <strong>{b.id}</strong>
+            <span className={b.has_key ? "ok" : "muted"}>
+              {b.has_key ? "key set" : "no key"}
+            </span>
+          </div>
+          <div className="row">
+            <input
+              type="password"
+              value={drafts[b.id] ?? ""}
+              placeholder={b.has_key ? "Replace key…" : "Paste key…"}
+              onChange={(e) => setDrafts((d) => ({ ...d, [b.id]: e.target.value }))}
+              aria-label={`API key for ${b.id}`}
+            />
+            <button
+              className="primary"
+              onClick={() => void save(b.id)}
+              disabled={!(drafts[b.id] ?? "").trim()}
+            >
+              {b.has_key ? "Replace" : "Save"}
+            </button>
+            {b.has_key && <button onClick={() => void remove(b.id)}>Delete</button>}
+          </div>
+        </div>
+      ))}
+      {message && <p className="muted">{message}</p>}
+    </section>
+  );
+}
+
+/**
+ * Editing a model's capabilities (master spec s7.1). Until a model is edited
+ * here it runs on conservative guesses, which is what `unprofiled` warns about.
+ */
+function ProfileSection({
+  models,
+  onSaved,
+}: {
+  models: ModelOption[];
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<string>("");
+  const [profile, setProfile] = useState<ModelProfile | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const model = models.find((m) => `${m.backend}/${m.model_id}` === selected);
+
   useEffect(() => {
-    api.hasApiKey(ANTHROPIC).then(setHasKey).catch(() => setHasKey(null));
-  }, []);
+    if (!model) {
+      setProfile(null);
+      return;
+    }
+    setSaved(false);
+    api
+      .getModelProfile(model.backend, model.model_id)
+      .then(setProfile)
+      .catch(() => setProfile(null));
+  }, [model?.backend, model?.model_id]);
 
   const save = async () => {
-    if (!keyInput.trim()) return;
-    await api.setApiKey(ANTHROPIC, keyInput.trim());
-    // The key is never read back; the UI only ever learns that one is set
-    // (master spec s12).
-    setKeyInput("");
-    setHasKey(await api.hasApiKey(ANTHROPIC));
-    setMessage("Key saved to Windows Credential Manager.");
+    if (!model || !profile) return;
+    await api.setModelProfile(model.backend, model.model_id, profile);
+    setSaved(true);
+    onSaved();
   };
 
-  const remove = async () => {
-    await api.deleteApiKey(ANTHROPIC);
-    setHasKey(false);
-    setMessage("Key deleted.");
+  const edit = (patch: Partial<ModelProfile>) =>
+    setProfile((p) => (p ? { ...p, ...patch } : p));
+
+  return (
+    <section>
+      <h3>Model profiles</h3>
+      <p className="muted">
+        What each model accepts. Nothing is hardcoded: a model stays marked <em>unprofiled</em>,
+        on conservative defaults, until you set real values here.
+      </p>
+
+      <select
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        aria-label="Model to edit"
+      >
+        <option value="">Choose a model…</option>
+        {models.map((m) => (
+          <option key={`${m.backend}/${m.model_id}`} value={`${m.backend}/${m.model_id}`}>
+            {m.backend} / {m.display_name}
+            {m.unprofiled ? " — unprofiled" : ""}
+          </option>
+        ))}
+      </select>
+
+      {model && profile && (
+        <div className="profile-form">
+          {model.unprofiled && (
+            <p className="warn-block">
+              This model is using guessed values. A context window set too high will produce
+              errors from the provider; too low will summarise sooner than necessary.
+            </p>
+          )}
+
+          <label>
+            Context window (tokens)
+            <input
+              type="number"
+              min={1}
+              value={profile.context_window}
+              onChange={(e) => edit({ context_window: Number(e.target.value) })}
+            />
+          </label>
+
+          <label>
+            Max output (tokens)
+            <input
+              type="number"
+              min={1}
+              value={profile.max_output_tokens}
+              onChange={(e) => edit({ max_output_tokens: Number(e.target.value) })}
+            />
+          </label>
+
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={profile.vision}
+              onChange={(e) => edit({ vision: e.target.checked })}
+            />
+            Accepts images
+          </label>
+
+          <label>
+            Thinking
+            <select
+              value={profile.thinking}
+              onChange={(e) => edit({ thinking: e.target.value as ModelProfile["thinking"] })}
+            >
+              <option value="off">Off</option>
+              <option value="adaptive">Adaptive (the provider decides)</option>
+              <option value="enabled">Enabled with a budget</option>
+            </select>
+          </label>
+
+          {profile.thinking === "enabled" && (
+            <label>
+              Thinking budget (tokens)
+              <input
+                type="number"
+                min={1}
+                value={profile.thinking_budget ?? 4096}
+                onChange={(e) => edit({ thinking_budget: Number(e.target.value) })}
+              />
+            </label>
+          )}
+
+          <div className="row">
+            <button className="primary" onClick={() => void save()}>
+              Save profile
+            </button>
+            {saved && <span className="ok">Saved.</span>}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** User-configured OpenAI-compatible endpoints (master spec s7.5). */
+function CompatSection({ onChanged }: { onChanged: () => void }) {
+  const [providers, setProviders] = useState<CompatProvider[]>([]);
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    api
+      .listCompatProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]));
+  }, []);
+
+  useEffect(refresh, [refresh]);
+
+  const add = async () => {
+    setError(null);
+    try {
+      await api.saveCompatProvider(id.trim(), name.trim() || id.trim(), baseUrl.trim());
+      setId("");
+      setName("");
+      setBaseUrl("");
+      refresh();
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    }
   };
+
+  return (
+    <section>
+      <h3>OpenAI-compatible endpoints</h3>
+      <p className="muted">
+        Any server speaking Chat Completions: a local llama.cpp, vLLM, or a gateway. Reasoning
+        from these is shown but never replayed — the protocol has nothing signed to send back.
+        New endpoints are wired up on the next launch.
+      </p>
+
+      {providers.length > 0 && (
+        <ul className="model-list">
+          {providers.map((p) => (
+            <li key={p.id}>
+              <span style={{ flex: 1 }}>
+                <strong>{p.display_name}</strong>
+                <br />
+                <span className="muted">{p.base_url}</span>
+              </span>
+              <button
+                onClick={async () => {
+                  if (window.confirm(`Remove "${p.display_name}"?`)) {
+                    await api.deleteCompatProvider(p.id);
+                    refresh();
+                    onChanged();
+                  }
+                }}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="profile-form">
+        <label>
+          Id (also the name its key is stored under)
+          <input
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            placeholder="local-llama"
+          />
+        </label>
+        <label>
+          Display name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Local llama.cpp"
+          />
+        </label>
+        <label>
+          Base URL
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="http://localhost:8080/v1"
+          />
+        </label>
+        <div className="row">
+          <button
+            className="primary"
+            onClick={() => void add()}
+            disabled={!id.trim() || !baseUrl.trim()}
+          >
+            Add endpoint
+          </button>
+        </div>
+        {error && <p className="failure">{error}</p>}
+      </div>
+    </section>
+  );
+}
+
+export function Settings({ onClose, models, onModelsChanged }: Props) {
+  const [backends, setBackends] = useState<BackendInfo[]>([]);
+
+  const refreshBackends = useCallback(() => {
+    api
+      .listBackends()
+      .then(setBackends)
+      .catch(() => setBackends([]));
+  }, []);
+
+  useEffect(refreshBackends, [refreshBackends]);
 
   return (
     <aside className="settings-panel">
@@ -42,48 +339,15 @@ export function Settings({ onClose, models }: Props) {
         </button>
       </header>
 
-      <section>
-        <h3>Anthropic API key</h3>
-        <p className="muted">
-          Stored in Windows Credential Manager, never in the database or in logs. It cannot be
-          read back here once saved.
-        </p>
-        <p>Status: {hasKey === null ? "unknown" : hasKey ? "a key is set" : "no key set"}</p>
-        <input
-          type="password"
-          value={keyInput}
-          placeholder={hasKey ? "Replace key…" : "Paste key…"}
-          onChange={(e) => setKeyInput(e.target.value)}
-          aria-label="API key"
-        />
-        <div className="row">
-          <button className="primary" onClick={() => void save()} disabled={!keyInput.trim()}>
-            {hasKey ? "Replace" : "Save"}
-          </button>
-          {hasKey && <button onClick={() => void remove()}>Delete</button>}
-        </div>
-        {message && <p className="muted">{message}</p>}
-      </section>
-
-      <section>
-        <h3>Models</h3>
-        {models.length === 0 ? (
-          <p className="muted">None yet. Set a key, then reopen this panel.</p>
-        ) : (
-          <ul className="model-list">
-            {models.map((m) => (
-              <li key={`${m.backend}/${m.model_id}`}>
-                {m.display_name}
-                {m.unprofiled && (
-                  <span className="warn" title="Using conservative defaults until you set real values">
-                    unprofiled
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <KeySection
+        backends={backends}
+        onChanged={() => {
+          refreshBackends();
+          onModelsChanged();
+        }}
+      />
+      <ProfileSection models={models} onSaved={onModelsChanged} />
+      <CompatSection onChanged={refreshBackends} />
     </aside>
   );
 }

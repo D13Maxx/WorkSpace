@@ -6,12 +6,17 @@ use tauri::Manager;
 use tokio_util::sync::CancellationToken;
 use ws_context::{BackendId, ConvId, ModelCapabilities};
 use ws_core::{Orchestrator, Profile, ProfileTable};
-use ws_providers::AnthropicBackend;
+use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
 use ws_store::{BlobStore, Store};
 
-/// The backend id for the built-in Anthropic adapter. Also the account name
-/// its API key is stored under in the OS credential store.
+/// Ids for the three built-in adapters. Each is also the account name its API
+/// key is stored under in the OS credential store.
 pub const ANTHROPIC: &str = "anthropic";
+pub const OPENAI: &str = "openai";
+pub const GEMINI: &str = "gemini";
+
+/// The built-in backends, in the order the model picker should group them.
+pub const BUILT_IN: [&str; 3] = [ANTHROPIC, OPENAI, GEMINI];
 
 pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
@@ -55,10 +60,28 @@ impl AppState {
         let profiles = Arc::new(ProfileTable::new());
         load_profiles(&store, &profiles);
 
-        let anthropic =
-            AnthropicBackend::new(BackendId::new(ANTHROPIC), profiles.clone() as Arc<_>);
-        let orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
-            .with_backend(Arc::new(anthropic) as Arc<_>);
+        let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
+            .with_backend(Arc::new(AnthropicBackend::new(
+                BackendId::new(ANTHROPIC),
+                profiles.clone() as Arc<_>,
+            )) as Arc<_>)
+            .with_backend(Arc::new(OpenAiBackend::new(
+                BackendId::new(OPENAI),
+                profiles.clone() as Arc<_>,
+            )) as Arc<_>)
+            .with_backend(Arc::new(GeminiBackend::new(
+                BackendId::new(GEMINI),
+                profiles.clone() as Arc<_>,
+            )) as Arc<_>);
+
+        // Any number of OpenAI-compatible endpoints, each its own backend with
+        // its own id and its own key (master spec s7.5).
+        for cfg in load_compat_configs(&store) {
+            orchestrator = orchestrator
+                .with_backend(
+                    Arc::new(CompatBackend::new(cfg, profiles.clone() as Arc<_>)) as Arc<_>,
+                );
+        }
 
         Ok(Self {
             orchestrator: Arc::new(orchestrator),
@@ -126,5 +149,38 @@ fn load_profiles(store: &Arc<Mutex<Store>>, profiles: &Arc<ProfileTable>) {
             }
         }
         Err(e) => tracing::error!(error = %e, "could not load model profiles"),
+    }
+}
+
+/// Read the user-configured OpenAI-compatible endpoints. A row without a base
+/// URL is unusable and is skipped rather than failing startup.
+fn load_compat_configs(store: &Arc<Mutex<Store>>) -> Vec<CompatConfig> {
+    let Ok(guard) = store.lock() else {
+        return Vec::new();
+    };
+    match guard.list_providers() {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|p| p.enabled && p.kind == "openai_compat")
+            .filter_map(|p| {
+                let base_url = p.base_url.clone().or_else(|| {
+                    tracing::warn!(id = %p.id, "compatible endpoint has no base URL; skipping");
+                    None
+                })?;
+                Some(CompatConfig {
+                    id: p.id,
+                    display_name: p.display_name,
+                    base_url,
+                    extra_headers: p.extra_headers,
+                    // A local server usually needs none; the adapter treats a
+                    // missing key as ordinary rather than as an error.
+                    requires_key: false,
+                })
+            })
+            .collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "could not load configured providers");
+            Vec::new()
+        }
     }
 }

@@ -28,6 +28,13 @@ export default function App() {
   const busy = streaming !== null;
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const refreshModels = useCallback(() => {
+    api
+      .listModels()
+      .then(setModels)
+      .catch(() => setModels([]));
+  }, []);
+
   const refreshConversations = useCallback(async () => {
     try {
       setConversations(await api.listConversations());
@@ -46,8 +53,8 @@ export default function App() {
 
   useEffect(() => {
     void refreshConversations();
-    api.listModels().then(setModels).catch(() => setModels([]));
-  }, [refreshConversations]);
+    refreshModels();
+  }, [refreshConversations, refreshModels]);
 
   useEffect(() => {
     if (active) void refreshThread(active);
@@ -202,15 +209,33 @@ export default function App() {
                   void onSwitchModel(backend, rest.join("/"));
                 }}
               >
-                <option value={`${thread.backend}/${thread.model_id}`}>{thread.model_id}</option>
-                {models
-                  .filter((m) => `${m.backend}/${m.model_id}` !== `${thread.backend}/${thread.model_id}`)
-                  .map((m) => (
-                    <option key={`${m.backend}/${m.model_id}`} value={`${m.backend}/${m.model_id}`}>
-                      {m.display_name}
-                      {m.unprofiled ? " (unprofiled)" : ""}
-                    </option>
-                  ))}
+                <option value={`${thread.backend}/${thread.model_id}`}>
+                  {thread.backend} / {thread.model_id}
+                </option>
+                {Object.entries(
+                  models
+                    .filter(
+                      (m) =>
+                        `${m.backend}/${m.model_id}` !==
+                        `${thread.backend}/${thread.model_id}`,
+                    )
+                    .reduce<Record<string, ModelOption[]>>((groups, m) => {
+                      (groups[m.backend] ??= []).push(m);
+                      return groups;
+                    }, {}),
+                ).map(([backend, group]) => (
+                  <optgroup key={backend} label={backend}>
+                    {group.map((m) => (
+                      <option
+                        key={`${m.backend}/${m.model_id}`}
+                        value={`${m.backend}/${m.model_id}`}
+                      >
+                        {m.display_name}
+                        {m.unprofiled ? " (unprofiled)" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </header>
 
@@ -248,7 +273,13 @@ export default function App() {
           onClose={() => setInspecting(null)}
         />
       )}
-      {showSettings && <Settings onClose={() => setShowSettings(false)} models={models} />}
+      {showSettings && (
+        <Settings
+          onClose={() => setShowSettings(false)}
+          models={models}
+          onModelsChanged={refreshModels}
+        />
+      )}
     </div>
   );
 }

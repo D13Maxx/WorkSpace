@@ -43,6 +43,9 @@ pub struct Recorder {
 #[derive(Clone)]
 pub struct FakeBackend {
     id: BackendId,
+    /// Which provider this fake impersonates, so the opaque blocks it emits
+    /// look like that provider's. Cross-provider tests need this to be real.
+    provider: ProviderKind,
     script: Arc<Mutex<Vec<Scripted>>>,
     pub recorder: Arc<Mutex<Recorder>>,
     profiles: Arc<dyn ModelProfiles>,
@@ -59,10 +62,18 @@ impl FakeBackend {
     pub fn new(id: impl Into<BackendId>, profiles: Arc<dyn ModelProfiles>) -> Self {
         Self {
             id: id.into(),
+            provider: ProviderKind::Anthropic,
             script: Arc::new(Mutex::new(Vec::new())),
             recorder: Arc::new(Mutex::new(Recorder::default())),
             profiles,
         }
+    }
+
+    /// Impersonate a particular provider's opaque blocks.
+    #[must_use]
+    pub fn as_provider(mut self, provider: ProviderKind) -> Self {
+        self.provider = provider;
+        self
     }
 
     /// Queue a reply. Replies are consumed in the order they are pushed.
@@ -164,7 +175,7 @@ impl ChatBackend for FakeBackend {
             } => {
                 let whole = deltas.concat();
                 events.push(BackendEvent::OpaqueBlock(ProviderOpaque {
-                    provider: ProviderKind::Anthropic,
+                    provider: self.provider,
                     model_id: model_id.clone(),
                     kind: "anthropic.thinking".to_owned(),
                     position: 0,

@@ -7,9 +7,22 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::path::Path;
 use std::str::FromStr;
 use ws_context::{
-    ContextSummary, ContextView, ConvId, Conversation, ConversationEvent, EventId, EventKind,
-    Message, ModelRef, MsgId, MsgStatus, Part, Role, SummaryId,
+    BackendId, ContextSummary, ContextView, ConvId, Conversation, ConversationEvent, EventId,
+    EventKind, Message, ModelRef, MsgId, MsgStatus, Part, Role, SummaryId,
 };
+
+/// A user-configured provider endpoint. Deliberately holds no secret; the key
+/// lives in the OS credential store under the same id (master spec s12).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredProvider {
+    pub id: BackendId,
+    /// `openai_compat` today; the first-party adapters are built in.
+    pub kind: String,
+    pub display_name: String,
+    pub base_url: Option<String>,
+    pub extra_headers: std::collections::BTreeMap<String, String>,
+    pub enabled: bool,
+}
 
 /// A stored model profile, with its JSON left unparsed (master spec s7.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -590,6 +603,78 @@ impl Store {
         Ok(created)
     }
 
+    // ---- providers -----------------------------------------------------
+
+    /// Save a user-configured provider. Holds no secret: the API key lives in
+    /// the OS credential store under this same id (master spec s12).
+    ///
+    /// # Errors
+    /// Fails on any database error, or if the headers cannot be serialised.
+    pub fn save_provider(&self, p: &StoredProvider) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO providers (id, kind, display_name, base_url, extra_headers_json, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+               kind = excluded.kind,
+               display_name = excluded.display_name,
+               base_url = excluded.base_url,
+               extra_headers_json = excluded.extra_headers_json,
+               enabled = excluded.enabled",
+            params![
+                p.id.as_str(),
+                p.kind,
+                p.display_name,
+                p.base_url,
+                serde_json::to_string(&p.extra_headers)?,
+                i64::from(p.enabled),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// Fails on any database error, or if stored JSON cannot be parsed.
+    pub fn list_providers(&self) -> Result<Vec<StoredProvider>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, display_name, base_url, extra_headers_json, enabled
+             FROM providers ORDER BY display_name",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, kind, display_name, base_url, headers, enabled) = row?;
+            out.push(StoredProvider {
+                id: BackendId::new(id),
+                kind,
+                display_name,
+                base_url,
+                extra_headers: headers
+                    .and_then(|h| serde_json::from_str(&h).ok())
+                    .unwrap_or_default(),
+                enabled: enabled != 0,
+            });
+        }
+        Ok(out)
+    }
+
+    /// # Errors
+    /// Fails on any database error.
+    pub fn delete_provider(&self, id: &BackendId) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM providers WHERE id = ?1", params![id.as_str()])?;
+        Ok(())
+    }
+
     // ---- model profiles ------------------------------------------------
 
     /// Save the user-editable settings for one model (master spec s7.1).
@@ -725,51 +810,35 @@ impl Store {
         Ok(out)
     }
 
-    /// The model most recently switched away from, if the last thing that
-    /// happened was a switch.
+    /// The model that wrote the most recent assistant reply on the active
+    /// path, when it is not the model the conversation now points at.
     ///
-    /// Master spec s6.5 prefers the outgoing model as summariser, because it
-    /// still holds the context being compressed. That preference only applies
-    /// when the switch just happened, so this returns `None` once a reply has
-    /// been generated on the new model.
+    /// This is the model being switched away from, and master spec s6.5
+    /// prefers it as summariser because it still holds the context being
+    /// compressed. Defining it by authorship rather than by a switch event is
+    /// what makes it self-invalidating: as soon as a reply is generated on the
+    /// new model, the last author *is* the current model and this returns
+    /// `None`. Keying it on the leaf pointer instead would expire it the
+    /// moment the user typed their next question, which is too early.
     ///
     /// # Errors
-    /// Fails on any database error, or if a stored event cannot be parsed.
-    pub fn last_model_switch_from(&self, conv: ConvId) -> Result<Option<ModelRef>> {
-        let row: Option<(String, Option<String>)> = self
-            .conn
-            .query_row(
-                "SELECT payload_json, after_message_id FROM conversation_events
-                 WHERE conversation_id = ?1 AND kind = 'model_switch'
-                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
-                params![conv.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-
-        let Some((payload, after)) = row else {
+    /// Fails on any database error, or if a stored id is malformed.
+    pub fn outgoing_model(&self, conv: ConvId) -> Result<Option<ModelRef>> {
+        let Some(current) = self.get_conversation(conv)? else {
             return Ok(None);
         };
+        let path = self.load_active_path(conv)?;
 
-        // If the conversation has moved on past the message the switch was
-        // recorded after, a reply has already been generated on the new model
-        // and the outgoing one is no longer the natural summariser.
-        let leaf: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT active_leaf_id FROM conversations WHERE id = ?1",
-                params![conv.to_string()],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
-        if leaf != after {
-            return Ok(None);
-        }
+        let last_author = path
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::Assistant)
+            .and_then(|m| m.author_model.clone());
 
-        match serde_json::from_str::<EventKind>(&payload)? {
-            EventKind::ModelSwitch { from, .. } => Ok(Some(from)),
-        }
+        Ok(match last_author {
+            Some(author) if author != current.current_model => Some(author),
+            _ => None,
+        })
     }
 
     // ---- context views and summaries -----------------------------------

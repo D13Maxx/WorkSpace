@@ -40,6 +40,19 @@ export interface ModelOption {
   unprofiled: boolean;
 }
 
+export interface BackendInfo {
+  id: string;
+  built_in: boolean;
+  has_key: boolean;
+}
+
+export interface CompatProvider {
+  id: string;
+  display_name: string;
+  base_url: string;
+  enabled: boolean;
+}
+
 export interface ModelProfile {
   context_window: number;
   max_output_tokens: number;
@@ -107,6 +120,25 @@ export const api = {
     invoke<void>("switch_model", { conversation, backend, modelId }),
 
   listModels: () => invoke<ModelOption[]>("list_models"),
+
+  listBackends: () => invoke<BackendInfo[]>("list_backends"),
+
+  listCompatProviders: () => invoke<CompatProvider[]>("list_compat_providers"),
+
+  saveCompatProvider: (
+    id: string,
+    displayName: string,
+    baseUrl: string,
+    extraHeaders: Record<string, string> = {},
+  ) =>
+    invoke<void>("save_compat_provider", {
+      id,
+      displayName,
+      baseUrl,
+      extraHeaders,
+    }),
+
+  deleteCompatProvider: (id: string) => invoke<void>("delete_compat_provider", { id }),
 
   getContextView: (message: string) => invoke<ContextView | null>("get_context_view", { message }),
 

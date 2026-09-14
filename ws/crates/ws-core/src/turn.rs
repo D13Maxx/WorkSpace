@@ -31,6 +31,10 @@ use ws_context::{
 };
 use ws_store::{BlobStore, Draft, NewMessage, Store};
 
+/// Result of asking one backend for its models.
+pub type ModelListResult =
+    std::result::Result<Vec<ws_context::ModelInfo>, ws_context::BackendError>;
+
 /// How often an in-progress reply is checkpointed (master spec s10).
 const DRAFT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -100,6 +104,30 @@ impl Orchestrator {
     #[must_use]
     pub fn profiles(&self) -> &Arc<ProfileTable> {
         &self.profiles
+    }
+
+    /// Every configured backend, in registration order.
+    #[must_use]
+    pub fn backend_ids(&self) -> Vec<BackendId> {
+        let mut ids: Vec<BackendId> = self.backends.keys().cloned().collect();
+        ids.sort();
+        ids
+    }
+
+    /// Ask every backend for its models.
+    ///
+    /// Failures are returned per backend rather than aborting: one provider
+    /// being unreachable or unconfigured must not empty the whole picker
+    /// (master spec s7.1).
+    pub async fn list_all_models(&self) -> Vec<(BackendId, ModelListResult)> {
+        let mut out = Vec::new();
+        for id in self.backend_ids() {
+            let Some(backend) = self.backends.get(&id) else {
+                continue;
+            };
+            out.push((id, backend.list_models().await));
+        }
+        out
     }
 
     fn backend(&self, id: &BackendId) -> Result<Arc<dyn ChatBackend>> {
@@ -306,7 +334,7 @@ impl Orchestrator {
         cancel: &CancellationToken,
     ) -> Result<(ContextView, RenderedView)> {
         let caps = self.profiles.capabilities(target);
-        let outgoing = self.with_store(|s| Ok(s.last_model_switch_from(conv)?))?;
+        let outgoing = self.with_store(|s| Ok(s.outgoing_model(conv)?))?;
 
         for round in 0..=MAX_SUMMARY_ROUNDS {
             let (path, summaries, system) = self.with_store(|s| {

@@ -4,7 +4,7 @@
 //! as strings because that is all a webview can render; the typed errors stay
 //! on the Rust side where they can be matched on.
 
-use crate::state::{ANTHROPIC, AppState};
+use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tauri::State;
@@ -76,6 +76,22 @@ pub struct ModelOption {
     /// True while this model still has only guessed capabilities, so the UI
     /// can warn (master spec s7.1).
     pub unprofiled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackendInfo {
+    pub id: String,
+    /// True for the three first-party adapters, which cannot be deleted.
+    pub built_in: bool,
+    pub has_key: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompatProviderDto {
+    pub id: String,
+    pub display_name: String,
+    pub base_url: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -325,19 +341,20 @@ pub fn get_context_view(
 
 // ---- models and profiles ----------------------------------------------
 
-/// Model ids come from the provider, merged with anything already profiled.
+/// Model ids come from the providers, merged with anything already profiled.
 /// Never a hardcoded list (master spec s7.1).
+///
+/// One provider being unreachable or unconfigured must not empty the picker,
+/// so failures are logged per backend and the rest still render.
 #[tauri::command]
 pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOption>> {
     let profiles = state.profiles.clone();
-    let store = state.store.clone();
-
     let mut options: Vec<ModelOption> = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Profiled models are always offered, even when the provider is
-    // unreachable, so an offline user can still see their configuration.
-    if let Ok(guard) = store.lock() {
+    // Profiled models are offered even when every provider is unreachable, so
+    // an offline user still sees their own configuration.
+    if let Ok(guard) = state.store.lock() {
         if let Ok(rows) = guard.list_model_profiles() {
             for row in rows {
                 if seen.insert(row.model.clone()) {
@@ -345,24 +362,33 @@ pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOptio
                         backend: row.model.backend.to_string(),
                         display_name: row.model.model_id.clone(),
                         model_id: row.model.model_id,
-                        unprofiled: false,
+                        unprofiled: !row.user_edited,
                     });
                 }
             }
         }
     }
 
-    // A missing key is an ordinary state here, not an error: the picker should
-    // still render so the user can go and set one.
-    if SecretStore::new().has_key(ANTHROPIC).unwrap_or(false) {
-        let backend = ws_providers::AnthropicBackend::new(
-            ws_context::BackendId::new(ANTHROPIC),
-            profiles.clone() as std::sync::Arc<_>,
-        );
-        use ws_context::ChatBackend as _;
-        match backend.list_models().await {
+    for (backend, result) in state.orchestrator.list_all_models().await {
+        match result {
             Ok(models) => {
                 for info in models {
+                    // A provider that reports its own limits pre-fills the
+                    // profile, so the user is not asked to guess (Gemini does).
+                    if let Some(caps) = &info.known_capabilities {
+                        if profiles.is_unprofiled(&info.model) {
+                            profiles.set(
+                                info.model.clone(),
+                                Profile {
+                                    capabilities: caps.clone(),
+                                    thinking: ThinkingMode::Off,
+                                    // Still not user-edited: reported limits
+                                    // are better than defaults, not confirmed.
+                                    user_edited: false,
+                                },
+                            );
+                        }
+                    }
                     if seen.insert(info.model.clone()) {
                         options.push(ModelOption {
                             backend: info.model.backend.to_string(),
@@ -373,12 +399,86 @@ pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOptio
                     }
                 }
             }
-            Err(e) => tracing::warn!(error = %e, "could not list Anthropic models"),
+            Err(e) => tracing::debug!(%backend, error = %e, "no model list from this backend"),
         }
     }
 
-    options.sort_by(|a, b| a.model_id.cmp(&b.model_id));
+    options.sort_by(|a, b| (&a.backend, &a.model_id).cmp(&(&b.backend, &b.model_id)));
     Ok(options)
+}
+
+/// The backends the app knows about, for grouping the picker and for the
+/// settings panel to show which have keys.
+#[tauri::command]
+pub fn list_backends(state: State<'_, AppState>) -> CmdResult<Vec<BackendInfo>> {
+    let secrets = SecretStore::new();
+    let mut out = Vec::new();
+
+    for id in state.orchestrator.backend_ids() {
+        let built_in = crate::state::BUILT_IN.contains(&id.as_str());
+        out.push(BackendInfo {
+            has_key: secrets.has_key(id.as_str()).unwrap_or(false),
+            id: id.to_string(),
+            built_in,
+        });
+    }
+    Ok(out)
+}
+
+/// Add or update an OpenAI-compatible endpoint (master spec s7.5).
+///
+/// Takes effect on the next launch: backends are wired up at startup.
+#[tauri::command]
+pub fn save_compat_provider(
+    state: State<'_, AppState>,
+    id: String,
+    display_name: String,
+    base_url: String,
+    extra_headers: std::collections::BTreeMap<String, String>,
+) -> CmdResult<()> {
+    if id.trim().is_empty() || base_url.trim().is_empty() {
+        return Err("an endpoint needs an id and a base URL".to_owned());
+    }
+    // A built-in id would shadow one of the first-party adapters.
+    if crate::state::BUILT_IN.contains(&id.as_str()) {
+        return Err(format!("{id} is a built-in backend; choose another id"));
+    }
+
+    let store = state.store.lock().map_err(|_| "store unavailable")?;
+    store
+        .save_provider(&ws_store::StoredProvider {
+            id: ws_context::BackendId::new(id),
+            kind: "openai_compat".to_owned(),
+            display_name,
+            base_url: Some(base_url),
+            extra_headers,
+            enabled: true,
+        })
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn list_compat_providers(state: State<'_, AppState>) -> CmdResult<Vec<CompatProviderDto>> {
+    let store = state.store.lock().map_err(|_| "store unavailable")?;
+    Ok(store
+        .list_providers()
+        .map_err(err)?
+        .into_iter()
+        .map(|p| CompatProviderDto {
+            id: p.id.to_string(),
+            display_name: p.display_name,
+            base_url: p.base_url.unwrap_or_default(),
+            enabled: p.enabled,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn delete_compat_provider(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let store = state.store.lock().map_err(|_| "store unavailable")?;
+    store
+        .delete_provider(&ws_context::BackendId::new(id))
+        .map_err(err)
 }
 
 #[tauri::command]

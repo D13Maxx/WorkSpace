@@ -12,4 +12,4 @@ pub mod testing;
 pub use error::{CoreError, Result};
 pub use events::TurnEvent;
 pub use profiles::{Profile, ProfileTable};
-pub use turn::Orchestrator;
+pub use turn::{ModelListResult, Orchestrator};
