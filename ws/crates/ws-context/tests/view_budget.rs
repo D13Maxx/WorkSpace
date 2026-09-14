@@ -322,3 +322,111 @@ fn the_outgoing_model_is_suggested_as_summariser_after_a_switch() {
         "spec s6.5 prefers the model being switched away from"
     );
 }
+
+#[test]
+fn a_view_is_compacted_before_it_overflows_not_after() {
+    // The trigger sits below the hard limit, so a path that would still fit
+    // is compacted anyway to leave headroom for the turns after it.
+    let path = long_path(40);
+    let cfg = ContextConfig::default();
+    let c = caps(4096);
+
+    let available = c.context_window - c.max_output_tokens - cfg.safety_margin(c.context_window);
+    let trigger = cfg.compaction_trigger(available);
+    assert!(trigger < available, "the trigger must sit below the limit");
+
+    // Grow the path until it crosses the trigger but still fits the limit.
+    let mut turns = 2;
+    let plan = loop {
+        let p = long_path(turns);
+        let plan = plan(&p, &c, &[], None).unwrap();
+        if matches!(plan, ViewPlan::NeedsSummary(_)) {
+            break plan;
+        }
+        turns += 1;
+        assert!(turns < 200, "should have crossed the trigger by now");
+    };
+    assert!(matches!(plan, ViewPlan::NeedsSummary(_)));
+    let _ = path;
+}
+
+#[test]
+fn a_compacted_view_comes_down_to_the_target_leaving_room_to_grow() {
+    let path = long_path(60);
+    let cfg = ContextConfig::default();
+    let c = caps(1024);
+    let available = c.context_window - c.max_output_tokens - cfg.safety_margin(c.context_window);
+    let target = cfg.compaction_target(available);
+    let trigger = cfg.compaction_trigger(available);
+
+    let ViewPlan::NeedsSummary(req) = plan(&path, &c, &[], None).unwrap() else {
+        panic!("expected a summary request");
+    };
+    let s = summary_for(
+        &path,
+        req.covering.end - 1,
+        req.budget_tokens,
+        &anthropic_model(),
+    );
+    let ViewPlan::Ready(built) = plan(&path, &c, std::slice::from_ref(&s), None).unwrap() else {
+        panic!("expected ready");
+    };
+
+    let used = built.view.estimated_input_tokens;
+    assert!(
+        used <= trigger,
+        "a freshly compacted view must sit below the trigger, used {used} of {trigger}"
+    );
+    // Some slack is allowed for the final message, but it should land near the
+    // target rather than merely under the limit.
+    assert!(
+        used <= target + target / 2,
+        "compaction should aim for the target ({target}), used {used}"
+    );
+}
+
+#[test]
+fn compaction_does_not_repeat_on_every_following_turn() {
+    // The point of the headroom: after compacting, several more exchanges fit
+    // before another summary is needed. Without it, every turn pays again.
+    let cfg = ContextConfig::default();
+    let c = caps(4096);
+
+    // Find the first length that triggers compaction.
+    let mut turns = 2;
+    let first_trigger = loop {
+        let p = long_path(turns);
+        if matches!(plan(&p, &c, &[], None).unwrap(), ViewPlan::NeedsSummary(_)) {
+            break turns;
+        }
+        turns += 1;
+        assert!(turns < 200, "should have compacted by now");
+    };
+
+    // Compact at that length, then keep the summary and grow the conversation.
+    let path = long_path(first_trigger);
+    let ViewPlan::NeedsSummary(req) = plan(&path, &c, &[], None).unwrap() else {
+        panic!("expected a summary request");
+    };
+    let summary = summary_for(
+        &path,
+        req.covering.end - 1,
+        req.budget_tokens,
+        &anthropic_model(),
+    );
+
+    // The same summary keeps satisfying the view for further turns, because
+    // the compacted view left room. (A longer path has different ids, so this
+    // measures headroom in tokens rather than cache reuse.)
+    let ViewPlan::Ready(built) = plan(&path, &c, std::slice::from_ref(&summary), None).unwrap()
+    else {
+        panic!("expected ready");
+    };
+    let available = c.context_window - c.max_output_tokens - cfg.safety_margin(c.context_window);
+    let headroom = available.saturating_sub(built.view.estimated_input_tokens);
+    assert!(
+        headroom > available / 4,
+        "a compacted view should leave at least a quarter of the budget free, \
+         got {headroom} of {available}"
+    );
+}

@@ -429,9 +429,14 @@ pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
         })?;
 
     // Step 2: does the whole path fit verbatim, opaque blocks included?
+    //
+    // The bar is the compaction trigger, not the hard limit. Compacting only
+    // on overflow means compacting every turn once a conversation is long,
+    // because each new exchange pushes it back over the line.
+    let compact_above = p.cfg.compaction_trigger(available);
     let full = prepare(&p, true);
     let full_total: u32 = full.iter().map(|i| i.cost).fold(0, u32::saturating_add);
-    if full_total <= available {
+    if full_total <= compact_above {
         return Ok(ViewPlan::Ready(Box::new(assemble(
             &p,
             &full,
@@ -445,6 +450,50 @@ pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
     // Step 3: summary + recent. Opaque blocks are dropped in this mode, so
     // costs must be recomputed rather than reused from the full pass.
     let recent = prepare(&p, false);
+    let path_ids: Vec<MsgId> = p.path.iter().map(|m| m.id).collect();
+
+    // Step 3a: hold the existing boundary if it still fits.
+    //
+    // This is what makes the headroom real. Recomputing the window from
+    // scratch every turn would creep the boundary forward as the path grows,
+    // evicting one more message each time and invalidating the summary — so
+    // every turn would pay for a new one. Keeping the boundary where the last
+    // compaction put it lets the recent window absorb new turns until it
+    // reaches the trigger again.
+    if let Some((summary, covered_to)) = p
+        .summaries
+        .iter()
+        .filter_map(|s| s.covered_prefix_end(&path_ids).map(|end| (s, end)))
+        .filter(|(s, _)| s.token_estimate <= p.cfg.summary_overflow_limit(available))
+        .max_by_key(|(_, end)| *end)
+    {
+        let mut start = covered_to + 1;
+        let mut extra_notes = Vec::new();
+        while start < latest_user && recent[start].role != Role::User {
+            extra_notes.push(TransformNote::LeadingAssistantTrimmed {
+                message: recent[start].source_id,
+            });
+            start += 1;
+        }
+
+        if start <= latest_user {
+            let kept: u32 = recent[start..]
+                .iter()
+                .map(|i| i.cost)
+                .fold(0, u32::saturating_add);
+            let total = kept.saturating_add(summary.token_estimate);
+            if total <= compact_above {
+                return Ok(ViewPlan::Ready(Box::new(assemble(
+                    &p,
+                    &recent,
+                    start..recent.len(),
+                    ViewMode::SummaryPlusRecent,
+                    Some(summary),
+                    extra_notes,
+                ))));
+            }
+        }
+    }
 
     let latest_cost = recent[latest_user].cost;
     if latest_cost > available {
@@ -455,13 +504,25 @@ pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
         });
     }
 
+    // Compact down to the target, not merely to what fits. The gap between
+    // the target and the trigger is the headroom that keeps the next few
+    // turns from compacting again.
+    let target = p.cfg.compaction_target(available);
+
     // Reserve room for a summary, but never at the cost of the latest user
     // message, which is always sent verbatim (master spec s6.2 step 4).
-    let mut summary_budget = p.cfg.summary_budget(available);
+    let mut summary_budget = p.cfg.summary_budget(target);
     if latest_cost > available.saturating_sub(summary_budget) {
         summary_budget = available.saturating_sub(latest_cost);
     }
-    let recent_budget = available.saturating_sub(summary_budget);
+
+    // Aim for the target, but overshoot it as far as the real limit when the
+    // latest message alone needs the room. Being over the target only costs
+    // headroom; dropping the user's question would be wrong.
+    let recent_budget = target
+        .saturating_sub(summary_budget)
+        .max(latest_cost)
+        .min(available.saturating_sub(summary_budget));
 
     // Walk backwards from the leaf, whole messages only, never splitting one.
     let mut used = 0u32;
@@ -499,7 +560,6 @@ pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
     }
 
     let covering = 0..start;
-    let path_ids: Vec<MsgId> = p.path.iter().map(|m| m.id).collect();
     let covers_from = path_ids[0];
     let covers_to = path_ids[start - 1];
     let summary_limit = p.cfg.summary_overflow_limit(summary_budget);

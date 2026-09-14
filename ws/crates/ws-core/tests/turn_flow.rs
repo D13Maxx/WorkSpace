@@ -654,3 +654,66 @@ async fn a_reply_interrupted_by_a_crash_comes_back_as_a_failed_message() {
     );
     assert!(store.list_drafts().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn compaction_is_occasional_rather_than_once_per_turn() {
+    // Before the compaction trigger existed, a long conversation summarised on
+    // every single turn: each new exchange pushed it back over the limit, so
+    // the evicted range grew and a fresh summary was written each time. The
+    // trigger/target gap is what turns that into an occasional cost.
+    let mut replies = Vec::new();
+    for i in 0..60 {
+        replies.push(Scripted::Text(vec![format!(
+            "reply {i} with enough words in it to consume a real number of tokens"
+        )]));
+    }
+
+    let h = harness_with(1024, replies);
+    let conv = h.orch.create_conversation("long", model()).unwrap();
+
+    let turns = 24;
+    let mut compactions = 0;
+    let mut compacted_turns = Vec::new();
+
+    for i in 0..turns {
+        h.orch
+            .append_user_message(
+                conv,
+                vec![Part::text(format!(
+                    "question {i} padded out so the window fills up before long"
+                ))],
+            )
+            .unwrap();
+        let events = run(&h, conv, CancellationToken::new()).await;
+        if events
+            .iter()
+            .any(|e| matches!(e, TurnEvent::Summarising { .. }))
+        {
+            compactions += 1;
+            compacted_turns.push(i);
+        }
+    }
+
+    eprintln!("compacted on {compactions} of {turns} turns: {compacted_turns:?}");
+    assert!(
+        compactions > 0,
+        "a conversation this long must compact at least once"
+    );
+    // The real assertion: compaction is the exception, not the rule. Without
+    // headroom this would be one per turn once the window filled.
+    assert!(
+        compactions * 3 <= turns,
+        "compacted on {compactions} of {turns} turns ({compacted_turns:?}); \
+         the trigger/target gap should make this occasional"
+    );
+
+    // And no consecutive pair, which is the specific pathology being fixed.
+    for pair in compacted_turns.windows(2) {
+        assert!(
+            pair[1] - pair[0] > 1,
+            "compacted on back-to-back turns {} and {}",
+            pair[0],
+            pair[1]
+        );
+    }
+}
