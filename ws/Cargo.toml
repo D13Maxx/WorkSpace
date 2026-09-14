@@ -33,6 +33,7 @@ async-trait = "0.1.92"
 futures-util = "0.3.34"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-util = "0.7.19"
+tokio-stream = "0.1.17"
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
 keyring = "4.2.0"
 # reqwest 0.13 renamed the rustls feature from "rustls-tls" to "rustls".
@@ -49,9 +50,20 @@ bytes = "1"
 candle-core = "0.11.0"
 candle-transformers = "0.11.0"
 candle-nn = "0.11.0"
-tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
-minijinja = { version = "2.24.0", features = ["loader"] }
+# Must match the version candle-core resolves to (0.22.x). Two copies of
+# tokenizers in one build are two different `Tokenizer` types, and candle's
+# `TokenizerFromGguf` would not apply to ours.
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
+# No "loader": that feature is filesystem template loading, which is exactly
+# what a sandboxed chat template must not have (master spec s8.8). "fuel"
+# gates the instruction limit; "json" provides the tojson filter that
+# tool-calling templates reference.
+minijinja = { version = "2.24.0", default-features = true, features = ["fuel", "json"] }
 sysinfo = "0.39.6"
+# Only to size the worker pool. candle dispatches CPU work through rayon, so
+# this is the one lever on thread count that does not require mutating the
+# environment -- which edition 2024 makes unsafe, and the workspace forbids.
+rayon = "1.12.0"
 
 # dev
 proptest = "1.11.0"

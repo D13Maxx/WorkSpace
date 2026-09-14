@@ -559,11 +559,13 @@ impl Orchestrator {
                 BackendEvent::OpaqueBlock(o) => opaque.push(o),
                 BackendEvent::RawPayload(v) => raw = Some(v),
                 BackendEvent::PrefillProgress {
+                    reused_tokens,
                     done_tokens,
                     total_tokens,
                 } => {
                     let _ = events
                         .send(TurnEvent::PrefillProgress {
+                            reused_tokens,
                             done_tokens,
                             total_tokens,
                         })

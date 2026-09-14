@@ -5,6 +5,7 @@ import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
 import { Inspector } from "./components/Inspector";
 import { Settings } from "./components/Settings";
+import { PrefillProgress } from "./components/PrefillProgress";
 
 const ANTHROPIC = "anthropic";
 
@@ -19,6 +20,13 @@ export default function App() {
   const [streaming, setStreaming] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  // Local engine only: how much of the prompt has been read so far.
+  const [prefill, setPrefill] = useState<{
+    reused: number;
+    done: number;
+    total: number;
+    startedAt: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [inspecting, setInspecting] = useState<string | null>(null);
@@ -80,6 +88,7 @@ export default function App() {
       setReasoning("");
       setError(null);
       setStatus(null);
+      setPrefill(null);
 
       let text = "";
       let reasoned = "";
@@ -98,9 +107,19 @@ export default function App() {
               setStatus(null);
               break;
             case "prefill_progress":
-              setStatus(`Reading prompt: ${event.done_tokens} / ${event.total_tokens} tokens`);
+              setStatus(null);
+              setPrefill((previous) => ({
+                reused: event.reused_tokens,
+                done: event.done_tokens,
+                total: event.total_tokens,
+                // Keep the original start, or the estimate restarts from zero
+                // on every update and never settles.
+                startedAt: previous?.startedAt ?? performance.now(),
+              }));
               break;
             case "text_delta":
+              // The first word means prefill is over.
+              setPrefill(null);
               text += event.text;
               setStreaming(text);
               break;
@@ -121,6 +140,7 @@ export default function App() {
         setStreaming(null);
         setReasoning("");
         setStatus(null);
+        setPrefill(null);
         await refreshThread(conversation);
         await refreshConversations();
       }
@@ -250,6 +270,14 @@ export default function App() {
             />
             <div ref={bottomRef} />
 
+            {prefill && (
+              <PrefillProgress
+                reusedTokens={prefill.reused}
+                doneTokens={prefill.done}
+                totalTokens={prefill.total}
+                startedAt={prefill.startedAt}
+              />
+            )}
             {status && <div className="status-banner">{status}</div>}
             {error && (
               <div className="error-banner" role="alert">

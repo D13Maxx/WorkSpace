@@ -23,6 +23,7 @@ ws-core.workspace = true
 ws-store.workspace = true
 ws-secrets.workspace = true
 ws-providers.workspace = true
+ws-engine.workspace = true
 tauri = { version = "2.11", features = [] }
 serde.workspace = true
 serde_json.workspace = true

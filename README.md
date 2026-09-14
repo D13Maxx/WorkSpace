@@ -10,13 +10,24 @@ and shows you exactly what the model received.
 Windows first. Rust throughout, React + TypeScript inside Tauri 2.
 
 Full design: [`WORKSPACE_M1_MASTER_SPEC.md`](WORKSPACE_M1_MASTER_SPEC.md).
-Progress against milestone 1: [`docs/checkpoints/C1.md`](docs/checkpoints/C1.md).
+Progress against milestone 1: [C1](docs/checkpoints/C1.md), [C2](docs/checkpoints/C2.md),
+[C3](docs/checkpoints/C3.md).
 
 ## Status
 
-Milestone 1, checkpoint C2. All four provider adapters work end to end
+Milestone 1, checkpoint C3. All four provider adapters work end to end
 (Anthropic, OpenAI Responses, Gemini, and any number of OpenAI-compatible
-endpoints). The local engine (`ws-engine`) is not built yet -- that is C3.
+endpoints), and so does the local engine: a GGUF model loads, renders its own
+chat template, tokenizes with its own vocabulary, and streams a reply, reusing
+its KV cache across turns.
+
+The forward pass is still `candle-transformers`' reference implementation
+behind `ws-engine`'s own wrapper. Everything around it -- validation, the
+tokenizer, the chat template, the sampler, the cache policy, the threading --
+is hand-written and stays when the model is replaced. Two limits come from that
+choice and are reported rather than hidden: a 4,096-token context cap, and a KV
+cache that cannot be partially rewound.
+[`docs/checkpoints/C3.md`](docs/checkpoints/C3.md) has the details.
 
 ## Requirements
 
@@ -60,6 +71,32 @@ cargo test -p ws-secrets --features live-tests
 cargo test -p ws-providers --features live-tests
 ```
 
+## Run a local model
+
+Open **Settings**, paste the path to a `.gguf` file under **Local model** and
+choose **Read file**. That reads the header only -- architecture, quantisation,
+and whether it will fit in memory -- so nothing is committed before you can see
+what the file is. **Load model** then makes it available in the model picker
+like any other.
+
+Llama-architecture GGUFs only, and the file must carry its own chat template:
+guessing one produces fluent text from a model that no longer believes it is in
+a conversation, so this build refuses instead.
+
+The engine also runs without the app, which is the easier place to diagnose a
+model that will not load:
+
+```bash
+cargo run -p ws-engine-cli -- inspect path/to/model.gguf
+```
+
+```bash
+cargo run -p ws-engine-cli -- chat path/to/model.gguf --system "Be brief."
+```
+
+`chat` reports prefill and decode rates per turn, and how much of the prompt
+came from the KV cache rather than being read again.
+
 ## Add a provider
 
 API keys live in Windows Credential Manager and nowhere else — not in the
@@ -89,8 +126,8 @@ ws/
     ws-store/       SQLite, blobs, migrations
     ws-secrets/     OS credential store
     ws-providers/   API adapters (Anthropic, OpenAI, Gemini, compatible)
-    ws-engine/      local inference engine (not yet built)
-    ws-engine-cli/  standalone engine harness (not yet built)
+    ws-engine/      local inference engine: GGUF, tokenizer, template, sampler
+    ws-engine-cli/  standalone engine harness
     ws-core/        turn orchestration
   app/
     src-tauri/      Tauri backend and commands

@@ -84,6 +84,8 @@ pub struct BackendInfo {
     /// True for the three first-party adapters, which cannot be deleted.
     pub built_in: bool,
     pub has_key: bool,
+    /// False for the local engine, which authenticates to nothing.
+    pub needs_key: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -390,11 +392,16 @@ pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOptio
                         }
                     }
                     if seen.insert(info.model.clone()) {
+                        // "Unprofiled" means the numbers are conservative
+                        // guesses the user should correct. The local engine's
+                        // are measured from the file, so the warning would be
+                        // false there.
+                        let local = info.model.backend.as_str() == crate::state::LOCAL;
                         options.push(ModelOption {
                             backend: info.model.backend.to_string(),
                             model_id: info.model.model_id.clone(),
                             display_name: info.display_name,
-                            unprofiled: profiles.is_unprofiled(&info.model),
+                            unprofiled: !local && profiles.is_unprofiled(&info.model),
                         });
                     }
                 }
@@ -416,10 +423,14 @@ pub fn list_backends(state: State<'_, AppState>) -> CmdResult<Vec<BackendInfo>> 
 
     for id in state.orchestrator.backend_ids() {
         let built_in = crate::state::BUILT_IN.contains(&id.as_str());
+        // The local engine has no account and no endpoint, so offering it a
+        // key field would just be a box that can never be right.
+        let needs_key = id.as_str() != crate::state::LOCAL;
         out.push(BackendInfo {
-            has_key: secrets.has_key(id.as_str()).unwrap_or(false),
+            has_key: needs_key && secrets.has_key(id.as_str()).unwrap_or(false),
             id: id.to_string(),
             built_in,
+            needs_key,
         });
     }
     Ok(out)
@@ -564,4 +575,151 @@ pub fn has_api_key(backend: String) -> CmdResult<bool> {
 #[tauri::command]
 pub fn delete_api_key(backend: String) -> CmdResult<()> {
     SecretStore::new().delete_key(&backend).map_err(err)
+}
+
+// ---- the local engine (master spec s8, s11.1) -------------------------
+
+/// What a GGUF says about itself, before anything is loaded.
+#[derive(Debug, Serialize)]
+pub struct LocalModelInfo {
+    pub path: String,
+    pub file_name: String,
+    pub architecture: String,
+    pub supported: bool,
+    /// Why not, when `supported` is false.
+    pub unsupported_reason: Option<String>,
+    pub quant_summary: String,
+    pub context_length: Option<u32>,
+    pub has_chat_template: bool,
+    pub file_size_bytes: u64,
+    /// Estimated memory at the default context cap, and whether it fits now.
+    pub estimated_bytes: u64,
+    pub available_bytes: u64,
+    pub fits: bool,
+}
+
+/// What is loaded right now.
+#[derive(Debug, Serialize)]
+pub struct LoadedModelDto {
+    pub path: String,
+    pub file_name: String,
+    pub context_cap: u32,
+    pub model_context_length: Option<u32>,
+    pub vocab_size: usize,
+    pub quant_summary: String,
+    pub threads: usize,
+    pub weights_bytes: u64,
+    pub kv_cache_bytes: u64,
+    /// True when a shared prefix can be partially reused (master spec s8.5).
+    /// False means editing an earlier turn re-reads the prompt.
+    pub truncatable_cache: bool,
+    /// The largest context cap this build can address.
+    pub max_context_cap: u32,
+}
+
+fn to_dto(info: &ws_engine::LoadedInfo) -> LoadedModelDto {
+    LoadedModelDto {
+        path: info.path.display().to_string(),
+        file_name: file_name_of(&info.path),
+        context_cap: info.context_cap,
+        model_context_length: info.model_context_length,
+        vocab_size: info.vocab_size,
+        quant_summary: info.quant_summary.clone(),
+        threads: info.threads,
+        weights_bytes: info.memory.weights_bytes,
+        kv_cache_bytes: info.memory.kv_cache_bytes,
+        truncatable_cache: info.truncatable_cache,
+        max_context_cap: ws_engine::REFERENCE_MAX_POSITIONS,
+    }
+}
+
+fn file_name_of(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
+
+/// Read a GGUF header without loading it.
+///
+/// Separate from `load_local_model` on purpose: the user should be able to see
+/// what a file is, and whether it will fit, before committing to a load that
+/// takes seconds and gigabytes.
+#[tauri::command]
+pub async fn inspect_local_model(
+    state: State<'_, AppState>,
+    path: String,
+) -> CmdResult<LocalModelInfo> {
+    let path = std::path::PathBuf::from(path);
+    let info = state.local.engine().inspect(path).await.map_err(err)?;
+
+    let supported = ws_engine::gguf::require_supported(&info);
+    let estimate = ws_engine::memory::estimate(
+        &info,
+        ws_engine::DEFAULT_CONTEXT_CAP,
+        ws_engine::KvDType::default(),
+    );
+    let available = ws_engine::memory::available_memory();
+
+    Ok(LocalModelInfo {
+        file_name: file_name_of(&info.path),
+        path: info.path.display().to_string(),
+        architecture: info.architecture.clone(),
+        supported: supported.is_ok(),
+        unsupported_reason: supported.err().map(|e| e.to_string()),
+        quant_summary: info.quant_summary.clone(),
+        context_length: info.context_length,
+        has_chat_template: info.has_chat_template,
+        file_size_bytes: info.file_size,
+        estimated_bytes: estimate.total_bytes,
+        available_bytes: available,
+        fits: estimate.total_bytes <= available,
+    })
+}
+
+/// Load a GGUF. Replaces whatever was loaded before.
+#[tauri::command]
+pub async fn load_local_model(
+    state: State<'_, AppState>,
+    path: String,
+    context_cap: Option<u32>,
+) -> CmdResult<LoadedModelDto> {
+    let opts = ws_engine::LoadOptions {
+        context_cap: context_cap.unwrap_or(ws_engine::DEFAULT_CONTEXT_CAP),
+        ..ws_engine::LoadOptions::default()
+    };
+    let info = state
+        .local
+        .load(std::path::PathBuf::from(path), opts)
+        .await
+        .map_err(err)?;
+
+    // The engine knows its own window exactly, so record it as a profile
+    // rather than leaving the model "unprofiled" with conservative defaults
+    // (master spec s7.1).
+    let model = ModelRef::new(crate::state::LOCAL, file_name_of(&info.path));
+    state.profiles.set(
+        model,
+        Profile {
+            capabilities: ModelCapabilities {
+                context_window: info.context_cap,
+                token_counting: ws_context::TokenCounting::Exact,
+                ..ModelCapabilities::for_window(info.context_cap)
+            },
+            thinking: ThinkingMode::Off,
+            user_edited: false,
+        },
+    );
+
+    Ok(to_dto(&info))
+}
+
+#[tauri::command]
+pub async fn unload_local_model(state: State<'_, AppState>) -> CmdResult<()> {
+    state.local.unload().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn local_model_status(state: State<'_, AppState>) -> CmdResult<Option<LoadedModelDto>> {
+    Ok(state.local.loaded_info().as_ref().map(to_dto))
 }

@@ -29,8 +29,12 @@ pub enum TurnEvent {
         view: Box<ContextView>,
     },
 
-    /// Local engine only: prompt tokens read so far (master spec s8.6).
+    /// Local engine only: progress reading the prompt (master spec s8.6).
+    ///
+    /// `reused_tokens` came from the KV cache and cost nothing, so the UI
+    /// should base any time estimate on `done_tokens` alone.
     PrefillProgress {
+        reused_tokens: u32,
         done_tokens: u32,
         total_tokens: u32,
     },

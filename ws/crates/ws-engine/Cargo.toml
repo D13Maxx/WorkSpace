@@ -17,6 +17,7 @@ candle-nn.workspace = true
 tokenizers.workspace = true
 minijinja.workspace = true
 sysinfo.workspace = true
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -25,11 +26,13 @@ async-trait.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tokio-stream.workspace = true
 sha2.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 [features]
 # Tests that need a real GGUF on disk, pointed at by WS_TEST_GGUF.

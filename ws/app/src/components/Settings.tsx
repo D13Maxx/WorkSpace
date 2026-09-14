@@ -6,6 +6,7 @@ import {
   type ModelOption,
   type ModelProfile,
 } from "../api";
+import { LocalModelSection } from "./LocalModel";
 
 interface Props {
   onClose: () => void;
@@ -46,7 +47,9 @@ function KeySection({
         Stored in Windows Credential Manager, never in the database or in logs. A key cannot be
         read back here once saved.
       </p>
-      {backends.map((b) => (
+      {backends
+        .filter((b) => b.needs_key)
+        .map((b) => (
         <div key={b.id} className="key-row">
           <div className="key-head">
             <strong>{b.id}</strong>
@@ -346,6 +349,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
+      <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
       <CompatSection onChanged={refreshBackends} />
     </aside>

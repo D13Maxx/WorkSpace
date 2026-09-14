@@ -2,6 +2,10 @@
 //!
 //! A GGUF file is untrusted input (master spec s8.3): every rejection here is
 //! an error with numbers in it, never a panic and never a silent truncation.
+//!
+//! The messages are written for the person who chose the model, not for a log
+//! reader. "Not enough memory" alone leaves them nothing to change, so the
+//! refusals carry the gap and the setting that closes it.
 
 use thiserror::Error;
 
@@ -18,8 +22,7 @@ pub enum EngineError {
     NotGguf { path: String, detail: String },
 
     #[error(
-        "{path} declares a {field} of {value}, which is outside the range this \
-         build accepts (max {max})"
+        "{path} declares a {field} of {value}, which is outside the range this build accepts (max {max})"
     )]
     ImplausibleHeader {
         path: String,
@@ -46,18 +49,26 @@ pub enum EngineError {
     MissingMetadata { path: String, key: String },
 
     #[error(
-        "{model} needs about {needed_mib} MiB but only {available_mib} MiB of memory is free. \
-         Lower the context cap (currently {context_cap}) or close something."
+        "{model} needs about {needed_mib} MiB at a context cap of {context_cap}, but only {available_mib} MiB of memory is free.{}",
+        suggested_cap.map_or_else(
+            || " No context cap small enough would fit; this model is too large for this machine.".to_owned(),
+            |cap| format!(" A context cap of {cap} would fit."),
+        )
     )]
     NotEnoughMemory {
         model: String,
         needed_mib: u64,
         available_mib: u64,
         context_cap: u32,
+        /// The largest offered cap that would fit, when there is one.
+        suggested_cap: Option<u32>,
     },
 
     #[error("no tokenizer could be built from {path}: {detail}")]
     NoTokenizer { path: String, detail: String },
+
+    #[error("the text could not be tokenized: {detail}")]
+    TokenizeFailed { detail: String },
 
     #[error("{path} has no chat template, and this build will not guess one")]
     NoChatTemplate { path: String },
@@ -65,12 +76,16 @@ pub enum EngineError {
     #[error("the chat template failed to render: {0}")]
     TemplateRender(String),
 
+    #[error(
+        "a context cap of {requested} was asked for, but the model in this build runs to {supported} positions; load with a cap of {supported} or less"
+    )]
+    ContextCapTooLarge { requested: u32, supported: u32 },
+
     #[error("no model is loaded")]
     NotLoaded,
 
     #[error(
-        "the engine panicked and has been unloaded; the app is still running. \
-         Reload the model to continue."
+        "the engine panicked and has been unloaded; the app is still running. Reload the model to continue."
     )]
     Poisoned,
 
@@ -79,6 +94,9 @@ pub enum EngineError {
         prompt_tokens: usize,
         context_cap: u32,
     },
+
+    #[error("generation was cancelled")]
+    Cancelled,
 
     #[error("engine error: {0}")]
     Candle(String),
@@ -94,3 +112,45 @@ impl From<candle_core::Error> for EngineError {
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
+
+#[cfg(test)]
+mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn a_memory_refusal_names_a_cap_that_would_fit() {
+        let err = EngineError::NotEnoughMemory {
+            model: "llama.gguf".to_owned(),
+            needed_mib: 9_000,
+            available_mib: 4_000,
+            context_cap: 8_192,
+            suggested_cap: Some(2_048),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("9000 MiB"), "{msg}");
+        assert!(msg.contains("4000 MiB"), "{msg}");
+        assert!(
+            msg.contains("context cap of 2048 would fit"),
+            "the user needs somewhere to go: {msg}"
+        );
+    }
+
+    #[test]
+    fn a_hopeless_load_says_so_rather_than_suggesting_nothing() {
+        let err = EngineError::NotEnoughMemory {
+            model: "huge.gguf".to_owned(),
+            needed_mib: 900_000,
+            available_mib: 4_000,
+            context_cap: 8_192,
+            suggested_cap: None,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("too large for this machine"),
+            "silence would read as a bug: {msg}"
+        );
+    }
+}

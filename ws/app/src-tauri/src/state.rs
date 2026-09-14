@@ -6,6 +6,7 @@ use tauri::Manager;
 use tokio_util::sync::CancellationToken;
 use ws_context::{BackendId, ConvId, ModelCapabilities};
 use ws_core::{Orchestrator, Profile, ProfileTable};
+use ws_engine::{LocalBackend, backend::LOCAL_BACKEND_ID};
 use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
 use ws_store::{BlobStore, Store};
 
@@ -15,6 +16,10 @@ pub const ANTHROPIC: &str = "anthropic";
 pub const OPENAI: &str = "openai";
 pub const GEMINI: &str = "gemini";
 
+/// The local engine's backend id. Not a provider: it has no key and no
+/// endpoint, and it is listed separately in the picker.
+pub const LOCAL: &str = LOCAL_BACKEND_ID;
+
 /// The built-in backends, in the order the model picker should group them.
 pub const BUILT_IN: [&str; 3] = [ANTHROPIC, OPENAI, GEMINI];
 
@@ -22,6 +27,9 @@ pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
     pub store: Arc<Mutex<Store>>,
     pub profiles: Arc<ProfileTable>,
+    /// The local engine, reachable directly for load and unload. It is also
+    /// registered as a backend, which is how a turn reaches it.
+    pub local: Arc<LocalBackend>,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -60,7 +68,13 @@ impl AppState {
         let profiles = Arc::new(ProfileTable::new());
         load_profiles(&store, &profiles);
 
+        // The engine worker starts with the app, but loads nothing until the
+        // user picks a file: a worker thread costs nothing, a model costs
+        // gigabytes.
+        let local = Arc::new(LocalBackend::start(None)?);
+
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
+            .with_backend(local.clone() as Arc<_>)
             .with_backend(Arc::new(AnthropicBackend::new(
                 BackendId::new(ANTHROPIC),
                 profiles.clone() as Arc<_>,
@@ -87,6 +101,7 @@ impl AppState {
             orchestrator: Arc::new(orchestrator),
             store,
             profiles,
+            local,
             running: Mutex::new(HashMap::new()),
         })
     }

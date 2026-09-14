@@ -61,6 +61,10 @@ pub fn run() {
             commands::rename_conversation,
             commands::set_model_profile,
             commands::get_model_profile,
+            commands::inspect_local_model,
+            commands::load_local_model,
+            commands::unload_local_model,
+            commands::local_model_status,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");

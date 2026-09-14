@@ -44,6 +44,8 @@ export interface BackendInfo {
   id: string;
   built_in: boolean;
   has_key: boolean;
+  /** False for the local engine, which authenticates to nothing. */
+  needs_key: boolean;
 }
 
 export interface CompatProvider {
@@ -76,12 +78,49 @@ export type TurnEvent =
   | { type: "preparing_context"; target: { backend: string; model_id: string } }
   | { type: "summarising"; writer: { backend: string; model_id: string }; covering: number }
   | { type: "context_ready"; view: ContextView }
-  | { type: "prefill_progress"; done_tokens: number; total_tokens: number }
+  | {
+      type: "prefill_progress";
+      /** Tokens the KV cache already held, which cost nothing to "read". */
+      reused_tokens: number;
+      done_tokens: number;
+      total_tokens: number;
+    }
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "usage"; input_tokens: number; output_tokens: number }
   | { type: "completed"; message: string; stop_reason: unknown }
   | { type: "failed"; message: string | null; error: string };
+
+/** A GGUF file, as read from its header without loading it. */
+export interface LocalModelInfo {
+  path: string;
+  file_name: string;
+  architecture: string;
+  supported: boolean;
+  unsupported_reason: string | null;
+  quant_summary: string;
+  context_length: number | null;
+  has_chat_template: boolean;
+  file_size_bytes: number;
+  estimated_bytes: number;
+  available_bytes: number;
+  fits: boolean;
+}
+
+/** The model the local engine currently holds. */
+export interface LoadedModel {
+  path: string;
+  file_name: string;
+  context_cap: number;
+  model_context_length: number | null;
+  vocab_size: number;
+  quant_summary: string;
+  threads: number;
+  weights_bytes: number;
+  kv_cache_bytes: number;
+  truncatable_cache: boolean;
+  max_context_cap: number;
+}
 
 export const api = {
   listConversations: () => invoke<ConversationSummary[]>("list_conversations"),
@@ -147,6 +186,15 @@ export const api = {
 
   setModelProfile: (backend: string, modelId: string, profile: ModelProfile) =>
     invoke<void>("set_model_profile", { backend, modelId, profile }),
+
+  inspectLocalModel: (path: string) => invoke<LocalModelInfo>("inspect_local_model", { path }),
+
+  loadLocalModel: (path: string, contextCap?: number) =>
+    invoke<LoadedModel>("load_local_model", { path, contextCap: contextCap ?? null }),
+
+  unloadLocalModel: () => invoke<void>("unload_local_model"),
+
+  localModelStatus: () => invoke<LoadedModel | null>("local_model_status"),
 
   setApiKey: (backend: string, key: string) => invoke<void>("set_api_key", { backend, key }),
   hasApiKey: (backend: string) => invoke<boolean>("has_api_key", { backend }),

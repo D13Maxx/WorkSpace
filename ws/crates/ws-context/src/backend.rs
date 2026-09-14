@@ -137,8 +137,17 @@ impl BackendError {
 /// (master spec s7.2).
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
-    /// Local engine only: prompt tokens read so far.
+    /// Local engine only: progress reading the prompt.
+    ///
+    /// `reused_tokens` is how much of the prompt the KV cache already held and
+    /// did not have to read again (master spec s8.5). It is carried separately
+    /// rather than folded into `done_tokens` because master spec s13 C4 asks
+    /// for prefix reuse to be *demonstrated* from these events, and a single
+    /// counter cannot tell "reused 2,000, read 50" apart from "read 2,050".
+    /// It also lets the UI show an honest estimate: only the tokens actually
+    /// being read take time.
     PrefillProgress {
+        reused_tokens: u32,
         done_tokens: u32,
         total_tokens: u32,
     },
