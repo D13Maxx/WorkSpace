@@ -125,7 +125,7 @@ impl AnthropicDecoder {
     }
 
     /// Feed one SSE event.
-    pub fn on_event(&mut self, ev: &SseEvent) -> Vec<BackendEvent> {
+    fn decode(&mut self, ev: &SseEvent) -> Vec<BackendEvent> {
         if self.done {
             return Vec::new();
         }
@@ -357,12 +357,21 @@ impl AnthropicDecoder {
         })]
     }
 
-    /// Called when the stream ends without `message_stop`.
-    pub fn finish(&mut self) -> Vec<BackendEvent> {
+    fn finish_inner(&mut self) -> Vec<BackendEvent> {
         if self.done {
             return Vec::new();
         }
         self.done = true;
         vec![self.protocol_error("stream ended before message_stop")]
+    }
+}
+
+impl crate::stream::StreamDecoder for AnthropicDecoder {
+    fn on_event(&mut self, ev: &SseEvent) -> Vec<BackendEvent> {
+        self.decode(ev)
+    }
+
+    fn finish(&mut self) -> Vec<BackendEvent> {
+        self.finish_inner()
     }
 }

@@ -1,0 +1,27 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_2","object":"response","model":"gpt-test-2026","status":"in_progress","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_2","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_2","output_index":0,"summary_index":0,"delta":"**Working"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_2","output_index":0,"summary_index":0,"delta":" through it**"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_2","type":"reasoning","summary":[{"type":"summary_text","text":"**Working through it**"}],"encrypted_content":"gAAAAABnQe9mFULL-ENCRYPTED-PAYLOAD-abcdef123456"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":1,"item":{"id":"msg_2","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_2","output_index":1,"content_index":0,"delta":"The answer is 5461."}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"The answer is 5461."}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_2","model":"gpt-test-2026","status":"completed","output":[{"id":"rs_2","type":"reasoning","summary":[{"type":"summary_text","text":"**Working through it**"}],"encrypted_content":"gAAAAABnQe9mFULL-ENCRYPTED-PAYLOAD-abcdef123456"},{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"The answer is 5461."}]}],"usage":{"input_tokens":31,"output_tokens":140}}}
+

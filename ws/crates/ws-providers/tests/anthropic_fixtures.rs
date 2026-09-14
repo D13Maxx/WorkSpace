@@ -8,7 +8,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ws_context::{BackendError, BackendEvent, BackendId, ProviderKind, StopReason};
-use ws_providers::{AnthropicDecoder, SseParser};
+use ws_providers::stream::decode_body;
+use ws_providers::{AnthropicDecoder, SseParser, StreamDecoder as _};
 
 fn fixture(name: &str) -> String {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sse/anthropic/");
@@ -20,20 +21,8 @@ fn fixture(name: &str) -> String {
 /// boundaries are exercised too.
 fn decode_chunked(name: &str, chunk_size: usize) -> (Vec<BackendEvent>, AnthropicDecoder) {
     let body = fixture(name);
-    let mut parser = SseParser::new();
     let mut decoder = AnthropicDecoder::new(BackendId::new("anthropic"), "claude-test-20260101");
-    let mut events = Vec::new();
-
-    let bytes: Vec<char> = body.chars().collect();
-    for piece in bytes.chunks(chunk_size) {
-        let s: String = piece.iter().collect();
-        for sse in parser.push(&s) {
-            events.extend(decoder.on_event(&sse));
-        }
-    }
-    for sse in parser.finish() {
-        events.extend(decoder.on_event(&sse));
-    }
+    let events = decode_body(&body, &mut decoder, chunk_size);
     (events, decoder)
 }
 
