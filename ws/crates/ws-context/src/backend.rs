@@ -11,6 +11,7 @@
 use crate::ids::{BackendId, BlobRef, MsgId};
 use crate::message::ProviderOpaque;
 use crate::model::{ModelCapabilities, ModelRef};
+use crate::token::TokenCounter;
 use crate::view::RenderedView;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -210,6 +211,17 @@ pub trait ChatBackend: Send + Sync + std::fmt::Debug {
     /// What this model accepts. Read from the user-editable model profile,
     /// falling back to conservative defaults for unknown ids.
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
+
+    /// How tokens are counted for this model (master spec s6.1).
+    ///
+    /// API backends keep the default byte estimate: they expose no tokenizer,
+    /// and being a little wrong against a 200k window is absorbed by the
+    /// safety margin. The local engine overrides this with an exact counter
+    /// backed by its own tokenizer and chat template, where the same error
+    /// against an 8k cap would be the difference between fitting and failing.
+    fn token_counter(&self, _model: &ModelRef) -> std::sync::Arc<dyn TokenCounter> {
+        std::sync::Arc::new(crate::token::ByteEstimateCounter)
+    }
 
     /// Begin generating. Cancelling drops the stream; whatever text has
     /// already arrived is the caller's to keep.

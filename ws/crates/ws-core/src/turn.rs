@@ -334,6 +334,9 @@ impl Orchestrator {
         cancel: &CancellationToken,
     ) -> Result<(ContextView, RenderedView)> {
         let caps = self.profiles.capabilities(target);
+        // Ask the backend how it counts. The local engine counts exactly;
+        // API backends fall back to the estimate (master spec s6.1).
+        let counter = self.backend(&target.backend)?.token_counter(target);
         let outgoing = self.with_store(|s| Ok(s.outgoing_model(conv)?))?;
 
         for round in 0..=MAX_SUMMARY_ROUNDS {
@@ -357,7 +360,7 @@ impl Orchestrator {
                 target,
                 caps: &caps,
                 summaries: &summaries,
-                counter: &ByteEstimateCounter,
+                counter: counter.as_ref(),
                 cfg: &self.cfg,
                 outgoing: outgoing.as_ref(),
             })?;

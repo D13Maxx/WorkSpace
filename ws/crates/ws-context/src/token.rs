@@ -5,7 +5,7 @@
 /// The local engine implements this exactly, using its own tokenizer and chat
 /// template. API backends implement it as an estimate, which is why the budget
 /// keeps a safety margin.
-pub trait TokenCounter: std::fmt::Debug {
+pub trait TokenCounter: std::fmt::Debug + Send + Sync {
     fn count_text(&self, text: &str) -> u32;
 }
 
