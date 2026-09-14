@@ -14,8 +14,9 @@ Progress against milestone 1: [`docs/checkpoints/C1.md`](docs/checkpoints/C1.md)
 
 ## Status
 
-Milestone 1, checkpoint C1. The Anthropic adapter works end to end; the local
-engine (`ws-engine`) is not built yet.
+Milestone 1, checkpoint C2. All four provider adapters work end to end
+(Anthropic, OpenAI Responses, Gemini, and any number of OpenAI-compatible
+endpoints). The local engine (`ws-engine`) is not built yet -- that is C3.
 
 ## Requirements
 
@@ -66,8 +67,14 @@ database, not in logs, not in exports. The app can tell you whether a key is
 set, but cannot read one back.
 
 1. Launch the app and open **Settings**.
-2. Paste your key under **Anthropic API key** and choose **Save**.
-3. Reopen Settings; the model list is fetched from the provider.
+2. Paste a key next to `anthropic`, `openai` or `gemini` and choose **Save**.
+3. The model list is fetched from each provider that has a key.
+
+To add an OpenAI-compatible endpoint (a local llama.cpp, vLLM, a gateway), use
+**OpenAI-compatible endpoints** in the same panel: give it an id, a display
+name and a base URL. It is wired up on the next launch. Reasoning from such a
+server is shown but never replayed -- the protocol has nothing signed to send
+back.
 
 Model ids are never hardcoded. Anything the provider does not report a context
 window for is marked *unprofiled* and uses conservative defaults until you set
@@ -81,7 +88,7 @@ ws/
     ws-context/     canonical conversation format + context builder (no I/O)
     ws-store/       SQLite, blobs, migrations
     ws-secrets/     OS credential store
-    ws-providers/   API adapters (Anthropic today)
+    ws-providers/   API adapters (Anthropic, OpenAI, Gemini, compatible)
     ws-engine/      local inference engine (not yet built)
     ws-engine-cli/  standalone engine harness (not yet built)
     ws-core/        turn orchestration
@@ -97,3 +104,16 @@ docs/
 `ws-context` performs no I/O, which is why the rules that matter most — what a
 model is allowed to see, and what must never be replayed to it — are tested
 without a database, a network, or a model.
+
+## A note on antivirus
+
+McAfee's real-time scanner holds freshly linked binaries in `ws/target`, which
+makes `cargo test --workspace` fail intermittently with
+`LNK1104: cannot open file ...exe`. Running per package works:
+
+```bash
+cd ws
+for p in ws-context ws-store ws-secrets ws-providers ws-core; do cargo test -p $p; done
+```
+
+Excluding `ws/target` in McAfee's settings resolves it.
