@@ -43,6 +43,16 @@ hex = "0.4.3"
 base64 = "0.23.1"
 bytes = "1"
 
+# Local inference (master spec s8). candle-transformers is the reference
+# implementation of the Llama forward pass; s2 requires the shipped model code
+# to be hand-written, so it is staged to be replaced behind the same trait.
+candle-core = "0.11.0"
+candle-transformers = "0.11.0"
+candle-nn = "0.11.0"
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
+minijinja = { version = "2.24.0", features = ["loader"] }
+sysinfo = "0.39.6"
+
 # dev
 proptest = "1.11.0"
 tempfile = "3.27.0"
