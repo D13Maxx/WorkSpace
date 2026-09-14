@@ -25,6 +25,39 @@ const MAX_METADATA_ENTRIES: u64 = 100_000;
 const MAX_DIMENSIONS: usize = 8;
 const MAX_ELEMENTS: u64 = 1 << 40;
 
+/// RoPE frequency scaling a file asks for.
+///
+/// This matters far more than its size suggests. Master spec s8.4 calls RoPE
+/// the highest-risk component precisely because getting it wrong is *quiet*:
+/// the model still produces fluent text on short prompts, and only degrades as
+/// the context grows. A silent quality loss is worse than a refusal, so a file
+/// that needs scaling this build cannot apply says so up front.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "encoding", rename_all = "snake_case")]
+pub enum RopeScaling {
+    /// Per-frequency divisors precomputed into a `rope_freqs.weight` tensor.
+    /// This is how llama.cpp encodes Llama 3.1 and 3.2's `llama3` rope type.
+    FrequencyFactors,
+    /// A scaling type declared in metadata: linear, yarn, longrope.
+    Declared { kind: String, factor: Option<f32> },
+}
+
+impl std::fmt::Display for RopeScaling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FrequencyFactors => f.write_str("per-frequency factors (Llama 3.1/3.2 style)"),
+            Self::Declared {
+                kind,
+                factor: Some(x),
+            } => write!(f, "{kind} by {x}"),
+            Self::Declared { kind, factor: None } => f.write_str(kind),
+        }
+    }
+}
+
+/// The tensor llama.cpp writes when a model needs `llama3` frequency scaling.
+const ROPE_FREQS_TENSOR: &str = "rope_freqs.weight";
+
 /// What a GGUF file says about itself, before anything is loaded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GgufInfo {
@@ -45,6 +78,10 @@ pub struct GgufInfo {
     pub has_chat_template: bool,
     /// Total size of the tensor data, for the memory pre-check.
     pub tensor_bytes: u64,
+    /// Present when the file asks for RoPE frequency scaling. The forward pass
+    /// in this build does not apply any, so this is a quality warning rather
+    /// than a detail (master spec s8.4).
+    pub rope_scaling: Option<RopeScaling>,
 }
 
 impl GgufInfo {
@@ -162,8 +199,33 @@ pub fn inspect(path: impl AsRef<Path>) -> Result<GgufInfo> {
         rope_freq_base: meta_f32(&content, &[&key("rope.freq_base")]),
         rms_norm_eps: meta_f32(&content, &[&key("attention.layer_norm_rms_epsilon")]),
         has_chat_template: content.metadata.contains_key("tokenizer.chat_template"),
+        rope_scaling: rope_scaling(&content, &key("rope.scaling.type")),
         architecture,
         tensor_bytes,
+    })
+}
+
+/// Detect RoPE scaling the forward pass would ignore.
+///
+/// Two encodings, because converters use both. Llama 3.1 and 3.2 have their
+/// factors precomputed into a tensor; linear and YARN scaling are declared in
+/// metadata instead.
+fn rope_scaling(content: &gguf_file::Content, type_key: &str) -> Option<RopeScaling> {
+    if content.tensor_infos.contains_key(ROPE_FREQS_TENSOR) {
+        return Some(RopeScaling::FrequencyFactors);
+    }
+    let kind = content
+        .metadata
+        .get(type_key)
+        .and_then(|v| v.to_string().ok())?
+        .clone();
+    // "none" is the honest absence of scaling, not a kind of it.
+    if kind.is_empty() || kind.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    Some(RopeScaling::Declared {
+        factor: meta_f32(content, &[&type_key.replace(".type", ".factor")]),
+        kind,
     })
 }
 

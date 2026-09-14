@@ -101,6 +101,8 @@ export interface LocalModelInfo {
   quant_summary: string;
   context_length: number | null;
   has_chat_template: boolean;
+  /** Set when the file needs RoPE scaling this build does not apply. */
+  ignored_rope_scaling: string | null;
   file_size_bytes: number;
   estimated_bytes: number;
   available_bytes: number;
@@ -120,6 +122,7 @@ export interface LoadedModel {
   kv_cache_bytes: number;
   truncatable_cache: boolean;
   max_context_cap: number;
+  ignored_rope_scaling: string | null;
 }
 
 export const api = {

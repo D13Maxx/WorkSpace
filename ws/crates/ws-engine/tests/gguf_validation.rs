@@ -295,3 +295,119 @@ fn hashing_a_file_is_stable_and_content_addressed() {
     let different = f.raw("different.gguf", b"other bytes entirely");
     assert_ne!(ha, gguf::file_sha256(&different).unwrap());
 }
+
+// ---- RoPE scaling detection (master spec s8.4) -------------------------
+//
+// The forward pass in this build applies no frequency scaling. A file that
+// needs it still loads and still produces fluent text on short prompts, then
+// degrades as the context grows -- the exact failure s8.4 calls out as
+// invisible. So it has to be detected from the file rather than discovered
+// from the output.
+
+/// Llama 3.1 and 3.2: llama.cpp precomputes the factors into a tensor.
+#[test]
+fn a_file_carrying_rope_frequency_factors_is_detected() {
+    let f = Fixtures::new();
+    let device = Device::Cpu;
+    let data = Tensor::from_vec(vec![0.25f32; 32], (1, 32), &device).unwrap();
+    let weights = QTensor::quantize(&data, candle_core::quantized::GgmlDType::Q8_0).unwrap();
+    // The converter writes these as F32.
+    let factors = Tensor::from_vec(vec![1.0f32; 32], (32,), &device).unwrap();
+    let freqs = QTensor::quantize(&factors, candle_core::quantized::GgmlDType::F32).unwrap();
+
+    let arch = gguf_file::Value::String("llama".to_owned());
+    let metadata: Vec<(&str, &gguf_file::Value)> = vec![("general.architecture", &arch)];
+
+    let path = f.path("llama32-ish.gguf");
+    let mut file = File::create(&path).unwrap();
+    gguf_file::write(
+        &mut file,
+        &metadata,
+        &[
+            ("token_embd.weight", &weights),
+            ("rope_freqs.weight", &freqs),
+        ],
+    )
+    .unwrap();
+    drop(file);
+
+    let info = gguf::inspect(&path).unwrap();
+    assert_eq!(
+        info.rope_scaling,
+        Some(gguf::RopeScaling::FrequencyFactors),
+        "a rope_freqs.weight tensor means the model expects scaling"
+    );
+    assert!(
+        info.rope_scaling.unwrap().to_string().contains("Llama 3"),
+        "the message should name what this is, for someone who has not read s8.4"
+    );
+}
+
+/// Linear and YARN scaling are declared in metadata instead.
+#[test]
+fn a_declared_scaling_type_is_detected_with_its_factor() {
+    let f = Fixtures::new();
+    let device = Device::Cpu;
+    let data = Tensor::from_vec(vec![0.25f32; 32], (1, 32), &device).unwrap();
+    let q = QTensor::quantize(&data, candle_core::quantized::GgmlDType::Q8_0).unwrap();
+
+    let arch = gguf_file::Value::String("llama".to_owned());
+    let kind = gguf_file::Value::String("yarn".to_owned());
+    let factor = gguf_file::Value::F32(4.0);
+    let metadata: Vec<(&str, &gguf_file::Value)> = vec![
+        ("general.architecture", &arch),
+        ("llama.rope.scaling.type", &kind),
+        ("llama.rope.scaling.factor", &factor),
+    ];
+
+    let path = f.path("yarn.gguf");
+    let mut file = File::create(&path).unwrap();
+    gguf_file::write(&mut file, &metadata, &[("token_embd.weight", &q)]).unwrap();
+    drop(file);
+
+    let info = gguf::inspect(&path).unwrap();
+    let Some(gguf::RopeScaling::Declared { kind, factor }) = info.rope_scaling else {
+        panic!(
+            "expected a declared scaling type, got {:?}",
+            info.rope_scaling
+        );
+    };
+    assert_eq!(kind, "yarn");
+    assert_eq!(factor, Some(4.0), "the factor says how wrong it would be");
+}
+
+#[test]
+fn a_scaling_type_of_none_is_not_reported_as_scaling() {
+    // "none" is the honest absence of scaling. Reporting it would put a
+    // warning on every well-behaved model and train the user to ignore it.
+    let f = Fixtures::new();
+    let device = Device::Cpu;
+    let data = Tensor::from_vec(vec![0.25f32; 32], (1, 32), &device).unwrap();
+    let q = QTensor::quantize(&data, candle_core::quantized::GgmlDType::Q8_0).unwrap();
+
+    let arch = gguf_file::Value::String("llama".to_owned());
+    for declared in ["none", "", "NONE"] {
+        let kind = gguf_file::Value::String(declared.to_owned());
+        let metadata: Vec<(&str, &gguf_file::Value)> = vec![
+            ("general.architecture", &arch),
+            ("llama.rope.scaling.type", &kind),
+        ];
+        let path = f.path(&format!("none-{}.gguf", declared.len()));
+        let mut file = File::create(&path).unwrap();
+        gguf_file::write(&mut file, &metadata, &[("token_embd.weight", &q)]).unwrap();
+        drop(file);
+
+        assert_eq!(
+            gguf::inspect(&path).unwrap().rope_scaling,
+            None,
+            "{declared:?} must not raise a warning"
+        );
+    }
+}
+
+#[test]
+fn an_ordinary_model_reports_no_rope_scaling() {
+    let f = Fixtures::new();
+    let info = gguf::inspect(f.valid("plain.gguf")).unwrap();
+    assert_eq!(info.rope_scaling, None);
+}

@@ -188,6 +188,7 @@ mod tests {
             rope_freq_base: Some(500_000.0),
             rms_norm_eps: Some(1e-5),
             has_chat_template: true,
+            rope_scaling: None,
             tensor_bytes: 1_300_000_000,
         }
     }

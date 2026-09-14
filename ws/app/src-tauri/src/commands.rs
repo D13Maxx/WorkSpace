@@ -591,6 +591,8 @@ pub struct LocalModelInfo {
     pub quant_summary: String,
     pub context_length: Option<u32>,
     pub has_chat_template: bool,
+    /// Set when the file needs RoPE scaling this build does not apply.
+    pub ignored_rope_scaling: Option<String>,
     pub file_size_bytes: u64,
     /// Estimated memory at the default context cap, and whether it fits now.
     pub estimated_bytes: u64,
@@ -615,6 +617,8 @@ pub struct LoadedModelDto {
     pub truncatable_cache: bool,
     /// The largest context cap this build can address.
     pub max_context_cap: u32,
+    /// Set when the loaded file needs RoPE scaling this build does not apply.
+    pub ignored_rope_scaling: Option<String>,
 }
 
 fn to_dto(info: &ws_engine::LoadedInfo) -> LoadedModelDto {
@@ -630,6 +634,7 @@ fn to_dto(info: &ws_engine::LoadedInfo) -> LoadedModelDto {
         kv_cache_bytes: info.memory.kv_cache_bytes,
         truncatable_cache: info.truncatable_cache,
         max_context_cap: ws_engine::REFERENCE_MAX_POSITIONS,
+        ignored_rope_scaling: info.ignored_rope_scaling.clone(),
     }
 }
 
@@ -670,6 +675,7 @@ pub async fn inspect_local_model(
         quant_summary: info.quant_summary.clone(),
         context_length: info.context_length,
         has_chat_template: info.has_chat_template,
+        ignored_rope_scaling: info.rope_scaling.as_ref().map(ToString::to_string),
         file_size_bytes: info.file_size,
         estimated_bytes: estimate.total_bytes,
         available_bytes: available,

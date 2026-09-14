@@ -169,10 +169,25 @@ fn inspect(path: &Path) -> Result<()> {
     );
     println!("head dim        {}", opt(info.head_dim()));
     println!("chat template   {}", yes_no(info.has_chat_template));
+    println!(
+        "rope scaling    {}",
+        info.rope_scaling
+            .as_ref()
+            .map_or_else(|| "none".to_owned(), ToString::to_string)
+    );
 
     match gguf::require_supported(&info) {
         Ok(()) => println!("supported       yes"),
         Err(e) => println!("supported       no -- {e}"),
+    }
+
+    if info.rope_scaling.is_some() {
+        println!();
+        println!(
+            "WARNING: this file needs RoPE frequency scaling that this build does not
+             apply. It will answer, and short prompts will look fine, but quality
+             degrades as the prompt grows. Prefer a model without rope scaling."
+        );
     }
 
     println!();
@@ -223,6 +238,11 @@ async fn start(path: &Path, opts: &Options) -> Result<EngineHandle> {
         info.tokenizer_source,
         info.threads
     );
+    if let Some(scaling) = &info.ignored_rope_scaling {
+        eprintln!(
+            "WARNING: this model asks for RoPE scaling ({scaling}) that this build does not              apply; expect quality to fall off as the prompt grows"
+        );
+    }
     if !info.truncatable_cache {
         eprintln!(
             "note: this build's KV cache is all-or-nothing, so editing or regenerating \

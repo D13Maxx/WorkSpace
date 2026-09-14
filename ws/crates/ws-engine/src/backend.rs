@@ -422,6 +422,7 @@ mod tests {
             },
             threads: 4,
             truncatable_cache: false,
+            ignored_rope_scaling: None,
         };
         let caps = capabilities_for(&info);
 

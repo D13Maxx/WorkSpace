@@ -139,6 +139,13 @@ export function LocalModelSection({ onChanged }: { onChanged: () => void }) {
               build. Continuing a conversation forward does not.
             </p>
           )}
+          {loaded.ignored_rope_scaling && (
+            <p className="failure">
+              This model asks for RoPE position scaling ({loaded.ignored_rope_scaling}) that
+              this build does not apply. It will answer, and short exchanges look fine, but
+              quality falls off as the conversation grows.
+            </p>
+          )}
           {loaded.context_cap >= loaded.max_context_cap && (
             <p className="muted">
               {loaded.max_context_cap.toLocaleString()} tokens is the most this build can
@@ -197,6 +204,13 @@ export function LocalModelSection({ onChanged }: { onChanged: () => void }) {
                 </div>
               </dl>
 
+              {inspected.ignored_rope_scaling && (
+                <p className="failure">
+                  Needs RoPE position scaling ({inspected.ignored_rope_scaling}) that this
+                  build does not apply. It will load and answer, but quality degrades as the
+                  conversation grows — a model without rope scaling is a better test.
+                </p>
+              )}
               {inspected.unsupported_reason && (
                 <p className="failure">{inspected.unsupported_reason}</p>
               )}

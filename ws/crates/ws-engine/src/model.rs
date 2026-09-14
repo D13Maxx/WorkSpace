@@ -82,6 +82,9 @@ pub struct LoadedInfo {
     pub threads: usize,
     /// Whether a shared prefix can be partially reused (master spec s8.5).
     pub truncatable_cache: bool,
+    /// Set when the file asks for RoPE scaling this build does not apply.
+    /// The model still answers; it degrades as the prompt grows (s8.4).
+    pub ignored_rope_scaling: Option<String>,
 }
 
 pub struct LoadedModel {
@@ -146,6 +149,18 @@ impl LoadedModel {
         let tokenizer = EngineTokenizer::load(&content, path)?;
         let template = ChatTemplate::from_gguf(&content, &display)?;
 
+        // Not a refusal: the model works, and for short prompts it works well.
+        // But this is exactly the failure master spec s8.4 warns is invisible,
+        // so it is said out loud rather than discovered as "the model got
+        // worse the longer I talked to it".
+        if let Some(scaling) = &info.rope_scaling {
+            tracing::warn!(
+                model = %path.display(),
+                scaling = %scaling,
+                "this file asks for RoPE frequency scaling that this build does not apply; quality will degrade as the prompt grows"
+            );
+        }
+
         let weights = quantized_llama::ModelWeights::from_gguf(content, &mut reader, device)?;
 
         Ok(Self {
@@ -162,6 +177,7 @@ impl LoadedModel {
                 memory: estimate,
                 threads: opts.threads.unwrap_or_else(memory::default_threads),
                 truncatable_cache: matches!(CACHE_ABILITY, CacheAbility::Truncatable),
+                ignored_rope_scaling: info.rope_scaling.as_ref().map(ToString::to_string),
             },
             tokenizer: Arc::new(tokenizer),
             template: Arc::new(template),
@@ -322,6 +338,7 @@ mod tests {
             rope_freq_base: None,
             rms_norm_eps: None,
             has_chat_template: true,
+            rope_scaling: None,
             tensor_bytes: 1_000,
         }
     }
