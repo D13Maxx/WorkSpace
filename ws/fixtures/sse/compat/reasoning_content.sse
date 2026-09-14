@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl-2","object":"chat.completion.chunk","model":"deepseek-test","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Let me work"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2","object":"chat.completion.chunk","model":"deepseek-test","choices":[{"index":0,"delta":{"reasoning_content":" through this."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2","object":"chat.completion.chunk","model":"deepseek-test","choices":[{"index":0,"delta":{"content":"The answer is 4."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-2","object":"chat.completion.chunk","model":"deepseek-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

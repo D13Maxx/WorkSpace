@@ -6,6 +6,8 @@
 //! hoping a live call happens to exercise the right branch.
 
 pub mod anthropic;
+pub mod compat;
+pub mod gemini;
 pub mod http;
 pub mod openai;
 pub mod retry;
@@ -13,6 +15,8 @@ pub mod sse;
 pub mod stream;
 
 pub use anthropic::{AnthropicBackend, AnthropicDecoder};
+pub use compat::{CompatBackend, CompatConfig, CompatDecoder};
+pub use gemini::{GeminiBackend, GeminiDecoder};
 pub use openai::{OpenAiBackend, OpenAiDecoder};
 pub use retry::RetryPolicy;
 pub use sse::{SseEvent, SseParser};

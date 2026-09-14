@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":", world"}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"!"}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":6,"candidatesTokenCount":4},"modelVersion":"gemini-test-2026"}
+

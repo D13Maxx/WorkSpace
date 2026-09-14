@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-3","object":"chat.completion.chunk","model":"llama-3-8b","choices":[{"index":0,"delta":{"content":"Terse."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-3","object":"chat.completion.chunk","model":"llama-3-8b","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+

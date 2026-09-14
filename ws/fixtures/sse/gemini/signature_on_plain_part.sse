@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Here is the plan:","thoughtSignature":"CtEBsig-on-ordinary-part-xyz789"}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":" step one."}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":12},"modelVersion":"gemini-test-2026"}
+

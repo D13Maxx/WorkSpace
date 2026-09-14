@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"It begins but never"}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"finishReason":"MAX_TOKENS","index":0}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":16},"modelVersion":"gemini-test-2026"}
+

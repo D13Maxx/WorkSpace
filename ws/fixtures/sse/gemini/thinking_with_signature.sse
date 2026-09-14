@@ -1,0 +1,8 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Let me multiply ","thought":true}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"127 by 43.","thought":true}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"","thought":true,"thoughtSignature":"CtEBAVSoXO9sig-thinking-abc123"}]},"index":0}],"modelVersion":"gemini-test-2026"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"The answer is 5461."}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":92},"modelVersion":"gemini-test-2026"}
+
