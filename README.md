@@ -121,6 +121,17 @@ Read-only tools run straight away. Anything that can edit files or run
 commands stops and asks you first. Tool calling works with Anthropic models
 today; the other adapters still flatten tool history to text.
 
+## Skills
+
+Skills are `SKILL.md` folders in the Claude Code format, such as
+[Ponytail](https://github.com/DietrichGebert/ponytail). Put them anywhere under
+`%APPDATA%\dev.debargha.workspace\skills` (a whole cloned repo is fine) and
+restart; Settings → Skills lists what was found.
+
+- Type `/name request` to run one. Its instructions travel with your message,
+  so this works with every model, local ones included.
+- Claude also sees the list and loads a skill on its own when a request fits.
+
 ## Add a provider
 
 API keys live in Windows Credential Manager and nowhere else — not in the

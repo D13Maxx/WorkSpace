@@ -4,6 +4,7 @@
 pub mod error;
 pub mod events;
 pub mod profiles;
+pub mod skills;
 pub mod tools;
 pub mod turn;
 
@@ -13,5 +14,6 @@ pub mod testing;
 pub use error::{CoreError, Result};
 pub use events::TurnEvent;
 pub use profiles::{Profile, ProfileTable};
-pub use tools::{ToolHost, ToolOutput};
+pub use skills::{Skill, Skills};
+pub use tools::{ToolHost, ToolOutput, ToolSet};
 pub use turn::{ModelListResult, Orchestrator};

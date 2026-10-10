@@ -671,3 +671,21 @@ select:focus {
   border-radius: 6px;
   background: var(--raised);
 }
+
+.skill-use summary {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.skill-use pre {
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.skill-row {
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+}

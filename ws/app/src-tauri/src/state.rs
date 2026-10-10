@@ -33,6 +33,9 @@ pub struct AppState {
     pub local: Arc<LocalBackend>,
     /// MCP tool servers (Serena and friends), from `mcp.json`.
     pub mcp: Arc<LateTools>,
+    /// `SKILL.md` packs found under `skills/` in the app data folder.
+    pub skills: Arc<ws_core::Skills>,
+    pub skills_dir: std::path::PathBuf,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -76,10 +79,17 @@ impl AppState {
         // gigabytes.
         let local = Arc::new(LocalBackend::start(None)?);
         let mcp = Arc::new(LateTools::new(dir.join("mcp.json")));
+        // Created up front so there is somewhere obvious to clone skills into.
+        let skills_dir = dir.join("skills");
+        std::fs::create_dir_all(&skills_dir)?;
+        let skills = Arc::new(ws_core::Skills::load(&skills_dir));
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_backend(local.clone() as Arc<_>)
-            .with_tools(mcp.clone() as Arc<_>)
+            .with_tools(Arc::new(ws_core::ToolSet::new(vec![
+                skills.clone() as Arc<_>,
+                mcp.clone() as Arc<_>,
+            ])))
             .with_backend(Arc::new(AnthropicBackend::new(
                 BackendId::new(ANTHROPIC),
                 profiles.clone() as Arc<_>,
@@ -107,6 +117,8 @@ impl AppState {
             store,
             profiles,
             local,
+            skills,
+            skills_dir,
             mcp: {
                 let late = mcp.clone();
                 tauri::async_runtime::spawn(async move { late.connect().await });

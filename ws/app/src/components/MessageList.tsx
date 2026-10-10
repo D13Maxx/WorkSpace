@@ -99,6 +99,12 @@ export function MessageList(props: Props) {
             </details>
           )}
 
+          {m.skill && (
+            <details className="skill-use">
+              <summary>/{m.skill.name}</summary>
+              <pre>{m.skill.instructions}</pre>
+            </details>
+          )}
           {m.text && <div className="body">{m.text}</div>}
 
           {m.tool_calls.map((c) => (

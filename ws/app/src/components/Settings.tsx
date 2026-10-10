@@ -5,6 +5,7 @@ import {
   type CompatProvider,
   type ModelOption,
   type McpStatus,
+  type SkillList,
   type ModelProfile,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
@@ -218,6 +219,37 @@ function ProfileSection({
 }
 
 /** User-configured OpenAI-compatible endpoints (master spec s7.5). */
+/** Skills are SKILL.md folders, the same format Claude Code uses. */
+function SkillsSection() {
+  const [list, setList] = useState<SkillList | null>(null);
+  useEffect(() => {
+    api
+      .listSkills()
+      .then(setList)
+      .catch(() => setList(null));
+  }, []);
+  if (!list) return null;
+
+  return (
+    <section>
+      <h3>Skills</h3>
+      <p className="muted">
+        Put skill folders (for example a clone of Ponytail) in <code>{list.dir}</code> and restart.
+        Type <code>/name</code> in a message to run one; Claude can also load them itself.
+      </p>
+      {list.skills.length === 0 ? (
+        <p className="muted">No skills found.</p>
+      ) : (
+        list.skills.map((s) => (
+          <div key={s.name} className="skill-row">
+            <code>/{s.name}</code> <span className="muted">{s.description}</span>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
 /** Tool servers come from mcp.json, in the same shape as Claude Code's. */
 function McpSection() {
   const [status, setStatus] = useState<McpStatus | null>(null);
@@ -387,6 +419,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
+      <SkillsSection />
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />

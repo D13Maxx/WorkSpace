@@ -57,10 +57,18 @@ pub struct ThreadMessage {
     /// branch navigator; `total` is 1 when there is no branch here.
     pub branch_index: u32,
     pub branch_total: u32,
+    /// The skill this message ran, shown collapsed rather than as text.
+    pub skill: Option<SkillUseDto>,
     /// Tools an assistant message asked for.
     pub tool_calls: Vec<ToolCallDto>,
     /// What those tools returned, on a `tool` message.
     pub tool_results: Vec<ToolResultDto>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillUseDto {
+    pub name: String,
+    pub instructions: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,10 +224,24 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
             _ => None,
         });
 
+        let skill = m
+            .parts
+            .first()
+            .and_then(Part::as_text)
+            .and_then(ws_core::skills::unwrap_envelope);
+
         messages.push(ThreadMessage {
             id: m.id.to_string(),
             role: role_str(m.role).to_owned(),
-            text: m.text_content(),
+            skill: skill.map(|(name, instructions)| SkillUseDto {
+                name: name.to_owned(),
+                instructions: instructions.to_owned(),
+            }),
+            text: if skill.is_some() {
+                m.parts.iter().skip(1).filter_map(Part::as_text).collect()
+            } else {
+                m.text_content()
+            },
             reasoning,
             status: status.to_owned(),
             failure_reason,
@@ -309,9 +331,14 @@ pub async fn send_message(
     on_event: Channel<TurnEvent>,
 ) -> CmdResult<()> {
     let conv = conv_id(&conversation)?;
+    // `/name request` runs a skill: its instructions travel with the message.
+    let parts = state
+        .skills
+        .expand(&text)
+        .unwrap_or_else(|| vec![Part::text(text)]);
     state
         .orchestrator
-        .append_user_message(conv, vec![Part::text(text)])
+        .append_user_message(conv, parts)
         .map_err(err)?;
     stream_turn(&state, conv, on_event).await
 }
@@ -800,5 +827,36 @@ pub fn mcp_status(state: State<'_, AppState>) -> McpStatusDto {
     McpStatusDto {
         config_path: state.mcp.config_path.display().to_string(),
         servers: state.mcp.status(),
+    }
+}
+
+// ---- skills -------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct SkillDto {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillsDto {
+    /// Where to put skill folders, e.g. a clone of the Ponytail repo.
+    pub dir: String,
+    pub skills: Vec<SkillDto>,
+}
+
+#[tauri::command]
+pub fn list_skills(state: State<'_, AppState>) -> SkillsDto {
+    SkillsDto {
+        dir: state.skills_dir.display().to_string(),
+        skills: state
+            .skills
+            .list()
+            .iter()
+            .map(|s| SkillDto {
+                name: s.name.clone(),
+                description: s.description.clone(),
+            })
+            .collect(),
     }
 }

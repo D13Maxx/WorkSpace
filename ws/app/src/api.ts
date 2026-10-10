@@ -23,8 +23,14 @@ export interface ThreadMessage {
   model_id: string | null;
   branch_index: number;
   branch_total: number;
+  skill: { name: string; instructions: string } | null;
   tool_calls: { call_id: string; name: string; args: string }[];
   tool_results: { call_id: string; text: string; is_error: boolean }[];
+}
+
+export interface SkillList {
+  dir: string;
+  skills: { name: string; description: string }[];
 }
 
 export interface McpStatus {
@@ -213,6 +219,8 @@ export const api = {
     invoke<boolean>("resolve_approval", { callId, approved }),
 
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
+
+  listSkills: () => invoke<SkillList>("list_skills"),
 
   setApiKey: (backend: string, key: string) => invoke<void>("set_api_key", { backend, key }),
   hasApiKey: (backend: string) => invoke<boolean>("has_api_key", { backend }),
