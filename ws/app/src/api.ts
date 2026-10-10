@@ -14,8 +14,11 @@ export async function pickFolder(): Promise<string | null> {
 }
 
 /** Windows' own file picker, limited to the given extensions. `null` if cancelled. */
-export async function pickFile(label: string, extensions: string[]): Promise<string | null> {
-  const picked = await open({ filters: [{ name: label, extensions }] });
+/** A file chosen in the native picker. With no extensions, every file shows. */
+export async function pickFile(label?: string, extensions?: string[]): Promise<string | null> {
+  const picked = await open({
+    filters: label && extensions ? [{ name: label, extensions }] : undefined,
+  });
   return typeof picked === "string" ? picked : null;
 }
 

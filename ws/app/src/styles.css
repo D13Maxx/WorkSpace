@@ -1059,3 +1059,8 @@ body.resizing iframe {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.explorer-actions .row {
+  display: flex;
+  gap: 6px;
+}

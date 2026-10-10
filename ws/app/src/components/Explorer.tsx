@@ -3,7 +3,7 @@
 // Folders load when opened, so a huge repository costs only what is looked at.
 
 import { useEffect, useState } from "react";
-import { api, pickFolder, type FileEntry } from "../api";
+import { api, pickFile, pickFolder, type FileEntry } from "../api";
 
 interface Props {
   project: string;
@@ -115,18 +115,42 @@ export function Explorer({ project, onProjectChange, onOpenFile, openPath, versi
               onProjectChange(folder);
             }
           }}
-          title="Choose a folder"
+          title="Choose a folder to open on the left"
         >
           Browse…
         </button>
       </form>
-      {project && (
-        <div className="explorer-actions">
-          {newFile === null ? (
-            <button onClick={() => setNewFile("")} title="Create a file in this folder">
-              New file
+      <div className="explorer-actions">
+        {newFile === null ? (
+          <div className="row">
+            <button
+              onClick={async () => {
+                const file = await pickFile();
+                if (!file) return;
+                // Inside the open folder: just open it. Elsewhere: open its folder too.
+                const root = project.replace(/[\\/]+$/, "");
+                const inside =
+                  root && file.toLowerCase().startsWith(root.toLowerCase() + "\\");
+                if (inside) {
+                  onOpenFile(file.slice(root.length + 1).replace(/\\/g, "/"));
+                } else {
+                  const cut = file.lastIndexOf("\\");
+                  setDraft(file.slice(0, cut));
+                  onProjectChange(file.slice(0, cut));
+                  onOpenFile(file.slice(cut + 1));
+                }
+              }}
+              title="Choose any file to open"
+            >
+              Open file…
             </button>
-          ) : (
+            {project && (
+              <button onClick={() => setNewFile("")} title="Create a file in this folder">
+                New file
+              </button>
+            )}
+          </div>
+        ) : (
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -158,9 +182,8 @@ export function Explorer({ project, onProjectChange, onOpenFile, openPath, versi
               </button>
             </form>
           )}
-          {error && <p className="failure tree-note">{error}</p>}
-        </div>
-      )}
+        {error && <p className="failure tree-note">{error}</p>}
+      </div>
       {project ? (
         <Folder
           project={project}
