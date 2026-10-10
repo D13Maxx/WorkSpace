@@ -135,10 +135,26 @@ impl AppState {
         // Created up front so there is somewhere obvious to clone skills into.
         let skills_dir = dir.join("skills");
         std::fs::create_dir_all(&skills_dir)?;
-        let skills = Arc::new(ws_core::Skills::load(&skills_dir).with_builtin(BUILTIN_SKILLS));
-        let workspace = Arc::new(crate::workspace::Workspace::default());
+        let pipeline = ua_pipeline_dir();
+        if pipeline.is_none() {
+            tracing::warn!("Understand-Anything pipeline not found; /understand is unavailable");
+        }
+        let skills = ws_core::Skills::load(&skills_dir);
+        let skills = match &pipeline {
+            Some(dir) => skills.and_load(&dir.join("skills")),
+            None => skills,
+        };
+        let skills = Arc::new(skills.with_builtin(BUILTIN_SKILLS));
+        let agents = Arc::new(
+            pipeline
+                .as_ref()
+                .map(|dir| ws_core::Agents::load(&dir.join("agents")))
+                .unwrap_or_default(),
+        );
+        let workspace = Arc::new(crate::workspace::Workspace::new(pipeline));
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
+            .with_agents(agents)
             .with_backend(local.clone() as Arc<_>)
             .with_tools(Arc::new(ws_core::ToolSet::new(vec![
                 skills.clone() as Arc<_>,
@@ -213,6 +229,20 @@ impl AppState {
             }
         }
     }
+}
+
+/// Understand-Anything's /understand pipeline (skill, agents, bundled
+/// scripts), built by `scripts/build-ua-pipeline.mjs`. Installed beside the
+/// exe; in a dev build, read from the source tree.
+fn ua_pipeline_dir() -> Option<std::path::PathBuf> {
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join("ua-pipeline")));
+    let source_tree = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ua-pipeline");
+    beside_exe
+        .into_iter()
+        .chain([source_tree])
+        .find(|dir| dir.join("agents").is_dir())
 }
 
 /// Load saved model profiles into memory. Missing or malformed rows fall back

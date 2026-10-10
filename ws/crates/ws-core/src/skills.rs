@@ -51,6 +51,22 @@ impl Skills {
         Self { list }
     }
 
+    /// Add the skills under another folder, such as one shipped beside the
+    /// app. Ones already loaded keep their name.
+    #[must_use]
+    pub fn and_load(mut self, root: &Path) -> Self {
+        let mut found = Vec::new();
+        walk(root, 0, &mut found);
+        found.sort_by(|a, b| a.dir.cmp(&b.dir));
+        for s in found {
+            if !self.list.iter().any(|k| k.name == s.name) {
+                self.list.push(s);
+            }
+        }
+        self.list.sort_by(|a, b| a.name.cmp(&b.name));
+        self
+    }
+
     /// Add skills shipped inside the app, as (folder label, `SKILL.md` text).
     /// One the user installed under the same name wins.
     #[must_use]
@@ -161,7 +177,7 @@ fn dir_name(dir: &Path) -> String {
 /// Read `name` and `description` from YAML frontmatter, and the body after it.
 ///
 /// shortcut: handles plain, quoted and `>`/`|` block values only, not full YAML; enough for Claude Code skills, swap in a YAML crate if one breaks.
-fn parse(text: &str) -> Option<(Option<String>, String, String)> {
+pub(crate) fn parse(text: &str) -> Option<(Option<String>, String, String)> {
     let text = text.trim_start_matches('\u{feff}');
     let mut lines = text.lines();
     if lines.next()?.trim_end() != "---" {
@@ -376,5 +392,16 @@ mod tests {
         let names: Vec<_> = skills.list().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["ponytail", "understand-chat"]);
         assert_eq!(skills.get("ponytail").unwrap().description, "my edit");
+
+        let (shipped, _) = skills_in(&[(
+            "skills/understand/SKILL.md",
+            "---\nname: understand\ndescription: build a graph\n---\nbuild\n",
+        )]);
+        let skills = skills.and_load(shipped.path());
+        let understand = skills.get("understand").unwrap();
+        assert!(
+            understand.dir.ends_with("skills/understand"),
+            "a real folder"
+        );
     }
 }

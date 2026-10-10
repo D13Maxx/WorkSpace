@@ -22,9 +22,34 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 #[derive(Debug, Default)]
 pub struct Workspace {
     open: Mutex<(Option<String>, Option<String>)>,
+    /// Git for Windows' bash, when installed. Skills written for Claude Code
+    /// (Understand-Anything's) give their steps as bash, so commands run in it.
+    bash: Option<std::path::PathBuf>,
+    /// The shipped Understand-Anything pipeline, exported to commands as
+    /// `CLAUDE_PLUGIN_ROOT`, which is where its skill looks first.
+    plugin_root: Option<std::path::PathBuf>,
+}
+
+/// Git for Windows' bash, found from `git` on PATH. Not System32's bash.exe,
+/// which is WSL.
+fn git_bash() -> Option<std::path::PathBuf> {
+    let git = crate::run::find(&["git"])?;
+    // git.exe lives in Git\cmd, Git\bin or Git\mingw64\bin.
+    git.ancestors()
+        .map(|dir| dir.join("bin").join("bash.exe"))
+        .find(|bash| bash.is_file())
 }
 
 impl Workspace {
+    #[must_use]
+    pub fn new(plugin_root: Option<std::path::PathBuf>) -> Self {
+        Self {
+            open: Mutex::default(),
+            bash: if cfg!(windows) { git_bash() } else { None },
+            plugin_root,
+        }
+    }
+
     pub fn set(&self, root: Option<String>, file: Option<String>) {
         if let Ok(mut o) = self.open.lock() {
             *o = (root.filter(|r| !r.trim().is_empty()), file);
@@ -77,8 +102,19 @@ fn replace_once(text: &str, old: &str, new: &str) -> Result<String, String> {
     Err("old_text was not found in the file; read it again and copy the text exactly".to_owned())
 }
 
-async fn run_command(root: &str, command: &str) -> ToolOutput {
-    let mut cmd = if cfg!(windows) {
+async fn run_command(
+    root: &str,
+    command: &str,
+    bash: Option<&std::path::Path>,
+    plugin_root: Option<&std::path::Path>,
+) -> ToolOutput {
+    let mut cmd = if let Some(bash) = bash {
+        let mut c = tokio::process::Command::new(bash);
+        c.arg("-c").arg(command);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000);
+        c
+    } else if cfg!(windows) {
         let mut c = tokio::process::Command::new("cmd");
         c.arg("/C");
         #[cfg(windows)]
@@ -97,6 +133,11 @@ async fn run_command(root: &str, command: &str) -> ToolOutput {
     cmd.current_dir(root)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
+    if let Some(dir) = plugin_root {
+        // Forward slashes read the same in bash, cmd and Node.
+        let dir = dir.to_string_lossy().replace('\\', "/");
+        cmd.env("CLAUDE_PLUGIN_ROOT", &dir).env("PLUGIN_ROOT", &dir);
+    }
     match tokio::time::timeout(COMMAND_TIMEOUT, cmd.output()).await {
         Err(_) => ToolOutput::error(format!(
             "stopped after {} seconds",
@@ -238,7 +279,13 @@ impl ToolHost for Workspace {
             ),
             spec(
                 "run_command",
-                "Run a shell command in the open project's folder (cmd.exe on Windows) and return its output. Use it to compile, run, test, or modify PDF and Word files with Python. No input can be typed into it.",
+                if self.bash.is_some() {
+                    "Run a bash command (Git Bash) in the open project's folder and return its output. Use it to compile, run, test, or modify PDF and Word files with Python. No input can be typed into it."
+                } else if cfg!(windows) {
+                    "Run a shell command in the open project's folder (cmd.exe) and return its output. Use it to compile, run, test, or modify PDF and Word files with Python. No input can be typed into it."
+                } else {
+                    "Run a shell command in the open project's folder and return its output. No input can be typed into it."
+                },
                 json!({"command": {"type": "string"}}),
                 &["command"],
             ),
@@ -326,7 +373,15 @@ impl ToolHost for Workspace {
                 (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => return e,
             },
             "run_command" => match arg(&args, "command") {
-                Ok(c) => return run_command(&root, c).await,
+                Ok(c) => {
+                    return run_command(
+                        &root,
+                        c,
+                        self.bash.as_deref(),
+                        self.plugin_root.as_deref(),
+                    )
+                    .await;
+                }
                 Err(e) => return e,
             },
             _ => Err(format!("there is no tool called {name}")),

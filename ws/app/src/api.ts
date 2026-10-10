@@ -49,6 +49,14 @@ export interface ThreadMessage {
   }[];
 }
 
+export interface GraphBuilt {
+  files: number;
+  nodes: number;
+  edges: number;
+  layers: number;
+  path: string;
+}
+
 /** The output panel's stream for one run. */
 export type RunEvent =
   | { type: "output"; data: string }
@@ -289,6 +297,9 @@ export const api = {
 
   /** Open the Understand-Anything dashboard for a project. Returns its URL. */
   openGraph: (project: string) => invoke<string>("open_graph", { project }),
+  /** FRIDAY's free graph. Fails with "EXISTS: ..." if another graph is there. */
+  buildGraph: (project: string, replace: boolean) =>
+    invoke<GraphBuilt>("build_graph", { project, replace }),
 
   setApiKey: (backend: string, key: string) => invoke<void>("set_api_key", { backend, key }),
   hasApiKey: (backend: string) => invoke<boolean>("has_api_key", { backend }),

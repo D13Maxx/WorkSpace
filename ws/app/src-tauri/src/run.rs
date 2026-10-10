@@ -45,7 +45,7 @@ const NO_RUST: &str = "No Rust found. Install it from rustup.rs, then restart FR
 const NO_NODE: &str = "No Node.js found. Install it from nodejs.org, then restart FRIDAY.";
 
 /// The first of `names` on PATH.
-fn find(names: &[&str]) -> Option<PathBuf> {
+pub(crate) fn find(names: &[&str]) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let exts: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")

@@ -47,6 +47,10 @@ struct Harness {
 }
 
 fn harness(replies: Vec<Scripted>) -> Harness {
+    harness_with(replies, None)
+}
+
+fn harness_with(replies: Vec<Scripted>, agents: Option<Arc<ws_core::Agents>>) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Mutex::new(Store::open(dir.path().join("ws.db")).unwrap()));
     let blobs = Arc::new(BlobStore::new(dir.path().join("blobs")).unwrap());
@@ -69,9 +73,12 @@ fn harness(replies: Vec<Scripted>) -> Harness {
     }
     let backend = Arc::new(backend);
     let tools = Arc::new(FakeTools::default());
-    let orch = Orchestrator::new(store.clone(), blobs, profiles)
+    let mut orch = Orchestrator::new(store.clone(), blobs, profiles)
         .with_backend(backend.clone() as Arc<_>)
         .with_tools(tools.clone() as Arc<_>);
+    if let Some(agents) = agents {
+        orch = orch.with_agents(agents);
+    }
     Harness {
         orch: Arc::new(orch),
         store,
@@ -274,4 +281,70 @@ async fn without_a_tool_host_no_tools_are_offered() {
     let (result, ()) = tokio::join!(turn, drain);
     result.unwrap();
     assert!(backend.requests()[0].tools.is_empty());
+}
+
+#[tokio::test]
+async fn a_dispatched_helper_runs_its_own_tools_and_reports_back() {
+    let defs = tempfile::tempdir().unwrap();
+    std::fs::write(
+        defs.path().join("helper.md"),
+        "---
+name: helper
+description: reads files
+---
+Read what you are told.
+",
+    )
+    .unwrap();
+    let h = harness_with(
+        vec![
+            Scripted::calls(
+                "c1",
+                "dispatch_agent",
+                r#"{"agent":"helper","prompt":"read main.rs"}"#,
+            ),
+            // The helper's own turn.
+            Scripted::calls("h1", "read_file", r#"{"path":"main.rs"}"#),
+            Scripted::Text(vec!["helper: main.rs prints hello".to_owned()]),
+            // Back in the main turn.
+            Scripted::Text(vec!["it prints hello".to_owned()]),
+        ],
+        Some(Arc::new(ws_core::Agents::load(defs.path()))),
+    );
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+
+    assert_eq!(h.tools.calls.lock().unwrap()[0].0, "read_file");
+    let requests = h.backend.requests();
+    assert_eq!(requests.len(), 4);
+    let names =
+        |i: usize| -> Vec<String> { requests[i].tools.iter().map(|t| t.name.clone()).collect() };
+    assert!(names(0).contains(&"dispatch_agent".to_owned()));
+    assert!(
+        !names(1).contains(&"dispatch_agent".to_owned()),
+        "a helper cannot dispatch helpers"
+    );
+    let system = requests[1].view.system.clone().unwrap();
+    assert!(system.starts_with("Read what you are told."), "{system}");
+    assert_eq!(requests[1].view.messages.len(), 1, "a helper starts fresh");
+
+    // The helper's report is the dispatch call's result in the main turn.
+    let report = requests[3]
+        .view
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .any(|p| match p {
+            Part::ToolResult { content, .. } => content.iter().any(|c| {
+                c.as_text()
+                    .is_some_and(|t| t.contains("helper: main.rs prints hello"))
+            }),
+            _ => false,
+        });
+    assert!(report, "the main model sees the helper's report");
+    assert_eq!(
+        h.roles(conv),
+        vec![Role::User, Role::Assistant, Role::Tool, Role::Assistant],
+        "the helper's turn is not stored in the conversation"
+    );
 }

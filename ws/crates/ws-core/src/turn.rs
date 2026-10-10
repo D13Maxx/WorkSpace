@@ -13,6 +13,7 @@
 //! - **Nothing the user saw is discarded.** Cancel and failure both persist the
 //!   partial text under a status that says what happened.
 
+use crate::agents::{Agents, DISPATCH_AGENT};
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
@@ -44,13 +45,25 @@ const DRAFT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_SUMMARY_ROUNDS: usize = 1;
 
 /// Model-then-tools rounds per user message. A model that keeps calling tools
-/// past this is looping, and every round costs money.
-const MAX_TOOL_ROUNDS: usize = 25;
+/// past this is looping, and every round costs money. Sized for a skill like
+/// Understand-Anything's /understand, which runs dozens of steps in one turn.
+const MAX_TOOL_ROUNDS: usize = 80;
 
 /// Cap on one tool result, in characters. A whole-file read can otherwise be
 /// larger than the model's window, and a message is never split.
 // shortcut: truncates instead of paging, upgrade if agents need whole large files.
 const MAX_TOOL_OUTPUT_CHARS: usize = 60_000;
+
+/// Model-then-tools rounds for one helper agent. Helpers read and write many
+/// files (a batch of a codebase), so they get more than a user turn.
+const MAX_AGENT_ROUNDS: usize = 50;
+
+/// Helpers dispatched in one reply run side by side, at most this many at a
+/// time (Understand-Anything asks for five).
+const MAX_PARALLEL_AGENTS: usize = 5;
+
+/// Appended to every helper's instructions.
+const AGENT_NOTE: &str = "You are a helper agent dispatched by FRIDAY. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
 
 /// A file edit, ready to show: the diff, and whether it has been undone.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +93,8 @@ pub struct Orchestrator {
     cfg: ContextConfig,
     draft_interval: Duration,
     tools: Option<Arc<dyn ToolHost>>,
+    /// Helpers the model may dispatch, offered as `dispatch_agent`.
+    agents: Option<Arc<Agents>>,
     /// Calls waiting on the user, by call id. Resolved by `resolve_approval`.
     approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
@@ -108,6 +123,7 @@ impl Orchestrator {
             cfg: ContextConfig::default(),
             draft_interval: DRAFT_CHECKPOINT_INTERVAL,
             tools: None,
+            agents: None,
             approvals: Mutex::new(HashMap::new()),
         }
     }
@@ -115,6 +131,13 @@ impl Orchestrator {
     #[must_use]
     pub fn with_tools(mut self, host: Arc<dyn ToolHost>) -> Self {
         self.tools = Some(host);
+        self
+    }
+
+    /// Offer `agents` to the model through `dispatch_agent`.
+    #[must_use]
+    pub fn with_agents(mut self, agents: Arc<Agents>) -> Self {
+        self.agents = Some(agents);
         self
     }
 
@@ -382,7 +405,13 @@ impl Orchestrator {
             raw_payloads,
             blobs,
             tools: match &self.tools {
-                Some(host) if self.tools_enabled(target) => host.specs(),
+                Some(host) if self.tools_enabled(target) => {
+                    let mut specs = host.specs();
+                    if let Some(agents) = self.agents.as_ref().filter(|a| !a.is_empty()) {
+                        specs.push(agents.spec());
+                    }
+                    specs
+                }
                 _ => Vec::new(),
             },
         })
@@ -587,9 +616,30 @@ impl Orchestrator {
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
     ) -> Vec<Part> {
+        use futures_util::StreamExt as _;
+        // A batch of helpers runs side by side; anything else runs in order,
+        // since two edits to one file must not race.
+        let helpers = calls.len() > 1 && calls.iter().all(|c| c.name == DISPATCH_AGENT);
+        let outs: Vec<ToolOutput> = if helpers {
+            // Built up front: a closure inside the stream trips the borrow
+            // checker's higher-ranked lifetimes once this future must be Send.
+            let runs: Vec<_> = calls
+                .iter()
+                .map(|c| self.run_call(conv, c, events, cancel, false))
+                .collect();
+            futures_util::stream::iter(runs)
+                .buffered(MAX_PARALLEL_AGENTS)
+                .collect()
+                .await
+        } else {
+            let mut outs = Vec::with_capacity(calls.len());
+            for call in &calls {
+                outs.push(self.run_call(conv, call, events, cancel, false).await);
+            }
+            outs
+        };
         let mut parts = Vec::with_capacity(calls.len());
-        for call in calls {
-            let out = self.run_one(conv, &call, events, cancel).await;
+        for (call, out) in calls.into_iter().zip(outs) {
             let _ = events
                 .send(TurnEvent::ToolResult {
                     call_id: call.call_id.clone(),
@@ -606,18 +656,28 @@ impl Orchestrator {
         parts
     }
 
-    async fn run_one(
+    /// Run one call. `in_helper` is true inside a dispatched agent, which may
+    /// not dispatch agents of its own.
+    async fn run_call(
         &self,
         conv: ConvId,
         call: &PendingCall,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
+        in_helper: bool,
     ) -> ToolOutput {
         let Some(host) = &self.tools else {
             return ToolOutput::error("no tools are available");
         };
         if cancel.is_cancelled() {
             return ToolOutput::error("cancelled by the user before it ran");
+        }
+        if call.name == DISPATCH_AGENT {
+            if in_helper {
+                return ToolOutput::error("a helper agent cannot dispatch helpers of its own");
+            }
+            // Boxed: a helper's own calls come back through run_call.
+            return Box::pin(self.run_agent(conv, call, events, cancel)).await;
         }
         let args: serde_json::Value = match serde_json::from_str(&call.args) {
             Ok(v) => v,
@@ -678,6 +738,156 @@ impl Orchestrator {
             out.text.push_str("\n[output truncated]");
         }
         out
+    }
+
+    /// Run one helper agent to the end, in memory, and return its report.
+    ///
+    /// Its own tool calls go through `run_call`, so they ask for approval and
+    /// record their file edits exactly as the main turn's do.
+    async fn run_agent(
+        &self,
+        conv: ConvId,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+    ) -> ToolOutput {
+        use futures_util::StreamExt as _;
+
+        let args: serde_json::Value = serde_json::from_str(&call.args).unwrap_or_default();
+        let field = |k: &str| args.get(k).and_then(serde_json::Value::as_str);
+        let (Some(agent), Some(prompt)) = (field("agent"), field("prompt")) else {
+            return ToolOutput::error("dispatch_agent needs \"agent\" and \"prompt\"");
+        };
+        let Some(def) = self.agents.as_ref().and_then(|a| a.get(agent)).cloned() else {
+            return ToolOutput::error(format!("there is no agent called {agent}"));
+        };
+        let target = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
+            Ok(Some(c)) => c.current_model,
+            _ => return ToolOutput::error("the conversation is gone"),
+        };
+        let backend = match self.backend(&target.backend) {
+            Ok(b) => b,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let tools = self.tools.as_ref().map(|h| h.specs()).unwrap_or_default();
+        let system = format!("{}\n\n{AGENT_NOTE}", def.body.trim());
+        let max_output = self.profiles.capabilities(&target).max_output_tokens;
+        let mut messages = vec![RenderedMessage {
+            source_id: MsgId::new(),
+            role: Role::User,
+            parts: vec![Part::text(prompt)],
+        }];
+
+        for _ in 0..MAX_AGENT_ROUNDS {
+            if cancel.is_cancelled() {
+                return ToolOutput::error("cancelled by the user");
+            }
+            let request = BackendRequest {
+                model: target.clone(),
+                view: RenderedView {
+                    system: Some(system.clone()),
+                    messages: messages.clone(),
+                },
+                max_output_tokens: max_output,
+                thinking: self.profiles.thinking(&target),
+                raw_payloads: BTreeMap::new(),
+                blobs: BTreeMap::new(),
+                tools: tools.clone(),
+            };
+            let mut stream = match backend.stream(request, cancel.clone()).await {
+                Ok(s) => s,
+                Err(e) => return ToolOutput::error(format!("{agent} could not start: {e}")),
+            };
+            let mut text = String::new();
+            let mut opaque = Vec::new();
+            let mut calls: Vec<PendingCall> = Vec::new();
+            let mut stop = StopReason::EndTurn;
+            while let Some(event) = stream.next().await {
+                match event {
+                    BackendEvent::TextDelta(t) => text.push_str(&t),
+                    BackendEvent::OpaqueBlock(o) => opaque.push(o),
+                    BackendEvent::ToolCallDelta {
+                        call_id,
+                        name,
+                        args_delta,
+                    } => match calls.iter_mut().find(|c| c.call_id == call_id) {
+                        Some(c) => {
+                            c.args.push_str(&args_delta);
+                            if let Some(n) = name {
+                                c.name = n;
+                            }
+                        }
+                        None => calls.push(PendingCall {
+                            call_id,
+                            name: name.unwrap_or_default(),
+                            args: args_delta,
+                        }),
+                    },
+                    BackendEvent::Done { stop_reason } => {
+                        stop = stop_reason;
+                        break;
+                    }
+                    BackendEvent::Error(e) => {
+                        return ToolOutput::error(format!("{agent} failed: {e}"));
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut parts: Vec<Part> = opaque.into_iter().map(Part::Opaque).collect();
+            if !text.is_empty() {
+                parts.push(Part::text(text.clone()));
+            }
+            parts.extend(calls.iter().map(|c| Part::ToolCall {
+                call_id: c.call_id.clone(),
+                name: c.name.clone(),
+                args_json: c.args.clone(),
+            }));
+            messages.push(RenderedMessage {
+                source_id: MsgId::new(),
+                role: Role::Assistant,
+                parts,
+            });
+            if stop != StopReason::ToolUse || calls.is_empty() {
+                return if text.trim().is_empty() {
+                    ToolOutput::ok(format!("{agent} finished without a report"))
+                } else {
+                    ToolOutput::ok(text)
+                };
+            }
+
+            let mut results = Vec::with_capacity(calls.len());
+            for c in calls {
+                let _ = events
+                    .send(TurnEvent::ToolCall {
+                        call_id: c.call_id.clone(),
+                        name: format!("{agent}: {}", c.name),
+                        args: c.args.clone(),
+                    })
+                    .await;
+                let out = self.run_call(conv, &c, events, cancel, true).await;
+                let _ = events
+                    .send(TurnEvent::ToolResult {
+                        call_id: c.call_id.clone(),
+                        is_error: out.is_error,
+                        text: out.text.clone(),
+                    })
+                    .await;
+                results.push(Part::ToolResult {
+                    call_id: c.call_id,
+                    content: vec![Part::text(out.text)],
+                    is_error: out.is_error,
+                });
+            }
+            messages.push(RenderedMessage {
+                source_id: MsgId::new(),
+                role: Role::Tool,
+                parts: results,
+            });
+        }
+        ToolOutput::error(format!(
+            "{agent} stopped after {MAX_AGENT_ROUNDS} rounds of tool calls"
+        ))
     }
 
     fn record_edit(

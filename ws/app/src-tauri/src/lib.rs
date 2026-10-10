@@ -10,6 +10,7 @@
 mod commands;
 mod files;
 mod graph;
+mod graph_builder;
 mod run;
 mod state;
 mod workspace;
@@ -74,6 +75,7 @@ pub fn run() {
             commands::mcp_status,
             commands::list_skills,
             commands::open_graph,
+            commands::build_graph,
             commands::list_dir,
             commands::read_text_file,
             commands::read_file_bytes,

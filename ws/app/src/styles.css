@@ -1064,3 +1064,17 @@ body.resizing iframe {
   display: flex;
   gap: 6px;
 }
+
+.graph-ways {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+
+.graph-ways li {
+  margin-bottom: 4px;
+}
+
+.graph-actions {
+  margin-top: 8px;
+}
