@@ -689,3 +689,145 @@ select:focus {
   margin-bottom: 0.4rem;
   font-size: 0.85rem;
 }
+
+/* ---- explorer and file viewer -------------------------------------- */
+
+.explorer {
+  width: 260px;
+  flex: 0 0 260px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.explorer-project {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.explorer-project input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.explorer > .tree {
+  overflow: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 2px 6px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.tree-item:hover {
+  background: var(--raised);
+}
+
+.tree-item.selected {
+  background: var(--raised);
+  color: var(--accent);
+}
+
+.tree-icon {
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+}
+
+.tree-note {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+.file-viewer {
+  /* Code gets most of the width when a file is open; chat stays alongside. */
+  flex: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.file-viewer header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.file-viewer header code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.file-viewer .code {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.file-viewer pre {
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.file-viewer .gutter {
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+  border-right: 1px solid var(--border);
+  position: sticky;
+  left: 0;
+  background: var(--bg);
+}
+
+.file-viewer .source {
+  flex: 1;
+  tab-size: 4;
+}
+
+.tool-args {
+  margin: 0 0 0.6rem;
+  font-size: 0.82rem;
+}
+
+.tool-args dt {
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
+
+.tool-args dd {
+  margin: 0;
+}

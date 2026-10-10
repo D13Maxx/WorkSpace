@@ -28,6 +28,13 @@ export interface ThreadMessage {
   tool_results: { call_id: string; text: string; is_error: boolean }[];
 }
 
+export interface FileEntry {
+  name: string;
+  /** Relative to the project root, with `/` separators. */
+  path: string;
+  is_dir: boolean;
+}
+
 export interface SkillList {
   dir: string;
   skills: { name: string; description: string }[];
@@ -221,6 +228,11 @@ export const api = {
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
 
   listSkills: () => invoke<SkillList>("list_skills"),
+
+  listDir: (root: string, path: string) => invoke<FileEntry[]>("list_dir", { root, path }),
+
+  readTextFile: (root: string, path: string) =>
+    invoke<string>("read_text_file", { root, path }),
 
   /** Open the Understand-Anything dashboard for a project. Returns its URL. */
   openGraph: (project: string) => invoke<string>("open_graph", { project }),

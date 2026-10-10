@@ -6,6 +6,50 @@ import { MessageList } from "./components/MessageList";
 import { Inspector } from "./components/Inspector";
 import { Settings } from "./components/Settings";
 import { PrefillProgress } from "./components/PrefillProgress";
+import { Explorer } from "./components/Explorer";
+import { FileViewer } from "./components/FileViewer";
+
+/** Per-viewer UI preferences. Storage can be unavailable; the app works without it. */
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Not remembered, which is fine.
+  }
+}
+
+/** Tool arguments as readable fields: code in blocks with real line breaks. */
+function ToolArgs({ args }: { args: string }) {
+  let fields: [string, unknown][];
+  try {
+    const parsed: unknown = JSON.parse(args);
+    if (typeof parsed !== "object" || parsed === null) return <pre>{args}</pre>;
+    fields = Object.entries(parsed);
+  } catch {
+    return <pre>{args}</pre>;
+  }
+  return (
+    <dl className="tool-args">
+      {fields.map(([key, value]) => {
+        const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        const block = text.includes("\n") || text.length > 80;
+        return (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{block ? <pre>{text}</pre> : <code>{text}</code>}</dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
 
 const ANTHROPIC = "anthropic";
 
@@ -36,6 +80,9 @@ export default function App() {
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFiles, setShowFiles] = useState(() => readPref("ws.showFiles") === "1");
+  const [project, setProject] = useState(() => readPref("ws.project") ?? "");
+  const [openFile, setOpenFile] = useState<string | null>(null);
 
   const busy = streaming !== null;
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -235,7 +282,23 @@ export default function App() {
           await refreshConversations();
         }}
         onOpenSettings={() => setShowSettings(true)}
+        onToggleFiles={() => {
+          writePref("ws.showFiles", showFiles ? "0" : "1");
+          setShowFiles(!showFiles);
+        }}
       />
+      {showFiles && (
+        <Explorer
+          project={project}
+          onProjectChange={(p) => {
+            writePref("ws.project", p);
+            setProject(p);
+            setOpenFile(null);
+          }}
+          onOpenFile={setOpenFile}
+          openPath={openFile}
+        />
+      )}
 
       <main className="main">
         {thread ? (
@@ -305,7 +368,7 @@ export default function App() {
                 <p>
                   The model wants to run <code>{approval.name}</code>:
                 </p>
-                <pre>{approval.args}</pre>
+                <ToolArgs args={approval.args} />
                 <div className="row">
                   <button
                     className="primary"
@@ -342,6 +405,10 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {openFile && project && (
+        <FileViewer project={project} path={openFile} onClose={() => setOpenFile(null)} />
+      )}
 
       {inspecting && (
         <Inspector

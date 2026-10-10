@@ -8,6 +8,7 @@
 //! two conversations streaming at once cannot interleave into one another.
 
 mod commands;
+mod files;
 mod graph;
 mod state;
 
@@ -70,6 +71,8 @@ pub fn run() {
             commands::mcp_status,
             commands::list_skills,
             commands::open_graph,
+            commands::list_dir,
+            commands::read_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");

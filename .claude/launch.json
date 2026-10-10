@@ -4,7 +4,24 @@
     {
       "name": "ws-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "ws/app"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "ws/app"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "ws-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "tauri",
+        "dev",
+        "--prefix",
+        "ws/app"
+      ],
       "port": 5173
     }
   ]

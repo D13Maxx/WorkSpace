@@ -9,6 +9,7 @@ interface Props {
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onOpenSettings: () => void;
+  onToggleFiles: () => void;
 }
 
 export function Sidebar(props: Props) {
@@ -66,6 +67,9 @@ export function Sidebar(props: Props) {
         {shown.length === 0 && <li className="muted">No conversations</li>}
       </ul>
 
+      <button className="settings" onClick={props.onToggleFiles}>
+        Files
+      </button>
       <button className="settings" onClick={props.onOpenSettings}>
         Settings
       </button>

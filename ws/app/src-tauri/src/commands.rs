@@ -868,3 +868,15 @@ pub fn list_skills(state: State<'_, AppState>) -> SkillsDto {
 pub async fn open_graph(app: tauri::AppHandle, project: String) -> CmdResult<String> {
     crate::graph::open(&app, &project).await
 }
+
+// ---- project files (read-only) -----------------------------------------------
+
+#[tauri::command]
+pub fn list_dir(root: String, path: String) -> CmdResult<Vec<crate::files::Entry>> {
+    crate::files::list_dir(&root, &path)
+}
+
+#[tauri::command]
+pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
+    crate::files::read_text(&root, &path)
+}
