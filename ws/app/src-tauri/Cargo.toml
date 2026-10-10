@@ -31,7 +31,8 @@ tauri = { version = "2.11", features = [] }
 tauri-plugin-dialog = "2.8.2"
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["process", "io-util"] }
+tokio = { workspace = true, features = ["process", "io-util", "net"] }
+ulid.workspace = true
 tokio-util.workspace = true
 # A real console (ConPTY on Windows) for compiled programs, so prompts and
 # input work as they do in a terminal.

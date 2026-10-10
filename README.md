@@ -138,7 +138,7 @@ then restart FRIDAY so it sees the new PATH.
   retyped; ask the agent for that.
 - **Word (.docx)** files are shown read-only. Ask the agent to change them.
 
-The agent has its own tools for the open folder: `list_dir`, `read_file`,
+The agent has its own tools for the open folder: `list_dir`, `search_files`, `read_file`,
 `write_file`, `edit_file`, `run_command`, and `get_open_file` (so "fix this
 file" works). Writes show as diffs with Undo. Commands always ask first, and
 are how it edits PDFs and Word files (with Python's `pypdf` and
@@ -174,10 +174,20 @@ today; the other adapters still flatten tool history to text.
 
 ## Skills
 
-Skills are `SKILL.md` folders in the Claude Code format, such as
-[Ponytail](https://github.com/DietrichGebert/ponytail). Put them anywhere under
+Skills are `SKILL.md` folders in the Claude Code format. Two sets are built
+into FRIDAY, with nothing to install:
+
+- [Ponytail](https://github.com/DietrichGebert/ponytail): `/ponytail`,
+  `/ponytail-audit`, `/ponytail-debt`, `/ponytail-gain`, `/ponytail-help`,
+  `/ponytail-review`.
+- [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)'s
+  graph skills: `/understand-chat`, `/understand-explain`, `/understand-diff`,
+  `/understand-onboard`.
+
+They live in `ws/app/src-tauri/skills` (MIT, licences alongside) and are
+compiled into the exe. Add your own anywhere under
 `%APPDATA%\dev.debargha.friday\skills` (a whole cloned repo is fine) and
-restart; Settings → Skills lists what was found.
+restart; one with a built-in's name replaces it. Settings → Skills lists them.
 
 - Type `/name request` to run one. Its instructions travel with your message,
   so this works with every model, local ones included.
@@ -189,14 +199,14 @@ restart; Settings → Skills lists what was found.
 a codebase into a knowledge graph in the project's `.ua` folder.
 
 - **Explore a graph:** Settings → Knowledge graph, give the project folder,
-  choose **Open graph**. It opens UA's own dashboard in a window; no model and
-  no tokens are involved. The first time downloads UA's viewer (needs Node.js).
-- **Ask about it:** clone the UA repo into the skills folder, connect Serena,
-  then use `/understand-chat`, `/understand-explain`, `/understand-diff` or
-  `/understand-onboard`. They read the graph through Serena's search and read
-  tools.
-- **Build a graph:** not yet in this app. `/understand` dispatches subagents,
-  which MyAgent does not have; build the graph with Claude Code for now.
+  choose **Open graph**. UA's dashboard (v2.9.0, prebuilt, in
+  `ws/app/public/ua`) is served by FRIDAY itself on 127.0.0.1 behind a
+  one-time token, as UA's own viewer does. No Node, no download, no model.
+- **Ask about it:** `/understand-chat`, `/understand-explain`,
+  `/understand-diff`, `/understand-onboard`. The agent reads the graph with
+  its built-in `search_files` and `read_file` tools.
+- **Build a graph:** not yet in this app. `/understand` dispatches subagents
+  and needs UA's Node packages; build the graph with Claude Code for now.
 
 ## Add a provider
 

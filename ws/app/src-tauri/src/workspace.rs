@@ -10,6 +10,11 @@ use std::time::Duration;
 use ws_context::ToolSpec;
 use ws_core::{ToolHost, ToolOutput};
 
+/// Search stops after this many matching lines.
+const MAX_MATCHES: usize = 200;
+/// Files bigger than this are not searched (a knowledge graph is well under).
+const MAX_SEARCH_BYTES: u64 = 32 * 1024 * 1024;
+
 /// A command still running after this is stopped.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -116,6 +121,80 @@ async fn run_command(root: &str, command: &str) -> ToolOutput {
     }
 }
 
+/// Lines containing `query` under `within` (a file or folder of the project).
+fn search(root: &str, within: &str, query: &str) -> Result<String, String> {
+    if query.is_empty() {
+        return Err("query is empty".to_owned());
+    }
+    let start = if within.trim().is_empty() {
+        std::path::Path::new(root.trim())
+            .canonicalize()
+            .map_err(|e| e.to_string())?
+    } else {
+        crate::files::resolve(root, within)?
+    };
+    let base = std::path::Path::new(root.trim())
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let needle = query.to_lowercase();
+    let mut found = Vec::new();
+    let mut stack = vec![start];
+    while let Some(path) = stack.pop() {
+        if found.len() >= MAX_MATCHES {
+            break;
+        }
+        if path.is_dir() {
+            let skip = path
+                .file_name()
+                .is_some_and(|n| matches!(n.to_str(), Some(".git" | "node_modules" | "target")));
+            if !skip {
+                if let Ok(entries) = std::fs::read_dir(&path) {
+                    let mut children: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+                    // Reversed, so the stack visits them in name order.
+                    children.sort();
+                    children.reverse();
+                    stack.extend(children);
+                }
+            }
+            continue;
+        }
+        let big = std::fs::metadata(&path).map_or(true, |m| m.len() > MAX_SEARCH_BYTES);
+        let Ok(bytes) = (if big {
+            Err(())
+        } else {
+            std::fs::read(&path).map_err(drop)
+        }) else {
+            continue;
+        };
+        // Binary files have NULs early on.
+        if bytes.iter().take(8192).any(|b| *b == 0) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(&base)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        for (i, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+            if line.to_lowercase().contains(&needle) {
+                let shown: String = line.trim().chars().take(300).collect();
+                found.push(format!("{rel}:{}: {shown}", i + 1));
+                if found.len() >= MAX_MATCHES {
+                    found.push(format!(
+                        "... stopped at {MAX_MATCHES} matches; search a narrower path"
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    Ok(if found.is_empty() {
+        format!("no lines contain {query:?}")
+    } else {
+        found.join("\n")
+    })
+}
+
 #[async_trait::async_trait]
 impl ToolHost for Workspace {
     fn specs(&self) -> Vec<ToolSpec> {
@@ -132,6 +211,12 @@ impl ToolHost for Workspace {
                 "List one folder of the open project. Folders end with /.",
                 json!({"path": {"type": "string", "description": "Relative folder; empty for the top."}}),
                 &[],
+            ),
+            spec(
+                "search_files",
+                "Find lines containing some text (case-insensitive) in the open project, or in one file or folder of it. Returns path:line: text. Skips .git, node_modules and target. Understand-Anything's graph is .ua/knowledge-graph.json.",
+                json!({"query": {"type": "string"}, "path": {"type": "string", "description": "File or folder to search; empty for the whole project."}}),
+                &["query"],
             ),
             spec(
                 "read_file",
@@ -161,7 +246,10 @@ impl ToolHost for Workspace {
     }
 
     fn needs_approval(&self, name: &str) -> bool {
-        !matches!(name, "get_open_file" | "list_dir" | "read_file")
+        !matches!(
+            name,
+            "get_open_file" | "list_dir" | "read_file" | "search_files"
+        )
     }
 
     fn file_for(&self, name: &str, args: &Value) -> Option<std::path::PathBuf> {
@@ -186,6 +274,20 @@ impl ToolHost for Workspace {
                     None => format!("Folder: {root}\nNo file is open."),
                 })
             }
+            "search_files" => match arg(&args, "query") {
+                Ok(q) => {
+                    let (root, q) = (root.clone(), q.to_owned());
+                    let within = args
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    tokio::task::spawn_blocking(move || search(&root, &within, &q))
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                }
+                Err(e) => return e,
+            },
             "list_dir" => {
                 let dir = args.get("path").and_then(Value::as_str).unwrap_or("");
                 crate::files::list_dir(&root, dir).map(|entries| {
@@ -294,6 +396,16 @@ mod tests {
             "one\n2\n"
         );
         assert_eq!(ws.call("list_dir", json!({})).await.text, "src/");
+        assert_eq!(
+            ws.call("search_files", json!({"query": "TWO"})).await.text,
+            "no lines contain \"TWO\"",
+            "the edit replaced it"
+        );
+        assert_eq!(
+            ws.call("search_files", json!({"query": "ONE"})).await.text,
+            "src/a.txt:1: one"
+        );
+        assert!(!ws.needs_approval("search_files"));
         assert!(
             ws.call("get_open_file", json!({}))
                 .await

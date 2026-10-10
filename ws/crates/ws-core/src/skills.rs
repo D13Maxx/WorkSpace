@@ -51,6 +51,30 @@ impl Skills {
         Self { list }
     }
 
+    /// Add skills shipped inside the app, as (folder label, `SKILL.md` text).
+    /// One the user installed under the same name wins.
+    #[must_use]
+    pub fn with_builtin(mut self, builtin: &[(&str, &str)]) -> Self {
+        for (label, text) in builtin {
+            let Some((name, description, body)) = parse(text) else {
+                tracing::warn!(skill = %label, "built-in SKILL.md without frontmatter; skipped");
+                continue;
+            };
+            let dir = PathBuf::from(label);
+            let name = name.unwrap_or_else(|| dir_name(&dir));
+            if !self.list.iter().any(|s| s.name == name) {
+                self.list.push(Skill {
+                    name,
+                    description,
+                    body,
+                    dir,
+                });
+            }
+        }
+        self.list.sort_by(|a, b| a.name.cmp(&b.name));
+        self
+    }
+
     #[must_use]
     pub fn list(&self) -> &[Skill] {
         &self.list
@@ -337,5 +361,20 @@ mod tests {
     #[test]
     fn no_skills_means_no_tool() {
         assert!(Skills::default().specs().is_empty());
+    }
+
+    #[test]
+    fn built_in_skills_join_the_list_but_the_users_own_win() {
+        let mine = "---\nname: ponytail\ndescription: my edit\n---\nmine\n";
+        let (_d, skills) = skills_in(&[("ponytail/SKILL.md", mine)]);
+        let other = "---\nname: understand-chat\ndescription: ask the graph\n---\nask\n";
+        let skills = skills.with_builtin(&[
+            ("builtin/ponytail", PONYTAIL),
+            ("builtin/understand-chat", other),
+            ("builtin/broken", "no frontmatter"),
+        ]);
+        let names: Vec<_> = skills.list().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["ponytail", "understand-chat"]);
+        assert_eq!(skills.get("ponytail").unwrap().description, "my edit");
     }
 }

@@ -24,6 +24,53 @@ pub const LOCAL: &str = LOCAL_BACKEND_ID;
 /// The built-in backends, in the order the model picker should group them.
 pub const BUILT_IN: [&str; 3] = [ANTHROPIC, OPENAI, GEMINI];
 
+/// Skills shipped inside FRIDAY, so they work with nothing installed: all of
+/// Ponytail, and the Understand-Anything skills that read an existing graph.
+/// Both MIT; their licences sit beside them in `src-tauri/skills`.
+/// shortcut: /understand itself (building a graph) is left out; it needs subagents and UA's Node packages.
+const BUILTIN_SKILLS: &[(&str, &str)] = &[
+    (
+        "built-in/ponytail/ponytail",
+        include_str!("../skills/ponytail/ponytail/SKILL.md"),
+    ),
+    (
+        "built-in/ponytail/ponytail-audit",
+        include_str!("../skills/ponytail/ponytail-audit/SKILL.md"),
+    ),
+    (
+        "built-in/ponytail/ponytail-debt",
+        include_str!("../skills/ponytail/ponytail-debt/SKILL.md"),
+    ),
+    (
+        "built-in/ponytail/ponytail-gain",
+        include_str!("../skills/ponytail/ponytail-gain/SKILL.md"),
+    ),
+    (
+        "built-in/ponytail/ponytail-help",
+        include_str!("../skills/ponytail/ponytail-help/SKILL.md"),
+    ),
+    (
+        "built-in/ponytail/ponytail-review",
+        include_str!("../skills/ponytail/ponytail-review/SKILL.md"),
+    ),
+    (
+        "built-in/understand-anything/understand-chat",
+        include_str!("../skills/understand-anything/understand-chat/SKILL.md"),
+    ),
+    (
+        "built-in/understand-anything/understand-diff",
+        include_str!("../skills/understand-anything/understand-diff/SKILL.md"),
+    ),
+    (
+        "built-in/understand-anything/understand-explain",
+        include_str!("../skills/understand-anything/understand-explain/SKILL.md"),
+    ),
+    (
+        "built-in/understand-anything/understand-onboard",
+        include_str!("../skills/understand-anything/understand-onboard/SKILL.md"),
+    ),
+];
+
 pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
     pub store: Arc<Mutex<Store>>,
@@ -88,7 +135,7 @@ impl AppState {
         // Created up front so there is somewhere obvious to clone skills into.
         let skills_dir = dir.join("skills");
         std::fs::create_dir_all(&skills_dir)?;
-        let skills = Arc::new(ws_core::Skills::load(&skills_dir));
+        let skills = Arc::new(ws_core::Skills::load(&skills_dir).with_builtin(BUILTIN_SKILLS));
         let workspace = Arc::new(crate::workspace::Workspace::default());
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())

@@ -10,6 +10,8 @@ import { keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { StreamLanguage } from "@codemirror/language";
 import { cpp } from "@codemirror/lang-cpp";
+import { html } from "@codemirror/lang-html";
+import { java } from "@codemirror/lang-java";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
@@ -25,6 +27,11 @@ function language(ext: string): Extension {
     case "cxx":
     case "hpp":
       return cpp();
+    case "java":
+      return java();
+    case "html":
+    case "htm":
+      return html();
     case "js":
     case "mjs":
     case "cjs":

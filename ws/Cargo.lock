@@ -6664,6 +6664,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "ulid",
  "ws-context",
  "ws-core",
  "ws-engine",

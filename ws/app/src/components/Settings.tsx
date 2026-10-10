@@ -242,8 +242,8 @@ function GraphSection() {
     <section>
       <h3>Knowledge graph</h3>
       <p className="muted">
-        Explore a project&apos;s Understand-Anything graph (its <code>.ua</code> folder). Opens in its
-        own window; the first time downloads the viewer, which needs Node.js.
+        Explore a project&apos;s Understand-Anything graph (its <code>.ua</code> folder) in its own
+        window. The viewer is built in; nothing to install.
       </p>
       <div className="local-picker">
         <input
@@ -290,8 +290,9 @@ function SkillsSection() {
     <section>
       <h3>Skills</h3>
       <p className="muted">
-        Put skill folders (for example a clone of Ponytail) in <code>{list.dir}</code> and restart.
-        Type <code>/name</code> in a message to run one; Claude can also load them itself.
+        Ponytail and the Understand-Anything graph skills are built in. Add your own skill folders
+        to <code>{list.dir}</code> and restart; one with a built-in&apos;s name replaces it. Type{" "}
+        <code>/name</code> in a message to run one; Claude can also load them itself.
       </p>
       {list.skills.length === 0 ? (
         <p className="muted">No skills found.</p>
