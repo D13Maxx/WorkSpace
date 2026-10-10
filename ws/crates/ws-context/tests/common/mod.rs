@@ -120,6 +120,23 @@ impl PathBuilder {
         self
     }
 
+    /// One tool round: an assistant tool call, then its result.
+    pub fn tool_round(mut self, model: &ModelRef, call_id: &str, output: &str) -> Self {
+        let call = Part::ToolCall {
+            call_id: call_id.to_owned(),
+            name: "read_file".to_owned(),
+            args_json: "{}".to_owned(),
+        };
+        self.push(Role::Assistant, Some(model.clone()), vec![call]);
+        let result = Part::ToolResult {
+            call_id: call_id.to_owned(),
+            content: vec![Part::text(output)],
+            is_error: false,
+        };
+        self.push(Role::Tool, None, vec![result]);
+        self
+    }
+
     pub fn user_with_parts(mut self, parts: Vec<Part>) -> Self {
         self.push(Role::User, None, parts);
         self

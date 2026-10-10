@@ -177,6 +177,7 @@ mod tests {
             thinking: ThinkingMode::Off,
             raw_payloads: BTreeMap::new(),
             blobs: BTreeMap::new(),
+            tools: Vec::new(),
         }
     }
 

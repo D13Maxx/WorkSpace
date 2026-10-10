@@ -237,6 +237,7 @@ fn a_stored_response_round_trips_into_the_next_requests_input() {
         thinking: ThinkingMode::Adaptive,
         raw_payloads: BTreeMap::new(),
         blobs: BTreeMap::new(),
+        tools: Vec::new(),
     };
     req.raw_payloads.insert(assistant_id, raw);
 

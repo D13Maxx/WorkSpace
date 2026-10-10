@@ -26,6 +26,9 @@ pub enum CoreError {
     #[error("the context builder kept asking for summaries; this is a bug")]
     SummaryLoopDidNotConverge,
 
+    #[error("{0}")]
+    ToolLoop(String),
+
     #[error(transparent)]
     Backend(#[from] ws_context::BackendError),
 }

@@ -57,6 +57,24 @@ pub struct ThreadMessage {
     /// branch navigator; `total` is 1 when there is no branch here.
     pub branch_index: u32,
     pub branch_total: u32,
+    /// Tools an assistant message asked for.
+    pub tool_calls: Vec<ToolCallDto>,
+    /// What those tools returned, on a `tool` message.
+    pub tool_results: Vec<ToolResultDto>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ToolCallDto {
+    pub call_id: String,
+    pub name: String,
+    pub args: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ToolResultDto {
+    pub call_id: String,
+    pub text: String,
+    pub is_error: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -208,6 +226,38 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
             model_id: m.author_model.as_ref().map(|a| a.model_id.clone()),
             branch_index: index + 1,
             branch_total: u32::try_from(siblings.len()).unwrap_or(1).max(1),
+            tool_calls: m
+                .parts
+                .iter()
+                .filter_map(|p| match p {
+                    Part::ToolCall {
+                        call_id,
+                        name,
+                        args_json,
+                    } => Some(ToolCallDto {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        args: args_json.clone(),
+                    }),
+                    _ => None,
+                })
+                .collect(),
+            tool_results: m
+                .parts
+                .iter()
+                .filter_map(|p| match p {
+                    Part::ToolResult {
+                        call_id,
+                        content,
+                        is_error,
+                    } => Some(ToolResultDto {
+                        call_id: call_id.clone(),
+                        text: content.iter().filter_map(Part::as_text).collect(),
+                        is_error: *is_error,
+                    }),
+                    _ => None,
+                })
+                .collect(),
         });
     }
 
@@ -728,4 +778,27 @@ pub async fn unload_local_model(state: State<'_, AppState>) -> CmdResult<()> {
 #[tauri::command]
 pub async fn local_model_status(state: State<'_, AppState>) -> CmdResult<Option<LoadedModelDto>> {
     Ok(state.local.loaded_info().as_ref().map(to_dto))
+}
+
+// ---- tools (MCP) ------------------------------------------------------
+
+/// Answer a tool call waiting for approval. False if it is no longer waiting.
+#[tauri::command]
+pub fn resolve_approval(state: State<'_, AppState>, call_id: String, approved: bool) -> bool {
+    state.orchestrator.resolve_approval(&call_id, approved)
+}
+
+#[derive(Debug, Serialize)]
+pub struct McpStatusDto {
+    /// Where to put the `mcpServers` config.
+    pub config_path: String,
+    pub servers: Vec<ws_mcp::ServerStatus>,
+}
+
+#[tauri::command]
+pub fn mcp_status(state: State<'_, AppState>) -> McpStatusDto {
+    McpStatusDto {
+        config_path: state.mcp.config_path.display().to_string(),
+        servers: state.mcp.status(),
+    }
 }

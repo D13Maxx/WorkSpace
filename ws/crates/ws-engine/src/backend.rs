@@ -313,6 +313,7 @@ mod tests {
             thinking: ws_context::ThinkingMode::Off,
             raw_payloads: std::collections::BTreeMap::new(),
             blobs: std::collections::BTreeMap::new(),
+            tools: Vec::new(),
         }
     }
 

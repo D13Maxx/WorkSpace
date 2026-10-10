@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use ws_context::{BackendId, ConvId, ModelCapabilities};
 use ws_core::{Orchestrator, Profile, ProfileTable};
 use ws_engine::{LocalBackend, backend::LOCAL_BACKEND_ID};
+use ws_mcp::{McpConfig, McpTools, ServerStatus};
 use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
 use ws_store::{BlobStore, Store};
 
@@ -30,6 +31,8 @@ pub struct AppState {
     /// The local engine, reachable directly for load and unload. It is also
     /// registered as a backend, which is how a turn reaches it.
     pub local: Arc<LocalBackend>,
+    /// MCP tool servers (Serena and friends), from `mcp.json`.
+    pub mcp: Arc<LateTools>,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -72,9 +75,11 @@ impl AppState {
         // user picks a file: a worker thread costs nothing, a model costs
         // gigabytes.
         let local = Arc::new(LocalBackend::start(None)?);
+        let mcp = Arc::new(LateTools::new(dir.join("mcp.json")));
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_backend(local.clone() as Arc<_>)
+            .with_tools(mcp.clone() as Arc<_>)
             .with_backend(Arc::new(AnthropicBackend::new(
                 BackendId::new(ANTHROPIC),
                 profiles.clone() as Arc<_>,
@@ -102,6 +107,11 @@ impl AppState {
             store,
             profiles,
             local,
+            mcp: {
+                let late = mcp.clone();
+                tauri::async_runtime::spawn(async move { late.connect().await });
+                mcp
+            },
             running: Mutex::new(HashMap::new()),
         })
     }
@@ -196,6 +206,80 @@ fn load_compat_configs(store: &Arc<Mutex<Store>>) -> Vec<CompatConfig> {
         Err(e) => {
             tracing::error!(error = %e, "could not load configured providers");
             Vec::new()
+        }
+    }
+}
+
+/// MCP tools that arrive after launch.
+///
+/// Serena starts language servers before it answers, which can take seconds.
+/// Connecting in the background keeps the window responsive; until it is
+/// done, no tools are offered.
+#[derive(Debug)]
+pub struct LateTools {
+    pub config_path: std::path::PathBuf,
+    tools: std::sync::OnceLock<McpTools>,
+    status: Mutex<Vec<ServerStatus>>,
+}
+
+impl LateTools {
+    fn new(config_path: std::path::PathBuf) -> Self {
+        Self {
+            config_path,
+            tools: std::sync::OnceLock::new(),
+            status: Mutex::new(Vec::new()),
+        }
+    }
+
+    async fn connect(&self) {
+        let config = match std::fs::read_to_string(&self.config_path) {
+            Ok(text) => match McpConfig::parse(&text) {
+                Ok(c) => c,
+                Err(e) => {
+                    // A broken file is shown in Settings, not swallowed.
+                    self.set_status(vec![ServerStatus {
+                        id: "mcp.json".to_owned(),
+                        tools: 0,
+                        error: Some(e.to_string()),
+                    }]);
+                    return;
+                }
+            },
+            Err(_) => return, // no file: no tool servers configured
+        };
+        let (host, status) = McpTools::connect(&config).await;
+        let _ = self.tools.set(host);
+        self.set_status(status);
+    }
+
+    fn set_status(&self, status: Vec<ServerStatus>) {
+        if let Ok(mut s) = self.status.lock() {
+            *s = status;
+        }
+    }
+
+    pub fn status(&self) -> Vec<ServerStatus> {
+        self.status.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+}
+
+#[async_trait::async_trait]
+impl ws_core::ToolHost for LateTools {
+    fn specs(&self) -> Vec<ws_context::ToolSpec> {
+        self.tools
+            .get()
+            .map(ws_core::ToolHost::specs)
+            .unwrap_or_default()
+    }
+
+    fn needs_approval(&self, name: &str) -> bool {
+        self.tools.get().is_none_or(|t| t.needs_approval(name))
+    }
+
+    async fn call(&self, name: &str, args: serde_json::Value) -> ws_core::ToolOutput {
+        match self.tools.get() {
+            Some(t) => t.call(name, args).await,
+            None => ws_core::ToolOutput::error("tool servers are still starting"),
         }
     }
 }

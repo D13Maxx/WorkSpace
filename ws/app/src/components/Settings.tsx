@@ -4,6 +4,7 @@ import {
   type BackendInfo,
   type CompatProvider,
   type ModelOption,
+  type McpStatus,
   type ModelProfile,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
@@ -217,6 +218,43 @@ function ProfileSection({
 }
 
 /** User-configured OpenAI-compatible endpoints (master spec s7.5). */
+/** Tool servers come from mcp.json, in the same shape as Claude Code's. */
+function McpSection() {
+  const [status, setStatus] = useState<McpStatus | null>(null);
+  useEffect(() => {
+    api
+      .mcpStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+  if (!status) return null;
+
+  return (
+    <section>
+      <h3>Tool servers (MCP)</h3>
+      <p className="muted">
+        Configured in <code>{status.config_path}</code> using the same <code>mcpServers</code>{" "}
+        format as Claude Code. Changes apply on the next launch. Tools that can edit files or run
+        commands always ask before running.
+      </p>
+      {status.servers.length === 0 ? (
+        <p className="muted">No tool servers configured.</p>
+      ) : (
+        status.servers.map((s) => (
+          <div key={s.id} className="key-head">
+            <strong>{s.id}</strong>
+            {s.error ? (
+              <span className="failure">{s.error}</span>
+            ) : (
+              <span className="ok">{s.tools} tools</span>
+            )}
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
 function CompatSection({ onChanged }: { onChanged: () => void }) {
   const [providers, setProviders] = useState<CompatProvider[]>([]);
   const [id, setId] = useState("");
@@ -349,6 +387,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
+      <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
       <CompatSection onChanged={refreshBackends} />

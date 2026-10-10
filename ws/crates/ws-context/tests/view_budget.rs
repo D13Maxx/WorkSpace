@@ -430,3 +430,67 @@ fn compaction_does_not_repeat_on_every_following_turn() {
          got {headroom} of {available}"
     );
 }
+
+#[test]
+fn compaction_never_keeps_a_tool_result_without_its_call() {
+    // Providers reject a tool result whose call is missing, so the cut must
+    // never land between the two. Agent turns fill the window quickly with
+    // file contents, which is what makes this boundary real.
+    let model = anthropic_model();
+    let mut b = PathBuilder::new();
+    for i in 0..12 {
+        b = b.user(&format!(
+            "question {i} with enough padding text to cost tokens"
+        ));
+        for r in 0..3 {
+            b = b.tool_round(
+                &model,
+                &format!("c{i}-{r}"),
+                "file contents padding padding padding",
+            );
+        }
+        b = b.assistant(
+            &model,
+            &format!("answer {i} with enough padding text to cost"),
+        );
+    }
+    let path = b.user("the final question").build();
+    let mut c = caps(1024);
+    c.tools = true;
+
+    let ViewPlan::NeedsSummary(req) = plan(&path, &c, &[], None).unwrap() else {
+        panic!("expected a summary request");
+    };
+    let s = summary_for(&path, req.covering.end - 1, 40, &model);
+    let ViewPlan::Ready(built) = plan(&path, &c, std::slice::from_ref(&s), None).unwrap() else {
+        panic!("expected ready");
+    };
+
+    let messages = &built.rendered.messages;
+    assert_eq!(
+        messages[0].role,
+        ws_context::Role::User,
+        "the window opens on a user turn"
+    );
+    let mut calls = std::collections::HashSet::new();
+    for m in messages {
+        for part in &m.parts {
+            match part {
+                Part::ToolCall { call_id, .. } => {
+                    calls.insert(call_id.clone());
+                }
+                Part::ToolResult { call_id, .. } => {
+                    assert!(
+                        calls.contains(call_id),
+                        "result {call_id} kept without its call"
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        !calls.is_empty(),
+        "the test must actually keep some tool rounds"
+    );
+}

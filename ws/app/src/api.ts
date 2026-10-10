@@ -23,6 +23,13 @@ export interface ThreadMessage {
   model_id: string | null;
   branch_index: number;
   branch_total: number;
+  tool_calls: { call_id: string; name: string; args: string }[];
+  tool_results: { call_id: string; text: string; is_error: boolean }[];
+}
+
+export interface McpStatus {
+  config_path: string;
+  servers: { id: string; tools: number; error: string | null }[];
 }
 
 export interface Thread {
@@ -88,6 +95,9 @@ export type TurnEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "usage"; input_tokens: number; output_tokens: number }
+  | { type: "tool_call"; call_id: string; name: string; args: string }
+  | { type: "approval_required"; call_id: string; name: string; args: string }
+  | { type: "tool_result"; call_id: string; is_error: boolean; text: string }
   | { type: "completed"; message: string; stop_reason: unknown }
   | { type: "failed"; message: string | null; error: string };
 
@@ -198,6 +208,11 @@ export const api = {
   unloadLocalModel: () => invoke<void>("unload_local_model"),
 
   localModelStatus: () => invoke<LoadedModel | null>("local_model_status"),
+
+  resolveApproval: (callId: string, approved: boolean) =>
+    invoke<boolean>("resolve_approval", { callId, approved }),
+
+  mcpStatus: () => invoke<McpStatus>("mcp_status"),
 
   setApiKey: (backend: string, key: string) => invoke<void>("set_api_key", { backend, key }),
   hasApiKey: (backend: string) => invoke<boolean>("has_api_key", { backend }),

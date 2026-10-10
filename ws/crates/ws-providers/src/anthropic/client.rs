@@ -110,6 +110,10 @@ impl ChatBackend for AnthropicBackend {
         self.profiles.capabilities(model)
     }
 
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
     async fn stream(
         &self,
         request: BackendRequest,

@@ -28,6 +28,10 @@ export default function App() {
     startedAt: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A tool call waiting for the user. The turn is paused until it is answered.
+  const [approval, setApproval] = useState<{ callId: string; name: string; args: string } | null>(
+    null,
+  );
 
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
@@ -127,6 +131,22 @@ export default function App() {
               reasoned += event.text;
               setReasoning(reasoned);
               break;
+            case "tool_call":
+              setStatus(`Running ${event.name}…`);
+              break;
+            case "approval_required":
+              setApproval({ callId: event.call_id, name: event.name, args: event.args });
+              break;
+            case "tool_result":
+              setStatus(null);
+              break;
+            case "completed":
+              // One user message can produce several model replies with tool
+              // calls between them; show each as it lands.
+              text = "";
+              setStreaming("");
+              void refreshThread(conversation);
+              break;
             case "failed":
               setError(event.error);
               break;
@@ -141,6 +161,7 @@ export default function App() {
         setReasoning("");
         setStatus(null);
         setPrefill(null);
+        setApproval(null);
         await refreshThread(conversation);
         await refreshConversations();
       }
@@ -279,6 +300,33 @@ export default function App() {
               />
             )}
             {status && <div className="status-banner">{status}</div>}
+            {approval && (
+              <div className="approval" role="alertdialog" aria-label="Approve tool call">
+                <p>
+                  The model wants to run <code>{approval.name}</code>:
+                </p>
+                <pre>{approval.args}</pre>
+                <div className="row">
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      void api.resolveApproval(approval.callId, true);
+                      setApproval(null);
+                    }}
+                  >
+                    Allow
+                  </button>
+                  <button
+                    onClick={() => {
+                      void api.resolveApproval(approval.callId, false);
+                      setApproval(null);
+                    }}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            )}
             {error && (
               <div className="error-banner" role="alert">
                 {error}

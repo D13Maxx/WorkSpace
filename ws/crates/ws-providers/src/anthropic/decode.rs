@@ -241,23 +241,10 @@ impl AnthropicDecoder {
                     .get("partial_json")
                     .and_then(Value::as_str)
                     .unwrap_or("");
+                // Accumulated only. The call is emitted whole at block stop,
+                // because a call with no arguments may send no delta at all.
                 block.append("partial_json", partial);
-                let call_id = block
-                    .value
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let name = block
-                    .value
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                vec![BackendEvent::ToolCallDelta {
-                    call_id,
-                    name,
-                    args_delta: partial.to_owned(),
-                }]
+                Vec::new()
             }
             other => {
                 tracing::debug!(delta = other, "ignoring unrecognised Anthropic delta");
@@ -270,9 +257,40 @@ impl AnthropicDecoder {
         let Some(index) = v.get("index").and_then(Value::as_u64) else {
             return vec![self.protocol_error("content_block_stop without an index")];
         };
-        let Some(block) = self.blocks.remove(&(index as u32)) else {
+        let Some(mut block) = self.blocks.remove(&(index as u32)) else {
             return vec![self.protocol_error(format!("stop for unknown block {index}"))];
         };
+
+        let mut events = Vec::new();
+        if block.block_type == "tool_use" {
+            // The arguments stream as `partial_json` text while `input` stays the
+            // `{}` from block start. Replay sends the raw block back verbatim, so
+            // folding them in here is what keeps the arguments on the next turn.
+            let args = block
+                .value
+                .remove("partial_json")
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .filter(|a| !a.trim().is_empty())
+                .unwrap_or_else(|| "{}".to_owned());
+            if let Ok(input) = serde_json::from_str::<Value>(&args) {
+                block.value.insert("input".to_owned(), input);
+            }
+            let field = |k: &str| {
+                block
+                    .value
+                    .get(k)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            // Unparseable arguments are passed through as-is, so the tool
+            // layer can report them to the model instead of silently using {}.
+            events.push(BackendEvent::ToolCallDelta {
+                call_id: field("id"),
+                name: Some(field("name")),
+                args_delta: args,
+            });
+        }
 
         let complete = Value::Object(block.value);
         // Every block type is kept, including ones this build does not
@@ -280,7 +298,7 @@ impl AnthropicDecoder {
         self.finished.push(complete.clone());
 
         if !is_provider_native(&block.block_type) {
-            return Vec::new();
+            return events;
         }
         let position = self.opaque_position;
         self.opaque_position += 1;

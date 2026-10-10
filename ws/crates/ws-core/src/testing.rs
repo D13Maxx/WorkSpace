@@ -31,6 +31,16 @@ pub enum Scripted {
         deltas: Vec<String>,
         delay: std::time::Duration,
     },
+    /// Stop to call tools: `(call_id, name, args_json)` each.
+    CallsTools(Vec<(String, String, String)>),
+}
+
+impl Scripted {
+    /// Convenience: one tool call.
+    #[must_use]
+    pub fn calls(call_id: &str, name: &str, args: &str) -> Self {
+        Self::CallsTools(vec![(call_id.to_owned(), name.to_owned(), args.to_owned())])
+    }
 }
 
 /// Records what each call received, so tests can assert on the request the
@@ -145,6 +155,10 @@ impl ChatBackend for FakeBackend {
         self.profiles.capabilities(model)
     }
 
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
     async fn stream(
         &self,
         request: BackendRequest,
@@ -198,6 +212,27 @@ impl ChatBackend for FakeBackend {
                 }));
             }
             Scripted::RefusesToStart { error } => return Err(error),
+            Scripted::CallsTools(calls) => {
+                let mut content = Vec::new();
+                for (call_id, name, args) in calls {
+                    content.push(serde_json::json!({
+                        "type": "tool_use", "id": call_id, "name": name,
+                        "input": serde_json::from_str::<serde_json::Value>(&args)
+                            .unwrap_or_else(|_| serde_json::json!({})),
+                    }));
+                    events.push(BackendEvent::ToolCallDelta {
+                        call_id,
+                        name: Some(name),
+                        args_delta: args,
+                    });
+                }
+                events.push(BackendEvent::RawPayload(
+                    serde_json::json!({ "content": content }),
+                ));
+                events.push(BackendEvent::Done {
+                    stop_reason: StopReason::ToolUse,
+                });
+            }
             Scripted::SlowText { deltas, delay } => {
                 let whole = deltas.concat();
                 let cancel_for_slow = cancel.clone();

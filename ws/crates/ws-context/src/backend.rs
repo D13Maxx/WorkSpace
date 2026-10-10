@@ -67,6 +67,19 @@ pub struct BackendRequest {
     /// the context builder appear here, and the token budget already bounds how
     /// many that can be.
     pub blobs: BTreeMap<BlobRef, InlineBlob>,
+    /// Tools offered for this turn. Empty unless the backend reports
+    /// [`ChatBackend::supports_tools`].
+    pub tools: Vec<ToolSpec>,
+}
+
+/// A tool the model may call, in the shape every provider accepts: a name, a
+/// description, and a JSON Schema for the arguments. MCP tools already arrive
+/// in exactly this form.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
 }
 
 /// An image resolved from the blob store, ready to inline in a request body.
@@ -230,6 +243,14 @@ pub trait ChatBackend: Send + Sync + std::fmt::Debug {
     /// against an 8k cap would be the difference between fitting and failing.
     fn token_counter(&self, _model: &ModelRef) -> std::sync::Arc<dyn TokenCounter> {
         std::sync::Arc::new(crate::token::ByteEstimateCounter)
+    }
+
+    /// Whether this backend sends `BackendRequest::tools` and reports tool calls.
+    ///
+    /// Off by default so each adapter opts in once it really encodes tools; a
+    /// backend that does not gets tool history flattened to text instead.
+    fn supports_tools(&self) -> bool {
+        false
     }
 
     /// Begin generating. Cancelling drops the stream; whatever text has

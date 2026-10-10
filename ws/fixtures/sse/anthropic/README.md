@@ -14,3 +14,6 @@ Recorded and synthetic streams used to test the decoder without a network
   emitted. Not retryable, because retrying would duplicate the text.
 - `unknown_block_type.sse` — synthetic. A future block type this build does
   not recognise must still be preserved in the raw payload.
+- `tool_use.sse` — synthetic. Two tool calls: one whose arguments stream in two
+  `input_json_delta` pieces, and one with no deltas at all. A no-argument call
+  can arrive like that, which is why the decoder emits calls at block stop.

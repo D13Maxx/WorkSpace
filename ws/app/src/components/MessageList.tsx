@@ -67,7 +67,9 @@ export function MessageList(props: Props) {
       {props.messages.map((m) => (
         <article key={m.id} className={`message ${m.role} ${m.status}`}>
           <header>
-            <span className="who">{m.role === "user" ? "You" : (m.model_id ?? "Assistant")}</span>
+            <span className="who">
+              {m.role === "user" ? "You" : m.role === "tool" ? "Tool" : (m.model_id ?? "Assistant")}
+            </span>
             <BranchNavigator message={m} onSelectBranch={props.onSelectBranch} />
             <span className="actions">
               <button onClick={() => void navigator.clipboard.writeText(m.text)} title="Copy">
@@ -97,7 +99,19 @@ export function MessageList(props: Props) {
             </details>
           )}
 
-          <div className="body">{m.text}</div>
+          {m.text && <div className="body">{m.text}</div>}
+
+          {m.tool_calls.map((c) => (
+            <div key={c.call_id} className="tool-call">
+              <code>{c.name}</code> <span className="muted">{c.args}</span>
+            </div>
+          ))}
+          {m.tool_results.map((r) => (
+            <details key={r.call_id} className={`tool-result ${r.is_error ? "failure" : ""}`}>
+              <summary>{r.is_error ? "Tool error" : "Tool result"}</summary>
+              <pre>{r.text}</pre>
+            </details>
+          ))}
 
           {m.status === "failed" && (
             <p className="failure">

@@ -97,6 +97,30 @@ cargo run -p ws-engine-cli -- chat path/to/model.gguf --system "Be brief."
 `chat` reports prefill and decode rates per turn, and how much of the prompt
 came from the KV cache rather than being read again.
 
+## Connect tool servers (Serena)
+
+Models can call tools from any MCP server. List them in `mcp.json` in the app
+data folder (Settings → Tool servers shows the exact path), in the same
+`mcpServers` format Claude Code uses. For [Serena](https://github.com/oraios/serena):
+
+```json
+{
+  "mcpServers": {
+    "serena": {
+      "command": "serena",
+      "args": ["start-mcp-server", "--context=ide", "--project", "C:/path/to/your/repo"]
+    }
+  }
+}
+```
+
+Install Serena first with `uv tool install -p 3.13 serena-agent`. Servers start
+in the background at launch; changes to `mcp.json` apply on the next launch.
+
+Read-only tools run straight away. Anything that can edit files or run
+commands stops and asks you first. Tool calling works with Anthropic models
+today; the other adapters still flatten tool history to text.
+
 ## Add a provider
 
 API keys live in Windows Credential Manager and nowhere else — not in the

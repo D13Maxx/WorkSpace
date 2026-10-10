@@ -268,6 +268,7 @@ fn a_stored_turn_round_trips_into_the_next_requests_contents() {
         thinking: ThinkingMode::Adaptive,
         raw_payloads: BTreeMap::new(),
         blobs: BTreeMap::new(),
+        tools: Vec::new(),
     };
     req.raw_payloads.insert(assistant_id, raw.clone());
 

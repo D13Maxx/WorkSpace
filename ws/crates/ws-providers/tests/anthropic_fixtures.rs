@@ -259,3 +259,57 @@ fn the_raw_payload_records_the_model_the_response_reports() {
         Some("claude-test-20260101")
     );
 }
+
+#[test]
+fn tool_calls_arrive_whole_including_one_with_no_arguments() {
+    for chunk in [usize::MAX, 7, 1] {
+        let (events, _) = decode_chunked("tool_use.sse", chunk);
+        let calls: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                BackendEvent::ToolCallDelta {
+                    call_id,
+                    name,
+                    args_delta,
+                } => Some((call_id.as_str(), name.as_deref(), args_delta.as_str())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            vec![
+                (
+                    "toolu_01",
+                    Some("serena__find_symbol"),
+                    r#"{"name_path": "Orchestrator"}"#
+                ),
+                // No delta was streamed for this one; it must still be seen.
+                ("toolu_02", Some("serena__list_dir"), "{}"),
+            ],
+            "chunk size {chunk}"
+        );
+        assert!(events.contains(&BackendEvent::Done {
+            stop_reason: StopReason::ToolUse
+        }));
+    }
+}
+
+#[test]
+fn a_replayed_tool_call_keeps_its_arguments() {
+    // Same-model replay sends the raw blocks back verbatim. If the streamed
+    // arguments are not folded into `input`, the replayed call has `{}` and a
+    // stray `partial_json` field.
+    let (events, _) = decode("tool_use.sse");
+    let raw = events
+        .iter()
+        .find_map(|e| match e {
+            BackendEvent::RawPayload(v) => Some(v.clone()),
+            _ => None,
+        })
+        .expect("a raw payload");
+    let tool = &raw["content"][1];
+    assert_eq!(tool["type"], "tool_use");
+    assert_eq!(tool["input"]["name_path"], "Orchestrator");
+    assert!(tool.get("partial_json").is_none(), "{tool}");
+    assert_eq!(raw["content"][2]["input"], serde_json::json!({}));
+}

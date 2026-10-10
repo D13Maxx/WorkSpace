@@ -147,6 +147,13 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
             body["system"] = json!(system);
         }
     }
+    if !req.tools.is_empty() {
+        body["tools"] = req
+            .tools
+            .iter()
+            .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.input_schema}))
+            .collect();
+    }
     if let Some(thinking) = thinking_value(req.thinking) {
         body["thinking"] = thinking;
         // Thinking requires temperature to be left at its default; the API
@@ -177,6 +184,7 @@ mod tests {
             thinking: ThinkingMode::Off,
             raw_payloads: BTreeMap::new(),
             blobs: BTreeMap::new(),
+            tools: Vec::new(),
         }
     }
 
@@ -379,5 +387,20 @@ mod tests {
             part["text"].as_str().unwrap().contains("missing.png"),
             "a dropped image must be visible in the transcript"
         );
+    }
+
+    #[test]
+    fn tools_are_sent_in_anthropics_shape_and_omitted_when_there_are_none() {
+        let mut req = request(vec![], None);
+        assert!(build_body(&req, true).get("tools").is_none());
+
+        req.tools = vec![ws_context::ToolSpec {
+            name: "serena__find_symbol".to_owned(),
+            description: "Find a symbol".to_owned(),
+            input_schema: json!({"type": "object", "properties": {"name_path": {"type": "string"}}}),
+        }];
+        let body = build_body(&req, true);
+        assert_eq!(body["tools"][0]["name"], "serena__find_symbol");
+        assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
     }
 }

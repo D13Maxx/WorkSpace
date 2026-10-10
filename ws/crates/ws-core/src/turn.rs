@@ -16,11 +16,12 @@
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
+use crate::tools::{ToolHost, ToolOutput};
 use chrono::Utc;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use ws_context::{
     BackendEvent, BackendId, BackendRequest, BuildViewParams, ByteEstimateCounter, ChatBackend,
@@ -42,6 +43,23 @@ const DRAFT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(1);
 /// means the loop is not converging, which is a bug rather than a retry.
 const MAX_SUMMARY_ROUNDS: usize = 1;
 
+/// Model-then-tools rounds per user message. A model that keeps calling tools
+/// past this is looping, and every round costs money.
+const MAX_TOOL_ROUNDS: usize = 25;
+
+/// Cap on one tool result, in characters. A whole-file read can otherwise be
+/// larger than the model's window, and a message is never split.
+// shortcut: truncates instead of paging, upgrade if agents need whole large files.
+const MAX_TOOL_OUTPUT_CHARS: usize = 60_000;
+
+/// A tool call the model asked for, assembled from its deltas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingCall {
+    call_id: String,
+    name: String,
+    args: String,
+}
+
 pub struct Orchestrator {
     /// `rusqlite::Connection` is `Send` but not `Sync`, so access is
     /// serialised. Every lock is held for one synchronous statement and never
@@ -52,6 +70,9 @@ pub struct Orchestrator {
     profiles: Arc<ProfileTable>,
     cfg: ContextConfig,
     draft_interval: Duration,
+    tools: Option<Arc<dyn ToolHost>>,
+    /// Calls waiting on the user, by call id. Resolved by `resolve_approval`.
+    approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -77,7 +98,36 @@ impl Orchestrator {
             profiles,
             cfg: ContextConfig::default(),
             draft_interval: DRAFT_CHECKPOINT_INTERVAL,
+            tools: None,
+            approvals: Mutex::new(HashMap::new()),
         }
+    }
+
+    #[must_use]
+    pub fn with_tools(mut self, host: Arc<dyn ToolHost>) -> Self {
+        self.tools = Some(host);
+        self
+    }
+
+    /// Answer a pending approval. Returns false if no call is waiting under
+    /// that id (already answered, or the turn was cancelled).
+    pub fn resolve_approval(&self, call_id: &str, approved: bool) -> bool {
+        let tx = self
+            .approvals
+            .lock()
+            .ok()
+            .and_then(|mut m| m.remove(call_id));
+        tx.is_some_and(|tx| tx.send(approved).is_ok())
+    }
+
+    /// Tools are offered only when there is a host and the target's backend
+    /// can carry them; otherwise tool history is flattened to text.
+    fn tools_enabled(&self, target: &ModelRef) -> bool {
+        self.tools.is_some()
+            && self
+                .backends
+                .get(&target.backend)
+                .is_some_and(|b| b.supports_tools())
     }
 
     /// Override how often an in-progress reply is checkpointed. Exists so
@@ -322,6 +372,10 @@ impl Orchestrator {
             thinking: self.profiles.thinking(target),
             raw_payloads,
             blobs,
+            tools: match &self.tools {
+                Some(host) if self.tools_enabled(target) => host.specs(),
+                _ => Vec::new(),
+            },
         })
     }
 
@@ -333,7 +387,8 @@ impl Orchestrator {
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
     ) -> Result<(ContextView, RenderedView)> {
-        let caps = self.profiles.capabilities(target);
+        let mut caps = self.profiles.capabilities(target);
+        caps.tools = self.tools_enabled(target);
         // Ask the backend how it counts. The local engine counts exactly;
         // API backends fall back to the estimate (master spec s6.1).
         let counter = self.backend(&target.backend)?.token_counter(target);
@@ -418,6 +473,7 @@ impl Orchestrator {
             thinking: ws_context::ThinkingMode::Off,
             raw_payloads: BTreeMap::new(),
             blobs: BTreeMap::new(),
+            tools: Vec::new(),
         };
 
         let mut stream = backend.stream(request, cancel.clone()).await.map_err(|e| {
@@ -483,6 +539,124 @@ impl Orchestrator {
         events: mpsc::Sender<TurnEvent>,
         cancel: CancellationToken,
     ) -> Result<MsgId> {
+        for _ in 0..MAX_TOOL_ROUNDS {
+            let (reply, calls) = self.run_step(conv, &events, &cancel).await?;
+            if calls.is_empty() {
+                return Ok(reply);
+            }
+            // Every call gets a result, even after a cancel: a tool call with
+            // no result is a request the provider rejects on the next turn.
+            let results = self.run_tools(calls, &events, &cancel).await;
+            self.insert(
+                conv,
+                Some(reply),
+                Role::Tool,
+                None,
+                results,
+                MsgStatus::Complete,
+                None,
+            )?;
+            if cancel.is_cancelled() {
+                return Ok(reply);
+            }
+        }
+        let error = format!("stopped after {MAX_TOOL_ROUNDS} rounds of tool calls");
+        let _ = events
+            .send(TurnEvent::Failed {
+                message: None,
+                error: error.clone(),
+            })
+            .await;
+        Err(CoreError::ToolLoop(error))
+    }
+
+    /// Run each requested tool, asking the user first where the host says to.
+    async fn run_tools(
+        &self,
+        calls: Vec<PendingCall>,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+    ) -> Vec<Part> {
+        let mut parts = Vec::with_capacity(calls.len());
+        for call in calls {
+            let out = self.run_one(&call, events, cancel).await;
+            let _ = events
+                .send(TurnEvent::ToolResult {
+                    call_id: call.call_id.clone(),
+                    is_error: out.is_error,
+                    text: out.text.clone(),
+                })
+                .await;
+            parts.push(Part::ToolResult {
+                call_id: call.call_id,
+                content: vec![Part::text(out.text)],
+                is_error: out.is_error,
+            });
+        }
+        parts
+    }
+
+    async fn run_one(
+        &self,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+    ) -> ToolOutput {
+        let Some(host) = &self.tools else {
+            return ToolOutput::error("no tools are available");
+        };
+        if cancel.is_cancelled() {
+            return ToolOutput::error("cancelled by the user before it ran");
+        }
+        let args: serde_json::Value = match serde_json::from_str(&call.args) {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::error(format!("the arguments were not valid JSON: {e}")),
+        };
+
+        if host.needs_approval(&call.name) {
+            let (tx, rx) = oneshot::channel();
+            if let Ok(mut m) = self.approvals.lock() {
+                m.insert(call.call_id.clone(), tx);
+            }
+            let _ = events
+                .send(TurnEvent::ApprovalRequired {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    args: call.args.clone(),
+                })
+                .await;
+            let approved = tokio::select! {
+                answer = rx => answer.unwrap_or(false),
+                () = cancel.cancelled() => false,
+            };
+            if let Ok(mut m) = self.approvals.lock() {
+                m.remove(&call.call_id);
+            }
+            if !approved {
+                return ToolOutput::error("the user declined to run this tool");
+            }
+        }
+
+        let mut out = tokio::select! {
+            out = host.call(&call.name, args) => out,
+            () = cancel.cancelled() => ToolOutput::error("cancelled by the user while running"),
+        };
+        if out.text.chars().count() > MAX_TOOL_OUTPUT_CHARS {
+            out.text = out.text.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
+            out.text.push_str("\n[output truncated]");
+        }
+        out
+    }
+
+    /// One model call: build the view, stream the reply, persist it. Returns
+    /// the tool calls the model made, if it stopped to make any.
+    async fn run_step(
+        &self,
+        conv: ConvId,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+    ) -> Result<(MsgId, Vec<PendingCall>)> {
+        let (events, cancel) = (events.clone(), cancel.clone());
         let (target, parent) = self.with_store(|s| {
             let c = s
                 .get_conversation(conv)?
@@ -535,9 +709,10 @@ impl Orchestrator {
         mut stream: futures_util::stream::BoxStream<'static, BackendEvent>,
         events: mpsc::Sender<TurnEvent>,
         cancel: CancellationToken,
-    ) -> Result<MsgId> {
+    ) -> Result<(MsgId, Vec<PendingCall>)> {
         use futures_util::StreamExt as _;
 
+        let mut calls: Vec<PendingCall> = Vec::new();
         let mut text = String::new();
         let mut reasoning = String::new();
         let mut opaque: Vec<ProviderOpaque> = Vec::new();
@@ -590,7 +765,23 @@ impl Orchestrator {
                     failure = Some(e.to_string());
                     break;
                 }
-                BackendEvent::ToolCallDelta { .. } => {} // unused in M1
+                BackendEvent::ToolCallDelta {
+                    call_id,
+                    name,
+                    args_delta,
+                } => match calls.iter_mut().find(|c| c.call_id == call_id) {
+                    Some(c) => {
+                        c.args.push_str(&args_delta);
+                        if let Some(n) = name {
+                            c.name = n;
+                        }
+                    }
+                    None => calls.push(PendingCall {
+                        call_id,
+                        name: name.unwrap_or_default(),
+                        args: args_delta,
+                    }),
+                },
             }
 
             // Checkpoint the partial reply so a crash costs at most a second.
@@ -635,6 +826,11 @@ impl Orchestrator {
         if !text.is_empty() {
             parts.push(Part::text(text));
         }
+        parts.extend(calls.iter().map(|c| Part::ToolCall {
+            call_id: c.call_id.clone(),
+            name: c.name.clone(),
+            args_json: c.args.clone(),
+        }));
         if parts.is_empty() {
             // Persist the row anyway: an empty failed reply is still evidence
             // that the turn happened.
@@ -658,6 +854,22 @@ impl Orchestrator {
             Ok(())
         })?;
 
+        // Run tools only for a reply that finished asking for them.
+        let calls = if failure.is_none() && stop == StopReason::ToolUse {
+            for c in &calls {
+                let _ = events
+                    .send(TurnEvent::ToolCall {
+                        call_id: c.call_id.clone(),
+                        name: c.name.clone(),
+                        args: c.args.clone(),
+                    })
+                    .await;
+            }
+            calls
+        } else {
+            Vec::new()
+        };
+
         match failure {
             Some(error) => {
                 let _ = events
@@ -676,6 +888,6 @@ impl Orchestrator {
                     .await;
             }
         }
-        Ok(id)
+        Ok((id, calls))
     }
 }

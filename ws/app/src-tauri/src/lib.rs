@@ -65,6 +65,8 @@ pub fn run() {
             commands::load_local_model,
             commands::unload_local_model,
             commands::local_model_status,
+            commands::resolve_approval,
+            commands::mcp_status,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");

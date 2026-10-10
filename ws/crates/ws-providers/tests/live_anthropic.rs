@@ -62,6 +62,7 @@ fn request(prompt: &str, thinking: ThinkingMode, max_output: u32) -> BackendRequ
         thinking,
         raw_payloads: BTreeMap::new(),
         blobs: BTreeMap::new(),
+        tools: Vec::new(),
     }
 }
 

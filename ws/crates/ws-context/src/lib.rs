@@ -16,7 +16,7 @@ pub mod view;
 
 pub use backend::{
     BackendError, BackendEvent, BackendRequest, ChatBackend, DefaultProfiles, InlineBlob,
-    ModelInfo, ModelProfiles, StopReason, ThinkingMode,
+    ModelInfo, ModelProfiles, StopReason, ThinkingMode, ToolSpec,
 };
 pub use config::ContextConfig;
 pub use error::ContextError;

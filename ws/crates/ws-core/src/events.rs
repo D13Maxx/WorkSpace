@@ -51,6 +51,28 @@ pub enum TurnEvent {
         output_tokens: u32,
     },
 
+    /// The model asked to run a tool.
+    ToolCall {
+        call_id: String,
+        name: String,
+        /// The arguments as JSON text, exactly as the model wrote them.
+        args: String,
+    },
+
+    /// A tool call is waiting for the user. Answer with
+    /// `Orchestrator::resolve_approval`; the turn waits until then.
+    ApprovalRequired {
+        call_id: String,
+        name: String,
+        args: String,
+    },
+
+    ToolResult {
+        call_id: String,
+        is_error: bool,
+        text: String,
+    },
+
     /// The reply is persisted. `message` is the row that was written.
     Completed {
         message: MsgId,
