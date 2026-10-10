@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Workspace",
+  "productName": "F.R.I.D.A.Y",
   "version": "0.1.0",
-  "identifier": "dev.debargha.workspace",
+  "identifier": "dev.debargha.friday",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Workspace",
+        "title": "F.R.I.D.A.Y",
         "width": 1200,
         "height": 800,
         "minWidth": 720,

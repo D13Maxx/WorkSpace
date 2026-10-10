@@ -1,4 +1,4 @@
-# Workspace
+# F.R.I.D.A.Y
 
 A desktop AI workspace with its own inference engine.
 
@@ -28,6 +28,16 @@ is hand-written and stays when the model is replaced. Two limits come from that
 choice and are reported rather than hidden: a 4,096-token context cap, and a KV
 cache that cannot be partially rewound.
 [`docs/checkpoints/C3.md`](docs/checkpoints/C3.md) has the details.
+
+## Install a desktop shortcut
+
+```bash
+powershell -ExecutionPolicy Bypass -File ws/app/scripts/install.ps1
+```
+
+Builds a release copy into `%LOCALAPPDATA%\Programs\F.R.I.D.A.Y` and puts an
+F.R.I.D.A.Y shortcut on the desktop. Run it again after changing the app to
+update what the shortcut opens (close the app first).
 
 ## Requirements
 
@@ -129,7 +139,7 @@ today; the other adapters still flatten tool history to text.
 
 Skills are `SKILL.md` folders in the Claude Code format, such as
 [Ponytail](https://github.com/DietrichGebert/ponytail). Put them anywhere under
-`%APPDATA%\dev.debargha.workspace\skills` (a whole cloned repo is fine) and
+`%APPDATA%\dev.debargha.friday\skills` (a whole cloned repo is fine) and
 restart; Settings → Skills lists what was found.
 
 - Type `/name request` to run one. Its instructions travel with your message,
