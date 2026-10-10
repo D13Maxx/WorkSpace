@@ -891,7 +891,7 @@ pub async fn open_graph(app: tauri::AppHandle, project: String) -> CmdResult<Str
     crate::graph::open(&app, &project).await
 }
 
-// ---- project files (read-only) -----------------------------------------------
+// ---- project files ---------------------------------------------------------
 
 #[tauri::command]
 pub fn list_dir(root: String, path: String) -> CmdResult<Vec<crate::files::Entry>> {
@@ -901,6 +901,67 @@ pub fn list_dir(root: String, path: String) -> CmdResult<Vec<crate::files::Entry
 #[tauri::command]
 pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
     crate::files::read_text(&root, &path)
+}
+
+/// Raw bytes, for the PDF and Word viewers. Sent as binary, not JSON.
+#[tauri::command]
+pub fn read_file_bytes(root: String, path: String) -> CmdResult<tauri::ipc::Response> {
+    crate::files::read_bytes(&root, &path).map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+pub fn write_text_file(root: String, path: String, text: String) -> CmdResult<()> {
+    crate::files::write_text(&root, &path, &text)
+}
+
+// shortcut: bytes arrive as a JSON array, slow past tens of MiB; switch to a raw-body invoke if PDFs get that big.
+#[tauri::command]
+pub fn write_file_bytes(root: String, path: String, bytes: Vec<u8>) -> CmdResult<()> {
+    crate::files::write_bytes(&root, &path, &bytes)
+}
+
+#[tauri::command]
+pub fn create_file(root: String, path: String) -> CmdResult<()> {
+    crate::files::create_file(&root, &path)
+}
+
+/// What the agent's tools act on: the open folder and the file in view.
+#[tauri::command]
+pub fn set_workspace(state: State<'_, AppState>, root: Option<String>, file: Option<String>) {
+    state.workspace.set(root, file);
+}
+
+// ---- running code -------------------------------------------------------------
+
+/// Compile and run one file in the output panel, stopping any earlier run.
+#[tauri::command]
+pub fn run_file(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+    on_event: Channel<crate::run::RunEvent>,
+) -> CmdResult<()> {
+    let file = crate::files::resolve(&root, &path)?;
+    let root = std::path::Path::new(root.trim())
+        .canonicalize()
+        .map_err(err)?;
+    let plan = crate::run::plan(&root, &file)?;
+    state.runner.start(plan, on_event)
+}
+
+#[tauri::command]
+pub fn run_input(state: State<'_, AppState>, data: String) {
+    state.runner.input(&data);
+}
+
+#[tauri::command]
+pub fn run_resize(state: State<'_, AppState>, cols: u16, rows: u16) {
+    state.runner.resize(cols, rows);
+}
+
+#[tauri::command]
+pub fn stop_run(state: State<'_, AppState>) {
+    state.runner.stop();
 }
 
 /// Put a file back as it was before an agent's edit.

@@ -910,12 +910,34 @@ select:focus {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
   background: var(--bg);
 }
 
 .main.pane-right {
-  flex: 0 0 clamp(360px, 32vw, 560px);
-  border-left: 1px solid var(--border);
+  /* Width comes from the splitter; this keeps the editor usable. */
+  flex: 0 0 auto;
+  min-width: 300px;
+  max-width: calc(100vw - 580px);
+}
+
+.splitter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  touch-action: none;
+}
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing iframe {
+  pointer-events: none;
 }
 
 .chat-bar {
@@ -936,4 +958,104 @@ select:focus {
 
 .pane-right .thread-header select {
   max-width: 55%;
+}
+
+/* ---- editor, documents, output ----------------------------------------- */
+
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-viewer {
+  min-height: 0;
+}
+
+.file-viewer header .actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.unsaved {
+  font-size: 0.8rem;
+}
+
+.doc-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.run-panel {
+  flex: 0 0 38%;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.run-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 0.85rem;
+}
+
+.run-panel header .actions {
+  display: flex;
+  gap: 6px;
+}
+
+.run-panel .terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 0 8px;
+}
+
+.explorer-actions {
+  padding: 0 10px 6px;
+}
+
+.explorer-actions form {
+  display: flex;
+  gap: 6px;
+}
+
+.explorer-actions input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #525659;
+}
+
+/* pdf.js needs its container absolutely positioned. */
+.pdf-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.pdf-tools {
+  display: flex;
+  gap: 2px;
+  margin-right: 6px;
+}
+
+.pdf-tools button.selected {
+  border-color: var(--accent);
+  color: var(--accent);
 }

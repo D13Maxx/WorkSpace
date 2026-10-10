@@ -38,6 +38,10 @@ pub struct AppState {
     pub skills_dir: std::path::PathBuf,
     /// The Understand-Anything viewer process, while its window is open.
     pub viewer: crate::graph::Viewer,
+    /// The open folder and file, for the agent's built-in tools.
+    pub workspace: Arc<crate::workspace::Workspace>,
+    /// The program running in the output panel, if any.
+    pub runner: crate::run::Runner,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -85,11 +89,13 @@ impl AppState {
         let skills_dir = dir.join("skills");
         std::fs::create_dir_all(&skills_dir)?;
         let skills = Arc::new(ws_core::Skills::load(&skills_dir));
+        let workspace = Arc::new(crate::workspace::Workspace::default());
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_backend(local.clone() as Arc<_>)
             .with_tools(Arc::new(ws_core::ToolSet::new(vec![
                 skills.clone() as Arc<_>,
+                workspace.clone() as Arc<_>,
                 mcp.clone() as Arc<_>,
             ])))
             .with_backend(Arc::new(AnthropicBackend::new(
@@ -122,6 +128,8 @@ impl AppState {
             skills,
             skills_dir,
             viewer: std::sync::Mutex::new(None),
+            workspace,
+            runner: crate::run::Runner::default(),
             mcp: {
                 let late = mcp.clone();
                 tauri::async_runtime::spawn(async move { late.connect().await });

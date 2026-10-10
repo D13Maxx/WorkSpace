@@ -107,6 +107,42 @@ cargo run -p ws-engine-cli -- chat path/to/model.gguf --system "Be brief."
 `chat` reports prefill and decode rates per turn, and how much of the prompt
 came from the KV cache rather than being read again.
 
+## Write and run code
+
+Open a file from the left pane and edit it in the middle. **Run** saves the
+file, compiles it and runs it in the output panel below. The panel is a real
+terminal, so programs can ask for input.
+
+| File | How it runs |
+| --- | --- |
+| `.py` | `python` |
+| `.c` / `.cpp` | `gcc` / `g++` (or clang), then the program |
+| `.rs` | `cargo run` inside a Cargo project, otherwise `rustc` then the program |
+| `.tex` | `tectonic`, or `pdflatex` twice; the PDF opens when it builds |
+
+FRIDAY ships no compilers; it uses whatever is on PATH. For C/C++ and LaTeX:
+
+```powershell
+winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT
+winget install -e --id MiKTeX.MiKTeX
+```
+
+then restart FRIDAY so it sees the new PATH.
+
+## PDFs, Word and text files
+
+- **Text and code** are edited in place; Ctrl+S saves.
+- **PDFs** open in pdf.js. Add text, draw or highlight, then **Save** writes
+  them into the file as annotations. The existing text of a PDF cannot be
+  retyped; ask the agent for that.
+- **Word (.docx)** files are shown read-only. Ask the agent to change them.
+
+The agent has its own tools for the open folder: `list_dir`, `read_file`,
+`write_file`, `edit_file`, `run_command`, and `get_open_file` (so "fix this
+file" works). Writes show as diffs with Undo. Commands always ask first, and
+are how it edits PDFs and Word files (with Python's `pypdf` and
+`python-docx`). Changes made by commands cannot be undone from the chat.
+
 ## Connect tool servers (Serena)
 
 Models can call tools from any MCP server. List them in `mcp.json` in the app

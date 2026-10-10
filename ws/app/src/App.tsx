@@ -8,6 +8,11 @@ import { Settings } from "./components/Settings";
 import { PrefillProgress } from "./components/PrefillProgress";
 import { Explorer } from "./components/Explorer";
 import { FileViewer } from "./components/FileViewer";
+import { RunPanel } from "./components/RunPanel";
+
+/** The chat pane's width is the user's; these only keep the panes usable. */
+const MIN_CHAT = 300;
+const MIN_REST = 580;
 
 /** Per-viewer UI preferences. Storage can be unavailable; the app works without it. */
 function readPref(key: string): string | null {
@@ -84,6 +89,17 @@ export default function App() {
   const [showChats, setShowChats] = useState(false);
   const [project, setProject] = useState(() => readPref("ws.project") ?? "");
   const [openFile, setOpenFile] = useState<string | null>(null);
+  // Bumped when the agent or a run may have changed files, so views reload.
+  const [fileVersion, setFileVersion] = useState(0);
+  const [run, setRun] = useState<{ path: string; key: number } | null>(null);
+  const [chatWidth, setChatWidth] = useState(() => Number(readPref("ws.chatWidth")) || 420);
+
+  useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
+
+  // The agent's file tools act on whatever is open here.
+  useEffect(() => {
+    void api.setWorkspace(project || null, openFile);
+  }, [project, openFile]);
 
   const busy = streaming !== null;
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -187,6 +203,7 @@ export default function App() {
               break;
             case "tool_result":
               setStatus(null);
+              setFileVersion((v) => v + 1);
               break;
             case "completed":
               // One user message can produce several model replies with tool
@@ -279,6 +296,7 @@ export default function App() {
           }}
           onOpenFile={setOpenFile}
           openPath={openFile}
+          version={fileVersion}
         />
         <button className="settings" onClick={() => setShowSettings(true)}>
           Settings
@@ -288,16 +306,65 @@ export default function App() {
       {/* Middle: the file being viewed. */}
       <section className="pane-middle">
         {openFile && project ? (
-          <FileViewer project={project} path={openFile} onClose={() => setOpenFile(null)} />
+          <FileViewer
+            // One editor per file, so unsaved text stays with its file.
+            key={`${project}|${openFile}`}
+            project={project}
+            path={openFile}
+            version={fileVersion}
+            onClose={() => setOpenFile(null)}
+            onRun={(path) => setRun((r) => ({ path, key: (r?.key ?? 0) + 1 }))}
+          />
         ) : (
           <div className="empty">
-            <p>{project ? "Choose a file on the left to view it." : "Open a folder on the left to start."}</p>
+            <p>{project ? "Choose a file on the left, or make a new one." : "Open a folder on the left to start."}</p>
           </div>
+        )}
+        {run && project && (
+          <RunPanel
+            project={project}
+            path={run.path}
+            runKey={run.key}
+            onExit={(path, code) => {
+              // A build leaves new files (a program, a PDF) to show.
+              setFileVersion((v) => v + 1);
+              if (code === 0 && path.toLowerCase().endsWith(".tex")) {
+                setOpenFile(path.replace(/[.]tex$/i, ".pdf"));
+              }
+            }}
+            onClose={() => setRun(null)}
+          />
         )}
       </section>
 
+      <div
+        className="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the chat"
+        aria-valuenow={chatWidth}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          // Frames (PDFs) would otherwise swallow the drag.
+          document.body.classList.add("resizing");
+        }}
+        onPointerMove={(e) => {
+          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const max = window.innerWidth - MIN_REST;
+          setChatWidth(Math.round(Math.max(MIN_CHAT, Math.min(max, window.innerWidth - e.clientX))));
+        }}
+        onLostPointerCapture={() => document.body.classList.remove("resizing")}
+        onKeyDown={(e) => {
+          const step = e.key === "ArrowLeft" ? 24 : e.key === "ArrowRight" ? -24 : 0;
+          if (step) {
+            setChatWidth((w) => Math.max(MIN_CHAT, Math.min(window.innerWidth - MIN_REST, w + step)));
+          }
+        }}
+      />
+
       {/* Right: the agent. */}
-      <main className="main pane-right">
+      <main className="main pane-right" style={{ width: chatWidth }}>
         <div className="chat-bar">
           <button onClick={() => setShowChats(!showChats)}>
             {showChats ? "Back to chat" : "Chats"}

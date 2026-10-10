@@ -10,7 +10,9 @@
 mod commands;
 mod files;
 mod graph;
+mod run;
 mod state;
+mod workspace;
 
 pub use state::AppState;
 
@@ -74,6 +76,15 @@ pub fn run() {
             commands::open_graph,
             commands::list_dir,
             commands::read_text_file,
+            commands::read_file_bytes,
+            commands::write_text_file,
+            commands::write_file_bytes,
+            commands::create_file,
+            commands::set_workspace,
+            commands::run_file,
+            commands::run_input,
+            commands::run_resize,
+            commands::stop_run,
             commands::undo_edit,
         ])
         .run(tauri::generate_context!())

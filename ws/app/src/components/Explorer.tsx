@@ -1,4 +1,4 @@
-// The project's files, one folder at a time (read-only).
+// The project's files, one folder at a time.
 //
 // Folders load when opened, so a huge repository costs only what is looked at.
 
@@ -10,6 +10,8 @@ interface Props {
   onProjectChange: (project: string) => void;
   onOpenFile: (path: string) => void;
   openPath: string | null;
+  /** Bumped when files may have changed on disk; open folders re-list. */
+  version: number;
 }
 
 function Folder({
@@ -18,25 +20,26 @@ function Folder({
   depth,
   onOpenFile,
   openPath,
+  version,
 }: {
   project: string;
   path: string;
   depth: number;
   onOpenFile: (path: string) => void;
   openPath: string | null;
+  version: number;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    setEntries(null);
     setError(null);
     api
       .listDir(project, path)
       .then(setEntries)
       .catch((e) => setError(String(e)));
-  }, [project, path]);
+  }, [project, path, version]);
 
   if (error) return <p className="failure tree-note">{error}</p>;
   if (!entries) return <p className="muted tree-note">Loading…</p>;
@@ -67,6 +70,7 @@ function Folder({
               depth={depth + 1}
               onOpenFile={onOpenFile}
               openPath={openPath}
+              version={version}
             />
           )}
         </li>
@@ -75,8 +79,12 @@ function Folder({
   );
 }
 
-export function Explorer({ project, onProjectChange, onOpenFile, openPath }: Props) {
+export function Explorer({ project, onProjectChange, onOpenFile, openPath, version }: Props) {
   const [draft, setDraft] = useState(project);
+  // The path being typed for a new file, while that box is open.
+  const [newFile, setNewFile] = useState<string | null>(null);
+  const [created, setCreated] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <aside className="explorer" aria-label="Files">
@@ -112,8 +120,56 @@ export function Explorer({ project, onProjectChange, onOpenFile, openPath }: Pro
           Browse…
         </button>
       </form>
+      {project && (
+        <div className="explorer-actions">
+          {newFile === null ? (
+            <button onClick={() => setNewFile("")} title="Create a file in this folder">
+              New file
+            </button>
+          ) : (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const path = newFile.trim().replace(/\\/g, "/");
+                if (!path) return;
+                try {
+                  await api.createFile(project, path);
+                  setNewFile(null);
+                  setError(null);
+                  setCreated((n) => n + 1);
+                  onOpenFile(path);
+                } catch (err) {
+                  setError(String(err));
+                }
+              }}
+            >
+              <input
+                autoFocus
+                type="text"
+                value={newFile}
+                placeholder="src/main.c"
+                onChange={(e) => setNewFile(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setNewFile(null)}
+                spellCheck={false}
+                aria-label="New file path"
+              />
+              <button type="submit" disabled={!newFile.trim()}>
+                Create
+              </button>
+            </form>
+          )}
+          {error && <p className="failure tree-note">{error}</p>}
+        </div>
+      )}
       {project ? (
-        <Folder project={project} path="" depth={0} onOpenFile={onOpenFile} openPath={openPath} />
+        <Folder
+          project={project}
+          path=""
+          depth={0}
+          onOpenFile={onOpenFile}
+          openPath={openPath}
+          version={version + created}
+        />
       ) : (
         <p className="muted tree-note">Open a project folder to browse it.</p>
       )}

@@ -46,6 +46,11 @@ export interface ThreadMessage {
   }[];
 }
 
+/** The output panel's stream for one run. */
+export type RunEvent =
+  | { type: "output"; data: string }
+  | { type: "exit"; code: number | null; stopped: boolean };
+
 export interface FileEntry {
   name: string;
   /** Relative to the project root, with `/` separators. */
@@ -253,6 +258,31 @@ export const api = {
 
   readTextFile: (root: string, path: string) =>
     invoke<string>("read_text_file", { root, path }),
+
+  /** Raw bytes, for the PDF and Word viewers. */
+  readFileBytes: (root: string, path: string) =>
+    invoke<ArrayBuffer>("read_file_bytes", { root, path }),
+
+  writeTextFile: (root: string, path: string, text: string) =>
+    invoke<void>("write_text_file", { root, path, text }),
+
+  writeFileBytes: (root: string, path: string, bytes: Uint8Array) =>
+    invoke<void>("write_file_bytes", { root, path, bytes: Array.from(bytes) }),
+
+  createFile: (root: string, path: string) => invoke<void>("create_file", { root, path }),
+
+  /** Tell the agent's tools which folder and file are open. */
+  setWorkspace: (root: string | null, file: string | null) =>
+    invoke<void>("set_workspace", { root, file }),
+
+  runFile: (root: string, path: string, onEvent: (e: RunEvent) => void) => {
+    const channel = new Channel<RunEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("run_file", { root, path, onEvent: channel });
+  },
+  runInput: (data: string) => invoke<void>("run_input", { data }),
+  runResize: (cols: number, rows: number) => invoke<void>("run_resize", { cols, rows }),
+  stopRun: () => invoke<void>("stop_run"),
 
   /** Open the Understand-Anything dashboard for a project. Returns its URL. */
   openGraph: (project: string) => invoke<string>("open_graph", { project }),
