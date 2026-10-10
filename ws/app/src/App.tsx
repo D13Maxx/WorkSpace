@@ -80,7 +80,8 @@ export default function App() {
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [showFiles, setShowFiles] = useState(() => readPref("ws.showFiles") === "1");
+  // The chat pane shows either the open conversation or the list of them.
+  const [showChats, setShowChats] = useState(false);
   const [project, setProject] = useState(() => readPref("ws.project") ?? "");
   const [openFile, setOpenFile] = useState<string | null>(null);
 
@@ -267,27 +268,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        conversations={conversations}
-        active={active}
-        onSelect={setActive}
-        onNew={onNewConversation}
-        onDelete={async (id) => {
-          await api.deleteConversation(id);
-          if (active === id) setActive(null);
-          await refreshConversations();
-        }}
-        onRename={async (id, title) => {
-          await api.renameConversation(id, title);
-          await refreshConversations();
-        }}
-        onOpenSettings={() => setShowSettings(true)}
-        onToggleFiles={() => {
-          writePref("ws.showFiles", showFiles ? "0" : "1");
-          setShowFiles(!showFiles);
-        }}
-      />
-      {showFiles && (
+      {/* Left: the open folder. */}
+      <div className="pane-left">
         <Explorer
           project={project}
           onProjectChange={(p) => {
@@ -298,10 +280,56 @@ export default function App() {
           onOpenFile={setOpenFile}
           openPath={openFile}
         />
-      )}
+        <button className="settings" onClick={() => setShowSettings(true)}>
+          Settings
+        </button>
+      </div>
 
-      <main className="main">
-        {thread ? (
+      {/* Middle: the file being viewed. */}
+      <section className="pane-middle">
+        {openFile && project ? (
+          <FileViewer project={project} path={openFile} onClose={() => setOpenFile(null)} />
+        ) : (
+          <div className="empty">
+            <p>{project ? "Choose a file on the left to view it." : "Open a folder on the left to start."}</p>
+          </div>
+        )}
+      </section>
+
+      {/* Right: the agent. */}
+      <main className="main pane-right">
+        <div className="chat-bar">
+          <button onClick={() => setShowChats(!showChats)}>
+            {showChats ? "Back to chat" : "Chats"}
+          </button>
+          {/* The chat list has its own New button. */}
+          {!showChats && (
+            <button onClick={() => void onNewConversation()}>New chat</button>
+          )}
+        </div>
+        {showChats ? (
+          <Sidebar
+            conversations={conversations}
+            active={active}
+            onSelect={(id) => {
+              setActive(id);
+              setShowChats(false);
+            }}
+            onNew={() => {
+              setShowChats(false);
+              void onNewConversation();
+            }}
+            onDelete={async (id) => {
+              await api.deleteConversation(id);
+              if (active === id) setActive(null);
+              await refreshConversations();
+            }}
+            onRename={async (id, title) => {
+              await api.renameConversation(id, title);
+              await refreshConversations();
+            }}
+          />
+        ) : thread ? (
           <>
             <header className="thread-header">
               <h1>{thread.title}</h1>
@@ -414,10 +442,6 @@ export default function App() {
           </div>
         )}
       </main>
-
-      {openFile && project && (
-        <FileViewer project={project} path={openFile} onClose={() => setOpenFile(null)} />
-      )}
 
       {inspecting && (
         <Inspector
