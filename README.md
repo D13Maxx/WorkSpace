@@ -116,6 +116,7 @@ terminal, so programs can ask for input.
 | File | How it runs |
 | --- | --- |
 | `.py` | `python` |
+| `.js` / `.ts` | `node` (TypeScript without enums or namespaces) |
 | `.c` / `.cpp` | `gcc` / `g++` (or clang), then the program |
 | `.rs` | `cargo run` inside a Cargo project, otherwise `rustc` then the program |
 | `.tex` | `tectonic`, or `pdflatex` twice; the PDF opens when it builds |

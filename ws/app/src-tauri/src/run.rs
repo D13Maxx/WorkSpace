@@ -42,6 +42,7 @@ const NO_CPP: &str = "No C++ compiler found. Install one, for example\r\n  winge
 const NO_TEX: &str = "No LaTeX found. Install one, for example\r\n  winget install -e --id MiKTeX.MiKTeX\r\nthen restart FRIDAY.";
 const NO_PYTHON: &str = "No Python found. Install it from python.org, then restart FRIDAY.";
 const NO_RUST: &str = "No Rust found. Install it from rustup.rs, then restart FRIDAY.";
+const NO_NODE: &str = "No Node.js found. Install it from nodejs.org, then restart FRIDAY.";
 
 /// The first of `names` on PATH.
 fn find(names: &[&str]) -> Option<PathBuf> {
@@ -124,6 +125,10 @@ fn plan_with(
             find(&["python", "python3", "py"]).ok_or(NO_PYTHON)?,
             &[&src],
         )],
+        // shortcut: Node strips TypeScript types itself but rejects enums and namespaces; add a compiler step if those are needed.
+        "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" => {
+            vec![step(find(&["node"]).ok_or(NO_NODE)?, &[&src])]
+        }
         "c" => vec![
             step(
                 find(&["gcc", "clang"]).ok_or(NO_C)?,
@@ -166,7 +171,7 @@ fn plan_with(
         }
         _ => {
             return Err(format!(
-                "FRIDAY can run .c, .cpp, .py, .rs and .tex files, not .{ext} files."
+                "FRIDAY can run .c, .cpp, .py, .rs, .js, .ts and .tex files, not .{ext} files."
             ));
         }
     };
@@ -393,6 +398,8 @@ mod tests {
         );
         let py = plan_with(root, Path::new("/p/a.py"), installed).unwrap();
         assert_eq!(py.steps, [step("/bin/python".into(), &["/p/a.py"])]);
+        let ts = plan_with(root, Path::new("/p/a.ts"), installed).unwrap();
+        assert_eq!(ts.steps, [step("/bin/node".into(), &["/p/a.ts"])]);
         let tex = plan_with(root, Path::new("/p/doc/x.tex"), installed).unwrap();
         assert_eq!(tex.steps[0].args, ["x.tex"], "LaTeX runs beside its file");
         assert!(plan_with(root, Path::new("/p/a.md"), installed).is_err());

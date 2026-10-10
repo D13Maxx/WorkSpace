@@ -12,7 +12,10 @@ import { CodeEditor } from "./CodeEditor";
 import { PdfFile } from "./PdfFile";
 
 /** Files the output panel can build and run. */
-export const RUNNABLE = new Set(["c", "cpp", "cc", "cxx", "py", "rs", "tex"]);
+export const RUNNABLE = new Set([
+  ...["c", "cpp", "cc", "cxx", "py", "rs", "tex"],
+  ...["js", "mjs", "cjs", "ts", "mts", "cts"],
+]);
 
 export function extOf(path: string): string {
   const m = /\.([^./\\]+)$/.exec(path);
