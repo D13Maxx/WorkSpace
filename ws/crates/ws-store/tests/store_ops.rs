@@ -370,3 +370,26 @@ fn siblings_keep_insertion_order_even_when_created_in_the_same_millisecond() {
         .collect();
     assert_eq!(got, expected, "siblings must come back in insertion order");
 }
+
+#[test]
+fn file_edits_round_trip_and_can_be_marked_undone() {
+    let store = Store::open_in_memory().unwrap();
+    let conv = new_conversation(&store);
+    let edit = ws_store::FileEdit {
+        call_id: "c1".to_owned(),
+        conversation_id: conv,
+        path: "C:/repo/src/main.rs".to_owned(),
+        before_blob: None, // created by the tool
+        after_blob: Some("abc".to_owned()),
+        undone: false,
+        created_at: Utc::now(),
+    };
+    store.save_file_edit(&edit).unwrap();
+
+    assert_eq!(store.get_file_edit("c1").unwrap().as_ref(), Some(&edit));
+    assert_eq!(store.file_edits(conv).unwrap(), vec![edit]);
+    assert!(store.get_file_edit("missing").unwrap().is_none());
+
+    store.mark_edit_undone("c1").unwrap();
+    assert!(store.get_file_edit("c1").unwrap().unwrap().undone);
+}

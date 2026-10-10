@@ -350,6 +350,15 @@ export default function App() {
               onRegenerate={onRegenerate}
               onInspect={setInspecting}
               onSelectBranch={onSelectBranch}
+              onUndo={async (callId) => {
+                try {
+                  await api.undoEdit(callId);
+                } catch (e) {
+                  // A refused undo explains itself: the file changed since.
+                  setError(String(e));
+                }
+                if (active) await refreshThread(active);
+              }}
               busy={busy}
             />
             <div ref={bottomRef} />

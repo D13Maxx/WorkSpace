@@ -13,4 +13,4 @@ pub mod store;
 pub use blobs::BlobStore;
 pub use error::{Result, StoreError};
 pub use migrations::{latest_version, migrate};
-pub use store::{Draft, NewMessage, Store, StoredProfile, StoredProvider};
+pub use store::{Draft, FileEdit, NewMessage, Store, StoredProfile, StoredProvider};

@@ -118,7 +118,11 @@ Install Serena first with `uv tool install -p 3.13 serena-agent`. Servers start
 in the background at launch; changes to `mcp.json` apply on the next launch.
 
 Read-only tools run straight away. Anything that can edit files or run
-commands stops and asks you first. Tool calling works with Anthropic models
+commands stops and asks you first. Once an approved edit runs, the thread
+shows its diff with an **Undo** button that puts the file back byte for byte.
+Undo refuses if the file has changed again since, rather than discard that
+change. Diffs need `--project` in the server's args, as above; with
+`--project-from-cwd` the app cannot tell which file was edited. Tool calling works with Anthropic models
 today; the other adapters still flatten tool history to text.
 
 ## Skills

@@ -10,6 +10,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+similar.workspace = true
 ws-context.workspace = true
 ws-store.workspace = true
 ws-secrets.workspace = true

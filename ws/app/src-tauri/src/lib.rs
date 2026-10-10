@@ -73,6 +73,7 @@ pub fn run() {
             commands::open_graph,
             commands::list_dir,
             commands::read_text_file,
+            commands::undo_edit,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");

@@ -30,7 +30,7 @@ use ws_context::{
     RenderedView, Role, StopReason, SummaryId, SummaryRequest, ViewMode, ViewPlan, build_view,
     summary_prompt,
 };
-use ws_store::{BlobStore, Draft, NewMessage, Store};
+use ws_store::{BlobStore, Draft, FileEdit, NewMessage, Store};
 
 /// Result of asking one backend for its models.
 pub type ModelListResult =
@@ -51,6 +51,15 @@ const MAX_TOOL_ROUNDS: usize = 25;
 /// larger than the model's window, and a message is never split.
 // shortcut: truncates instead of paging, upgrade if agents need whole large files.
 const MAX_TOOL_OUTPUT_CHARS: usize = 60_000;
+
+/// A file edit, ready to show: the diff, and whether it has been undone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditView {
+    pub call_id: String,
+    pub path: String,
+    pub diff: String,
+    pub undone: bool,
+}
 
 /// A tool call the model asked for, assembled from its deltas.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,7 +555,7 @@ impl Orchestrator {
             }
             // Every call gets a result, even after a cancel: a tool call with
             // no result is a request the provider rejects on the next turn.
-            let results = self.run_tools(calls, &events, &cancel).await;
+            let results = self.run_tools(conv, calls, &events, &cancel).await;
             self.insert(
                 conv,
                 Some(reply),
@@ -573,13 +582,14 @@ impl Orchestrator {
     /// Run each requested tool, asking the user first where the host says to.
     async fn run_tools(
         &self,
+        conv: ConvId,
         calls: Vec<PendingCall>,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
     ) -> Vec<Part> {
         let mut parts = Vec::with_capacity(calls.len());
         for call in calls {
-            let out = self.run_one(&call, events, cancel).await;
+            let out = self.run_one(conv, &call, events, cancel).await;
             let _ = events
                 .send(TurnEvent::ToolResult {
                     call_id: call.call_id.clone(),
@@ -598,6 +608,7 @@ impl Orchestrator {
 
     async fn run_one(
         &self,
+        conv: ConvId,
         call: &PendingCall,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
@@ -637,15 +648,113 @@ impl Orchestrator {
             }
         }
 
+        // Snapshot the file it will edit, so the change can be shown and undone.
+        // An unreadable file is skipped rather than recorded as "created".
+        let target = host.file_for(&call.name, &args);
+        let before = target
+            .as_deref()
+            .and_then(|p| crate::edits::snapshot(p).ok());
+
         let mut out = tokio::select! {
             out = host.call(&call.name, args) => out,
             () = cancel.cancelled() => ToolOutput::error("cancelled by the user while running"),
         };
+
+        // Recorded even when the tool reports an error: what matters is
+        // whether the file changed.
+        if let (Some(path), Some(before)) = (&target, before) {
+            match crate::edits::snapshot(path) {
+                Ok(after) if after != before => {
+                    if let Err(e) = self.record_edit(conv, &call.call_id, path, &before, &after) {
+                        tracing::warn!(error = %e, "could not record a file edit; it cannot be undone");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "could not read a file after editing it"),
+            }
+        }
         if out.text.chars().count() > MAX_TOOL_OUTPUT_CHARS {
             out.text = out.text.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
             out.text.push_str("\n[output truncated]");
         }
         out
+    }
+
+    fn record_edit(
+        &self,
+        conv: ConvId,
+        call_id: &str,
+        path: &std::path::Path,
+        before: &Option<Vec<u8>>,
+        after: &Option<Vec<u8>>,
+    ) -> Result<()> {
+        let put = |b: &Option<Vec<u8>>| b.as_deref().map(|b| self.blobs.put(b)).transpose();
+        let edit = FileEdit {
+            call_id: call_id.to_owned(),
+            conversation_id: conv,
+            path: path.display().to_string(),
+            before_blob: put(before)?,
+            after_blob: put(after)?,
+            undone: false,
+            created_at: Utc::now(),
+        };
+        self.with_store(|s| Ok(s.save_file_edit(&edit)?))
+    }
+
+    /// Every file edit in a conversation, with its diff.
+    ///
+    /// # Errors
+    /// Fails on a database or blob store error.
+    pub fn file_edits(&self, conv: ConvId) -> Result<Vec<EditView>> {
+        let edits = self.with_store(|s| Ok(s.file_edits(conv)?))?;
+        edits
+            .into_iter()
+            .map(|e| {
+                let before = self.blob(e.before_blob.as_deref())?;
+                let after = self.blob(e.after_blob.as_deref())?;
+                Ok(EditView {
+                    diff: crate::edits::unified_diff(&e.path, before.as_deref(), after.as_deref()),
+                    call_id: e.call_id,
+                    path: e.path,
+                    undone: e.undone,
+                })
+            })
+            .collect()
+    }
+
+    /// Put a file back exactly as it was before an edit.
+    ///
+    /// Refused if the file has changed since the edit: restoring then would
+    /// throw away whatever changed it, and that is not what Undo means.
+    ///
+    /// # Errors
+    /// Fails if there is no such edit, it was already undone, the file has
+    /// changed since, or the file cannot be written.
+    pub fn undo_edit(&self, call_id: &str) -> Result<()> {
+        let edit = self
+            .with_store(|s| Ok(s.get_file_edit(call_id)?))?
+            .ok_or_else(|| {
+                CoreError::UndoRefused("there is no edit for that tool call".to_owned())
+            })?;
+        if edit.undone {
+            return Err(CoreError::UndoRefused("it was already undone".to_owned()));
+        }
+        let path = std::path::Path::new(&edit.path);
+        let refuse = |why: String| CoreError::UndoRefused(format!("{}: {why}", edit.path));
+        let now = crate::edits::snapshot(path).map_err(|e| refuse(e.to_string()))?;
+        if now != self.blob(edit.after_blob.as_deref())? {
+            return Err(refuse(
+                "the file has changed since this edit, and undoing it would discard those changes"
+                    .to_owned(),
+            ));
+        }
+        let before = self.blob(edit.before_blob.as_deref())?;
+        crate::edits::restore(path, before.as_deref()).map_err(|e| refuse(e.to_string()))?;
+        self.with_store(|s| Ok(s.mark_edit_undone(call_id)?))
+    }
+
+    fn blob(&self, hash: Option<&str>) -> Result<Option<Vec<u8>>> {
+        Ok(hash.map(|h| self.blobs.get(h)).transpose()?)
     }
 
     /// One model call: build the view, stream the reply, persist it. Returns

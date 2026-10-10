@@ -41,6 +41,12 @@ pub trait ToolHost: Send + Sync + std::fmt::Debug {
     fn needs_approval(&self, name: &str) -> bool;
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput;
+
+    /// The file a call will edit, if known, so it can be snapshotted for a
+    /// diff and undo. Must stay inside the project: undo writes to it.
+    fn file_for(&self, _name: &str, _args: &serde_json::Value) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// Several hosts offered as one: the skill loader alongside the MCP servers.
@@ -68,6 +74,10 @@ impl ToolHost for ToolSet {
 
     fn needs_approval(&self, name: &str) -> bool {
         self.owner(name).is_none_or(|h| h.needs_approval(name))
+    }
+
+    fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
+        self.owner(name).and_then(|h| h.file_for(name, args))
     }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {

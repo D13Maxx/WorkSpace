@@ -54,6 +54,9 @@ struct Offered {
 
 struct Server {
     id: String,
+    /// The project it works on, from Serena's `--project` flag, so an edit's
+    /// `relative_path` can be resolved for a diff and undo.
+    root: Option<std::path::PathBuf>,
     // Holds the child process; dropping it stops the server.
     _service: RunningService<RoleClient, ()>,
     peer: Peer<RoleClient>,
@@ -131,6 +134,7 @@ impl McpTools {
         }
         self.servers.push(Server {
             id: id.to_owned(),
+            root: project_root(&cfg.args),
             _service: service,
             peer,
         });
@@ -155,6 +159,29 @@ fn offered(prefix: &str, server: usize, tool: &Tool) -> Offered {
         tool_name: tool.name.to_string(),
         read_only,
     }
+}
+
+/// The `--project` folder from a server's arguments, either spelling.
+fn project_root(args: &[String]) -> Option<std::path::PathBuf> {
+    args.iter().enumerate().find_map(|(i, a)| {
+        a.strip_prefix("--project=")
+            .map(str::to_owned)
+            .or_else(|| {
+                (a == "--project")
+                    .then(|| args.get(i + 1).cloned())
+                    .flatten()
+            })
+            .map(std::path::PathBuf::from)
+    })
+}
+
+/// A path relative to the project with no way out of it: undo writes here.
+fn inside(root: &std::path::Path, rel: &str) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let rel = std::path::Path::new(rel);
+    rel.components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+        .then(|| root.join(rel))
 }
 
 /// Providers accept only `[A-Za-z0-9_-]` in tool names.
@@ -189,6 +216,17 @@ impl ToolHost for McpTools {
             .iter()
             .find(|t| t.spec.name == name)
             .is_none_or(|t| !t.read_only || runs_commands(&t.tool_name))
+    }
+
+    /// Serena's editing tools name their file as `relative_path`.
+    // shortcut: one file per call, so a multi-file rename only snapshots the file named; upgrade with a VCS-level snapshot.
+    fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
+        let tool = self
+            .tools
+            .iter()
+            .find(|t| t.spec.name == name && !t.read_only)?;
+        let root = self.servers[tool.server].root.as_deref()?;
+        inside(root, args.get("relative_path")?.as_str()?)
     }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {
@@ -241,6 +279,34 @@ mod tests {
     fn tool_names_are_made_safe_for_providers() {
         assert_eq!(sanitise("my server.v2"), "my_server_v2");
         assert_eq!(sanitise("find-symbol"), "find-symbol");
+    }
+
+    #[test]
+    fn the_project_root_is_read_from_either_flag_spelling() {
+        let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            project_root(&args(&["start-mcp-server", "--project", "C:/repo"])),
+            Some("C:/repo".into())
+        );
+        assert_eq!(
+            project_root(&args(&["--project=C:/repo"])),
+            Some("C:/repo".into())
+        );
+        assert_eq!(project_root(&args(&["--project-from-cwd"])), None);
+        assert_eq!(
+            project_root(&args(&["--project"])),
+            None,
+            "flag with no value"
+        );
+    }
+
+    #[test]
+    fn an_edit_path_cannot_leave_the_project() {
+        let root = std::path::Path::new("/repo");
+        assert_eq!(inside(root, "src/a.rs"), Some(root.join("src/a.rs")));
+        for escape in ["../x", "src/../../x", "/etc/passwd"] {
+            assert_eq!(inside(root, escape), None, "{escape}");
+        }
     }
 
     #[test]

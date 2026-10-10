@@ -43,6 +43,20 @@ pub struct Draft {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A file an approved tool changed, with the exact bytes either side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEdit {
+    pub call_id: String,
+    pub conversation_id: ConvId,
+    pub path: String,
+    /// `None`: the file did not exist before.
+    pub before_blob: Option<String>,
+    /// `None`: the tool deleted it.
+    pub after_blob: Option<String>,
+    pub undone: bool,
+    pub created_at: DateTime<Utc>,
+}
+
 /// A new message to persist. Separate from [`Message`] because the raw
 /// provider payload is stored alongside the canonical parts but is not part of
 /// the canonical format itself (master spec s5.2).
@@ -500,6 +514,84 @@ impl Store {
     ///
     /// # Errors
     /// Fails on any database error.
+    /// # Errors
+    /// Fails on any database error.
+    pub fn save_file_edit(&self, e: &FileEdit) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO file_edits
+               (call_id, conversation_id, path, before_blob, after_blob, undone, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                e.call_id,
+                e.conversation_id.to_string(),
+                e.path,
+                e.before_blob,
+                e.after_blob,
+                e.undone,
+                e.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Every edit in a conversation, oldest first.
+    ///
+    /// # Errors
+    /// Fails on any database error, or if a stored id is malformed.
+    pub fn file_edits(&self, conv: ConvId) -> Result<Vec<FileEdit>> {
+        self.query_edits(
+            "WHERE conversation_id = ?1 ORDER BY rowid",
+            &conv.to_string(),
+        )
+    }
+
+    /// # Errors
+    /// Fails on any database error, or if a stored id is malformed.
+    pub fn get_file_edit(&self, call_id: &str) -> Result<Option<FileEdit>> {
+        Ok(self.query_edits("WHERE call_id = ?1", call_id)?.pop())
+    }
+
+    /// # Errors
+    /// Fails on any database error.
+    pub fn mark_edit_undone(&self, call_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE file_edits SET undone = 1 WHERE call_id = ?1",
+            params![call_id],
+        )?;
+        Ok(())
+    }
+
+    fn query_edits(&self, filter: &str, arg: &str) -> Result<Vec<FileEdit>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT call_id, conversation_id, path, before_blob, after_blob, undone, created_at
+             FROM file_edits {filter}"
+        ))?;
+        let rows = stmt.query_map(params![arg], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, bool>(5)?,
+                row.get::<_, DateTime<Utc>>(6)?,
+            ))
+        })?;
+        rows.map(|r| {
+            let (call_id, conv, path, before_blob, after_blob, undone, created_at) = r?;
+            Ok(FileEdit {
+                call_id,
+                conversation_id: parse_id(&conv)?,
+                path,
+                before_blob,
+                after_blob,
+                undone,
+                created_at,
+            })
+        })
+        .collect()
+    }
+
     pub fn save_draft(&self, draft: &Draft) -> Result<()> {
         self.conn.execute(
             "INSERT INTO drafts

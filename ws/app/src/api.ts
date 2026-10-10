@@ -25,7 +25,12 @@ export interface ThreadMessage {
   branch_total: number;
   skill: { name: string; instructions: string } | null;
   tool_calls: { call_id: string; name: string; args: string }[];
-  tool_results: { call_id: string; text: string; is_error: boolean }[];
+  tool_results: {
+    call_id: string;
+    text: string;
+    is_error: boolean;
+    edit: { path: string; diff: string; undone: boolean } | null;
+  }[];
 }
 
 export interface FileEntry {
@@ -228,6 +233,8 @@ export const api = {
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
 
   listSkills: () => invoke<SkillList>("list_skills"),
+
+  undoEdit: (callId: string) => invoke<void>("undo_edit", { callId }),
 
   listDir: (root: string, path: string) => invoke<FileEntry[]>("list_dir", { root, path }),
 

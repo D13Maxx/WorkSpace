@@ -8,7 +8,33 @@ interface Props {
   onRegenerate: (message: string) => void;
   onInspect: (message: string) => void;
   onSelectBranch: (message: string) => void;
+  onUndo: (callId: string) => void;
   busy: boolean;
+}
+
+/** A unified diff, each line tinted by what it does. */
+function Diff({ text }: { text: string }) {
+  return (
+    <pre className="diff">
+      {text.replace(/\n$/, "").split("\n").map((line, i) => {
+        const kind = line.startsWith("+++") || line.startsWith("---")
+          ? "file"
+          : line.startsWith("@@")
+            ? "hunk"
+            : line.startsWith("+")
+              ? "add"
+              : line.startsWith("-")
+                ? "del"
+                : "ctx";
+        return (
+          <span key={i} className={`diff-${kind}`}>
+            {/* Each line is a block, so an empty one still needs height. */}
+            {line || " "}
+          </span>
+        );
+      })}
+    </pre>
+  );
 }
 
 /**
@@ -113,10 +139,27 @@ export function MessageList(props: Props) {
             </div>
           ))}
           {m.tool_results.map((r) => (
-            <details key={r.call_id} className={`tool-result ${r.is_error ? "failure" : ""}`}>
-              <summary>{r.is_error ? "Tool error" : "Tool result"}</summary>
-              <pre>{r.text}</pre>
-            </details>
+            <div key={r.call_id}>
+              {r.edit && (
+                <div className={`file-edit ${r.edit.undone ? "undone" : ""}`}>
+                  <header>
+                    <code>{r.edit.path}</code>
+                    {r.edit.undone ? (
+                      <span className="muted">Undone</span>
+                    ) : (
+                      <button onClick={() => props.onUndo(r.call_id)} disabled={props.busy}>
+                        Undo
+                      </button>
+                    )}
+                  </header>
+                  <Diff text={r.edit.diff} />
+                </div>
+              )}
+              <details className={`tool-result ${r.is_error ? "failure" : ""}`}>
+                <summary>{r.is_error ? "Tool error" : "Tool result"}</summary>
+                <pre>{r.text}</pre>
+              </details>
+            </div>
           ))}
 
           {m.status === "failed" && (

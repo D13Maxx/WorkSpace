@@ -831,3 +831,58 @@ select:focus {
 .tool-args dd {
   margin: 0;
 }
+
+/* ---- file edits ------------------------------------------------------- */
+
+.file-edit {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.file-edit header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--raised);
+  font-size: 0.82rem;
+}
+
+.file-edit.undone .diff {
+  opacity: 0.5;
+}
+
+.diff {
+  margin: 0;
+  padding: 6px 0;
+  max-height: 24rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.diff span {
+  display: block;
+  padding: 0 8px;
+}
+
+.diff-add {
+  background: rgba(91, 214, 160, 0.14);
+  color: var(--ok);
+}
+
+.diff-del {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+.diff-hunk {
+  color: var(--accent);
+}
+
+.diff-file {
+  color: var(--muted);
+}

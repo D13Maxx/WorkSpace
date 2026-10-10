@@ -8,6 +8,9 @@ pub enum CoreError {
     #[error(transparent)]
     Store(#[from] ws_store::StoreError),
 
+    #[error("cannot undo: {0}")]
+    UndoRefused(String),
+
     #[error(transparent)]
     Context(#[from] ContextError),
 

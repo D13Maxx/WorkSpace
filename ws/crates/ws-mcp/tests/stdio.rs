@@ -54,3 +54,27 @@ async fn a_server_that_will_not_start_is_reported_not_fatal() {
     assert_eq!(fake.tools, 2, "the healthy server still connects");
     assert_eq!(host.specs().len(), 2);
 }
+
+#[tokio::test]
+async fn an_editing_call_names_its_file_inside_the_project() {
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_server.py").replace('\\', "/");
+    let cfg = McpConfig::parse(&format!(
+        r#"{{"mcpServers": {{"fake": {{"command": "python",
+            "args": ["{script}", "--project", "C:/repo"]}}}}}}"#
+    ))
+    .unwrap();
+    let (host, _) = McpTools::connect(&cfg).await;
+    let args = serde_json::json!({"relative_path": "src/a.rs"});
+
+    assert_eq!(
+        host.file_for("fake__replace_symbol_body", &args),
+        Some(std::path::Path::new("C:/repo").join("src/a.rs"))
+    );
+    assert_eq!(
+        host.file_for("fake__find_symbol", &args),
+        None,
+        "read-only: nothing to undo"
+    );
+    let escape = serde_json::json!({"relative_path": "../outside.rs"});
+    assert_eq!(host.file_for("fake__replace_symbol_body", &escape), None);
+}

@@ -83,6 +83,15 @@ pub struct ToolResultDto {
     pub call_id: String,
     pub text: String,
     pub is_error: bool,
+    /// The file this call changed, if it changed one.
+    pub edit: Option<EditDto>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EditDto {
+    pub path: String,
+    pub diff: String,
+    pub undone: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +210,14 @@ pub fn delete_conversation(state: State<'_, AppState>, conversation: String) -> 
 #[tauri::command]
 pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResult<Thread> {
     let id = conv_id(&conversation)?;
+    // Read before locking the store below: this takes the same lock.
+    let mut edits: std::collections::HashMap<String, ws_core::EditView> = state
+        .orchestrator
+        .file_edits(id)
+        .map_err(err)?
+        .into_iter()
+        .map(|e| (e.call_id.clone(), e))
+        .collect();
     let store = state.store.lock().map_err(|_| "store unavailable")?;
 
     let conv = store
@@ -276,6 +293,11 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
                         call_id: call_id.clone(),
                         text: content.iter().filter_map(Part::as_text).collect(),
                         is_error: *is_error,
+                        edit: edits.remove(call_id).map(|e| EditDto {
+                            path: e.path,
+                            diff: e.diff,
+                            undone: e.undone,
+                        }),
                     }),
                     _ => None,
                 })
@@ -879,4 +901,10 @@ pub fn list_dir(root: String, path: String) -> CmdResult<Vec<crate::files::Entry
 #[tauri::command]
 pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
     crate::files::read_text(&root, &path)
+}
+
+/// Put a file back as it was before an agent's edit.
+#[tauri::command]
+pub fn undo_edit(state: State<'_, AppState>, call_id: String) -> CmdResult<()> {
+    state.orchestrator.undo_edit(&call_id).map_err(err)
 }

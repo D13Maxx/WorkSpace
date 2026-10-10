@@ -7,7 +7,10 @@ use crate::error::{Result, StoreError};
 use rusqlite::Connection;
 
 /// Embedded migrations, in application order.
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../migrations/001_initial.sql"))];
+const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../migrations/001_initial.sql")),
+    (2, include_str!("../migrations/002_file_edits.sql")),
+];
 
 /// The newest schema version this build understands.
 #[must_use]
