@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  pickFolder,
   type BackendInfo,
   type CompatProvider,
   type ModelOption,
@@ -256,6 +257,14 @@ function GraphSection() {
           spellCheck={false}
           aria-label="Project folder"
         />
+        <button
+          onClick={async () => {
+            const folder = await pickFolder();
+            if (folder) setProject(folder);
+          }}
+        >
+          Browse…
+        </button>
         <button onClick={() => void open()} disabled={!project.trim() || state === "starting"}>
           {state === "starting" ? "Starting…" : "Open graph"}
         </button>

@@ -5,12 +5,12 @@
 // is, whether this build supports it, and whether it will fit in memory,
 // before anything is committed.
 //
-// The path is typed rather than picked from a dialog because the webview has
-// no filesystem access of its own and this build grants no dialog plugin
-// (master spec s11.2). The backend validates whatever arrives.
+// The path is typed or picked with the native dialog, which only returns a
+// path; the webview reads nothing itself (master spec s11.2). The backend
+// validates whatever arrives.
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type LoadedModel, type LocalModelInfo } from "../api";
+import { api, pickFile, type LoadedModel, type LocalModelInfo } from "../api";
 
 function bytes(n: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -166,6 +166,15 @@ export function LocalModelSection({ onChanged }: { onChanged: () => void }) {
               }}
               spellCheck={false}
             />
+            <button
+              onClick={async () => {
+                const file = await pickFile("GGUF model", ["gguf"]);
+                if (file) setPath(file);
+              }}
+              disabled={busy !== null}
+            >
+              Browse…
+            </button>
             <button onClick={() => void inspect()} disabled={!path.trim() || busy !== null}>
               {busy === "inspecting" ? "Reading…" : "Read file"}
             </button>

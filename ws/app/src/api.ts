@@ -5,6 +5,19 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+
+/** Windows' own folder picker. `null` if cancelled. */
+export async function pickFolder(): Promise<string | null> {
+  const picked = await open({ directory: true });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** Windows' own file picker, limited to the given extensions. `null` if cancelled. */
+export async function pickFile(label: string, extensions: string[]): Promise<string | null> {
+  const picked = await open({ filters: [{ name: label, extensions }] });
+  return typeof picked === "string" ? picked : null;
+}
 
 export interface ConversationSummary {
   id: string;

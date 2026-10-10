@@ -3,7 +3,7 @@
 // Folders load when opened, so a huge repository costs only what is looked at.
 
 import { useEffect, useState } from "react";
-import { api, type FileEntry } from "../api";
+import { api, pickFolder, type FileEntry } from "../api";
 
 interface Props {
   project: string;
@@ -97,6 +97,19 @@ export function Explorer({ project, onProjectChange, onOpenFile, openPath }: Pro
         />
         <button type="submit" disabled={!draft.trim()}>
           Open
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            const folder = await pickFolder();
+            if (folder) {
+              setDraft(folder);
+              onProjectChange(folder);
+            }
+          }}
+          title="Choose a folder"
+        >
+          Browse…
         </button>
       </form>
       {project ? (
