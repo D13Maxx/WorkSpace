@@ -219,6 +219,53 @@ function ProfileSection({
 }
 
 /** User-configured OpenAI-compatible endpoints (master spec s7.5). */
+/** Understand-Anything's dashboard for a project that has a graph. */
+function GraphSection() {
+  const [project, setProject] = useState("");
+  const [state, setState] = useState<"idle" | "starting" | "open">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const open = async () => {
+    setError(null);
+    setState("starting");
+    try {
+      await api.openGraph(project);
+      setState("open");
+    } catch (e) {
+      setError(String(e));
+      setState("idle");
+    }
+  };
+
+  return (
+    <section>
+      <h3>Knowledge graph</h3>
+      <p className="muted">
+        Explore a project&apos;s Understand-Anything graph (its <code>.ua</code> folder). Opens in its
+        own window; the first time downloads the viewer, which needs Node.js.
+      </p>
+      <div className="local-picker">
+        <input
+          type="text"
+          value={project}
+          placeholder={"C:\\path\\to\\your\\repo"}
+          onChange={(e) => setProject(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && project.trim()) void open();
+          }}
+          spellCheck={false}
+          aria-label="Project folder"
+        />
+        <button onClick={() => void open()} disabled={!project.trim() || state === "starting"}>
+          {state === "starting" ? "Starting…" : "Open graph"}
+        </button>
+      </div>
+      {state === "open" && <p className="ok">Opened in a new window.</p>}
+      {error && <p className="failure">{error}</p>}
+    </section>
+  );
+}
+
 /** Skills are SKILL.md folders, the same format Claude Code uses. */
 function SkillsSection() {
   const [list, setList] = useState<SkillList | null>(null);
@@ -419,6 +466,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
+      <GraphSection />
       <SkillsSection />
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />

@@ -222,6 +222,9 @@ export const api = {
 
   listSkills: () => invoke<SkillList>("list_skills"),
 
+  /** Open the Understand-Anything dashboard for a project. Returns its URL. */
+  openGraph: (project: string) => invoke<string>("open_graph", { project }),
+
   setApiKey: (backend: string, key: string) => invoke<void>("set_api_key", { backend, key }),
   hasApiKey: (backend: string) => invoke<boolean>("has_api_key", { backend }),
   deleteApiKey: (backend: string) => invoke<void>("delete_api_key", { backend }),

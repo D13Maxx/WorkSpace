@@ -132,6 +132,21 @@ restart; Settings → Skills lists what was found.
   so this works with every model, local ones included.
 - Claude also sees the list and loads a skill on its own when a request fits.
 
+## Knowledge graphs (Understand-Anything)
+
+[Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) turns
+a codebase into a knowledge graph in the project's `.ua` folder.
+
+- **Explore a graph:** Settings → Knowledge graph, give the project folder,
+  choose **Open graph**. It opens UA's own dashboard in a window; no model and
+  no tokens are involved. The first time downloads UA's viewer (needs Node.js).
+- **Ask about it:** clone the UA repo into the skills folder, connect Serena,
+  then use `/understand-chat`, `/understand-explain`, `/understand-diff` or
+  `/understand-onboard`. They read the graph through Serena's search and read
+  tools.
+- **Build a graph:** not yet in this app. `/understand` dispatches subagents,
+  which MyAgent does not have; build the graph with Claude Code for now.
+
 ## Add a provider
 
 API keys live in Windows Credential Manager and nowhere else — not in the

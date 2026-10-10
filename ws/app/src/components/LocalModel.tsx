@@ -159,7 +159,7 @@ export function LocalModelSection({ onChanged }: { onChanged: () => void }) {
             <input
               type="text"
               value={path}
-              placeholder="C:\\models\\Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+              placeholder={"C:\\models\\smollm2-1.7b-instruct-q4_k_m.gguf"}
               onChange={(e) => setPath(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && path.trim()) void inspect();

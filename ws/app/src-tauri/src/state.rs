@@ -36,6 +36,8 @@ pub struct AppState {
     /// `SKILL.md` packs found under `skills/` in the app data folder.
     pub skills: Arc<ws_core::Skills>,
     pub skills_dir: std::path::PathBuf,
+    /// The Understand-Anything viewer process, while its window is open.
+    pub viewer: crate::graph::Viewer,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -119,6 +121,7 @@ impl AppState {
             local,
             skills,
             skills_dir,
+            viewer: std::sync::Mutex::new(None),
             mcp: {
                 let late = mcp.clone();
                 tauri::async_runtime::spawn(async move { late.connect().await });

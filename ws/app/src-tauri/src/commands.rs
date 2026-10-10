@@ -860,3 +860,11 @@ pub fn list_skills(state: State<'_, AppState>) -> SkillsDto {
             .collect(),
     }
 }
+
+// ---- knowledge graph (Understand-Anything) ----------------------------------
+
+/// Open the knowledge-graph dashboard for a project folder. Returns its URL.
+#[tauri::command]
+pub async fn open_graph(app: tauri::AppHandle, project: String) -> CmdResult<String> {
+    crate::graph::open(&app, &project).await
+}
