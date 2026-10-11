@@ -6,7 +6,8 @@ import { MessageList } from "./components/MessageList";
 import { Inspector } from "./components/Inspector";
 import { Settings } from "./components/Settings";
 import { PrefillProgress } from "./components/PrefillProgress";
-import { Explorer, type OpenFile } from "./components/Explorer";
+import { Explorer, baseName, type OpenFile } from "./components/Explorer";
+import { GraphDialog } from "./components/GraphDialog";
 import { FileViewer } from "./components/FileViewer";
 import { RunPanel } from "./components/RunPanel";
 
@@ -95,20 +96,16 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   // The chat pane shows either the open conversation or the list of them.
   const [showChats, setShowChats] = useState(false);
-  // The folders open on the left. Older versions kept a single one.
-  const [folders, setFolders] = useState<string[]>(() => {
-    try {
-      const saved: unknown = JSON.parse(readPref("ws.folders") ?? "null");
-      if (Array.isArray(saved)) return saved.filter((f): f is string => typeof f === "string");
-    } catch {
-      // Unreadable: start from the single folder, if any.
-    }
-    const single = readPref("ws.project");
-    return single ? [single] : [];
-  });
+  // The folders open on the left. Every launch starts with none: folders and
+  // files are not remembered, chats are (they live in the database).
+  const [folders, setFolders] = useState<string[]>([]);
   const [openFile, setOpenFile] = useState<OpenFile | null>(null);
-  // The folder the agent, Run and the graph builder work in.
-  const project = openFile?.root ?? folders[0] ?? "";
+  // The folder last opened, when no file says otherwise.
+  const [focus, setFocus] = useState<string | null>(null);
+  // The folder the agent and Run work in.
+  const project = openFile?.root ?? focus ?? folders[0] ?? "";
+  // The folder whose knowledge-graph choices are showing.
+  const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
   const [run, setRun] = useState<{ root: string; path: string; key: number } | null>(null);
@@ -116,14 +113,15 @@ export default function App() {
 
   useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
 
-  useEffect(() => writePref("ws.folders", JSON.stringify(folders)), [folders]);
-
-  // The agent's file tools act on whatever is open here. Settings' graph
-  // section starts on the same folder.
+  // The agent's file tools act on whatever is open here.
   useEffect(() => {
-    writePref("ws.project", project);
     void api.setWorkspace(project || null, openFile?.path ?? null);
   }, [project, openFile]);
+
+  const addFolder = (f: string) => {
+    setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]));
+    setFocus(f);
+  };
 
   const busy = streaming !== null;
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -295,6 +293,31 @@ export default function App() {
     setActive(id);
   }, [models, refreshConversations]);
 
+  /** Build `folder`'s AI graph: open it, then run /understand in a new chat
+   *  with a Claude model, which is what the pipeline needs. */
+  const startUnderstand = async (folder: string) => {
+    setGraphFor(null);
+    addFolder(folder);
+    setOpenFile(null);
+    const claude = models.filter((m) => m.backend === ANTHROPIC);
+    const model = claude.find((m) => m.model_id.includes("sonnet")) ?? claude[0];
+    try {
+      const id = await api.createConversation(
+        `Knowledge graph: ${baseName(folder)}`,
+        ANTHROPIC,
+        model?.model_id ?? "claude-sonnet-4-5",
+      );
+      await refreshConversations();
+      setActive(id);
+      setShowChats(false);
+      // Before the turn starts: the effect that tracks the open folder runs later.
+      await api.setWorkspace(folder, null);
+      await consume(id, (onEvent) => api.sendMessage(id, "/understand", onEvent));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const onSelectBranch = useCallback(
     async (message: string) => {
       if (!active) return;
@@ -319,11 +342,13 @@ export default function App() {
       <div className="pane-left">
         <Explorer
           folders={folders}
-          onAddFolder={(f) => setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]))}
+          onAddFolder={addFolder}
           onRemoveFolder={(f) => {
             setFolders((fs) => fs.filter((x) => x !== f));
             if (openFile?.root === f) setOpenFile(null);
+            if (focus === f) setFocus(null);
           }}
+          onGraph={setGraphFor}
           onOpenFile={setOpenFile}
           open={openFile}
           version={fileVersion}
@@ -542,6 +567,14 @@ export default function App() {
         )}
       </main>
 
+      {graphFor && (
+        <GraphDialog
+          folder={graphFor}
+          onClose={() => setGraphFor(null)}
+          onOpenSettings={() => setShowSettings(true)}
+          onStartAi={(folder) => void startUnderstand(folder)}
+        />
+      )}
       {inspecting && (
         <Inspector
           view={inspectorView}

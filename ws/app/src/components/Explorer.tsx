@@ -15,6 +15,8 @@ interface Props {
   onAddFolder: (folder: string) => void;
   onRemoveFolder: (folder: string) => void;
   onOpenFile: (file: OpenFile) => void;
+  /** A folder was picked to make or view a knowledge graph of. */
+  onGraph: (folder: string) => void;
   open: OpenFile | null;
   /** Bumped when files may have changed on disk; open folders re-list. */
   version: number;
@@ -28,6 +30,8 @@ const Icon = ({ d }: { d: string }) => (
 const FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13z";
 const FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3";
 const NEW_FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M8 7.5v5M5.5 10h5";
+// Three linked nodes.
+const GRAPH = "M4 4.5a1.5 1.5 0 1 1 0 .01zM12 3.5a1.5 1.5 0 1 1 0 .01zM8 12a1.5 1.5 0 1 1 0 .01zM5.3 5.3l2 5M10.6 4.4l-2 6M5.5 4.3h5";
 
 /** The last part of a path, as a folder's name. */
 export function baseName(path: string): string {
@@ -100,7 +104,7 @@ function Folder({
   );
 }
 
-export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, open, version }: Props) {
+export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onGraph, open, version }: Props) {
   // Collapsed roots; a newly opened folder starts expanded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // The path being typed for a new file, while that box is open.
@@ -152,6 +156,17 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, ope
           aria-label="New file"
         >
           <Icon d={NEW_FILE} />
+        </button>
+        <button
+          className="icon-button"
+          onClick={async () => {
+            const folder = await pickFolder();
+            if (folder) onGraph(folder);
+          }}
+          title="Knowledge graph of a folder"
+          aria-label="Knowledge graph"
+        >
+          <Icon d={GRAPH} />
         </button>
       </div>
 

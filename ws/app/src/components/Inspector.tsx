@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ContextView } from "../api";
 
 interface Props {
@@ -7,8 +8,15 @@ interface Props {
 
 /** "What this model sees" (master spec s6.6). */
 export function Inspector({ view, onClose }: Props) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <aside className="inspector">
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <aside className="inspector" role="dialog" aria-modal="true" aria-label="What this model saw">
       <header>
         <h2>What this model saw</h2>
         <button onClick={onClose} aria-label="Close inspector">
@@ -58,5 +66,6 @@ export function Inspector({ view, onClose }: Props) {
         </dl>
       )}
     </aside>
+    </div>
   );
 }

@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
-  pickFolder,
   type BackendInfo,
   type CompatProvider,
   type ModelOption,
   type McpStatus,
   type SkillList,
   type ModelProfile,
-  type GraphBuilt,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
 
@@ -221,122 +219,6 @@ function ProfileSection({
 }
 
 /** User-configured OpenAI-compatible endpoints (master spec s7.5). */
-/** Knowledge graphs: build one for free, or with UA's AI pipeline, and view it. */
-function GraphSection() {
-  // Starts on the folder open on the left.
-  const [project, setProject] = useState(() => {
-    try {
-      return localStorage.getItem("ws.project") ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const [state, setState] = useState<"idle" | "building" | "starting" | "open">("idle");
-  const [built, setBuilt] = useState<GraphBuilt | null>(null);
-  const [exists, setExists] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const open = async () => {
-    setError(null);
-    setState("starting");
-    try {
-      await api.openGraph(project);
-      setState("open");
-    } catch (e) {
-      setError(String(e));
-      setState("idle");
-    }
-  };
-
-  const build = async (replace: boolean) => {
-    setError(null);
-    setBuilt(null);
-    setExists(false);
-    setState("building");
-    try {
-      setBuilt(await api.buildGraph(project, replace));
-      await open();
-    } catch (e) {
-      const message = String(e);
-      if (message.startsWith("EXISTS")) setExists(true);
-      else setError(message);
-      setState("idle");
-    }
-  };
-
-  const busy = state === "building" || state === "starting";
-  return (
-    <section>
-      <h3>Knowledge graph</h3>
-      <p className="muted">
-        A map of a project&apos;s files, what they define and what imports what, shown in
-        Understand-Anything&apos;s dashboard. Two ways to make one:
-      </p>
-      <ul className="muted graph-ways">
-        <li>
-          <strong>Free graph</strong>: FRIDAY reads the code itself in seconds. No AI, no cost,
-          no API key. Summaries come from each file&apos;s comments.
-        </li>
-        <li>
-          <strong>AI graph</strong>: type <code>/understand</code> in a chat with a Claude model
-          and this folder open. Understand-Anything&apos;s own pipeline writes real summaries,
-          layers and a guided tour. It makes many API calls (it costs money) and needs Node.js
-          and Python.
-        </li>
-      </ul>
-      <div className="local-picker">
-        <input
-          type="text"
-          value={project}
-          placeholder={"C:\\path\\to\\your\\repo"}
-          onChange={(e) => setProject(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && project.trim()) void open();
-          }}
-          spellCheck={false}
-          aria-label="Project folder"
-        />
-        <button
-          onClick={async () => {
-            const folder = await pickFolder();
-            if (folder) setProject(folder);
-          }}
-        >
-          Browse…
-        </button>
-      </div>
-      <div className="row graph-actions">
-        <button onClick={() => void build(false)} disabled={!project.trim() || busy}>
-          {state === "building" ? "Building…" : "Build free graph"}
-        </button>
-        <button onClick={() => void open()} disabled={!project.trim() || busy}>
-          {state === "starting" ? "Opening…" : "Open graph"}
-        </button>
-      </div>
-      {exists && (
-        <div className="failure">
-          <p>
-            This project already has a graph, perhaps an AI-built one. Replacing it cannot be
-            undone.
-          </p>
-          <div className="row">
-            <button onClick={() => void build(true)}>Replace with a free graph</button>
-            <button onClick={() => void open()}>Open the existing one</button>
-          </div>
-        </div>
-      )}
-      {built && (
-        <p className="ok">
-          Built from {built.files} files: {built.nodes} nodes, {built.edges} links, {built.layers}{" "}
-          layers.
-        </p>
-      )}
-      {state === "open" && <p className="ok">Opened in a new window.</p>}
-      {error && <p className="failure">{error}</p>}
-    </section>
-  );
-}
-
 /** Skills are SKILL.md folders, the same format Claude Code uses. */
 function SkillsSection() {
   const [list, setList] = useState<SkillList | null>(null);
@@ -546,7 +428,6 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
-      <GraphSection />
       <SkillsSection />
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />

@@ -34,6 +34,11 @@ fn graph_dir(project: &Path) -> Option<PathBuf> {
 /// Looks up one of the dashboard's files: (mime type, bytes).
 type Assets = dyn Fn(&str) -> Option<(String, Vec<u8>)> + Send + Sync;
 
+/// Whether `project` already has a knowledge graph.
+pub fn exists(project: &str) -> bool {
+    graph_dir(Path::new(project.trim())).is_some()
+}
+
 /// One open dashboard: what it serves and who may ask.
 struct Site {
     /// The dashboard's own files by path: (mime type, bytes).

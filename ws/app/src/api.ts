@@ -297,6 +297,7 @@ export const api = {
 
   /** Open the Understand-Anything dashboard for a project. Returns its URL. */
   openGraph: (project: string) => invoke<string>("open_graph", { project }),
+  hasGraph: (project: string) => invoke<boolean>("has_graph", { project }),
   /** FRIDAY's free graph. Fails with "EXISTS: ..." if another graph is there. */
   buildGraph: (project: string, replace: boolean) =>
     invoke<GraphBuilt>("build_graph", { project, replace }),

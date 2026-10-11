@@ -891,6 +891,11 @@ pub async fn open_graph(app: tauri::AppHandle, project: String) -> CmdResult<Str
     crate::graph::open(&app, &project).await
 }
 
+#[tauri::command]
+pub fn has_graph(project: String) -> bool {
+    crate::graph::exists(&project)
+}
+
 /// Build FRIDAY's free, model-free graph of a project. `replace` overwrites a
 /// graph built some other way (an error starting `EXISTS:` asks for it).
 #[tauri::command]

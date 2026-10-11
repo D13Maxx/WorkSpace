@@ -76,6 +76,7 @@ pub fn run() {
             commands::list_skills,
             commands::open_graph,
             commands::build_graph,
+            commands::has_graph,
             commands::list_dir,
             commands::read_text_file,
             commands::read_file_bytes,
