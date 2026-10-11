@@ -295,29 +295,35 @@ export default function App() {
     setActive(id);
   }, [models, refreshConversations]);
 
-  /** Build `folder`'s AI graph: open it, then run /understand in a new chat
-   *  with a Claude model, which is what the pipeline needs. */
-  const startUnderstand = async (folder: string) => {
-    setGraphFor(null);
-    addFolder(folder);
-    setOpenFile(null);
+  /** Send `message` to the agent in a new chat working in `folder`, with a
+   *  Claude model when there is one. */
+  const startAgent = async (folder: string, file: string | null, title: string, message: string) => {
     const claude = models.filter((m) => m.backend === ANTHROPIC);
-    const model = claude.find((m) => m.model_id.includes("sonnet")) ?? claude[0];
+    const model = claude.find((m) => m.model_id.includes("sonnet")) ?? claude[0] ?? models[0];
     try {
       const id = await api.createConversation(
-        `Knowledge graph: ${baseName(folder)}`,
-        ANTHROPIC,
+        title,
+        model?.backend ?? ANTHROPIC,
         model?.model_id ?? "claude-sonnet-4-5",
       );
       await refreshConversations();
       setActive(id);
       setShowChats(false);
       // Before the turn starts: the effect that tracks the open folder runs later.
-      await api.setWorkspace(folder, null);
-      await consume(id, (onEvent) => api.sendMessage(id, "/understand", onEvent));
+      await api.setWorkspace(folder, file);
+      await consume(id, (onEvent) => api.sendMessage(id, message, onEvent));
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  /** Build `folder`'s AI graph: open it, then run /understand in a new chat
+   *  with a Claude model, which is what the pipeline needs. */
+  const startUnderstand = (folder: string) => {
+    setGraphFor(null);
+    addFolder(folder);
+    setOpenFile(null);
+    void startAgent(folder, null, `Knowledge graph: ${baseName(folder)}`, "/understand");
   };
 
   const onSelectBranch = useCallback(
@@ -384,6 +390,7 @@ export default function App() {
             version={fileVersion}
             onClose={() => setOpenFile(null)}
             onRun={(path) => startTask({ kind: "file", root: openFile.root, path })}
+            onAgent={(title, message) => void startAgent(openFile.root, openFile.path, title, message)}
           />
         ) : (
           <div className="empty">
@@ -586,7 +593,7 @@ export default function App() {
           onClose={() => setGraphFor(null)}
           onOpenSettings={() => setShowSettings(true)}
           onAddFolder={addFolder}
-          onStartAi={(folder) => void startUnderstand(folder)}
+          onStartAi={startUnderstand}
         />
       )}
       {inspecting && (

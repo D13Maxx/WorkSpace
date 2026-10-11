@@ -38,7 +38,8 @@ const FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3";
 const NEW_FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M8 7.5v5M5.5 10h5";
 const NEW_FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13zM8 6.8v4.4M5.8 9h4.4";
 
-const TERMINAL = "M1.5 2.5h13v11h-13zM4 6l2.5 2L4 10M8 10.5h4";
+const BLUEPRINT = "M1.5 2.5h5v4h-5zM9.5 9.5h5v4h-5zM6.5 4.5h2.5v7h.5";
+const TERMINAL ="M1.5 2.5h13v11h-13zM4 6l2.5 2L4 10M8 10.5h4";
 const RENAME = "M10.5 2.5l3 3-8 8h-3v-3zM9 4l3 3";
 const TRASH = "M2.5 4.5h11M6 4.5v-2h4v2M4 4.5l.8 9h6.4l.8-9M6.8 7v4.5M9.2 7v4.5";
 
@@ -243,7 +244,7 @@ export function Explorer({
     });
   };
   // What is being created, and its name as typed, while that box is open.
-  const [creating, setCreating] = useState<null | "file" | "folder">(null);
+  const [creating, setCreating] = useState<null | "file" | "folder" | "blueprint">(null);
   const [name, setName] = useState("");
   const [created, setCreated] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +275,7 @@ export function Explorer({
   };
 
   /** Ask where, in Windows' folder picker, then ask for the name. */
-  const startCreate = async (kind: "file" | "folder") => {
+  const startCreate = async (kind: "file" | "folder" | "blueprint") => {
     const start = place
       ? place.root.replace(/[\\/]+$/, "") + (place.dir ? "\\" + place.dir.replace(/\//g, "\\") : "")
       : undefined;
@@ -334,8 +335,9 @@ export function Explorer({
   };
 
   const create = async () => {
-    const typed = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    let typed = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
     if (!place || !typed) return;
+    if (creating === "blueprint" && !/\.blueprint$/i.test(typed)) typed += ".blueprint";
     const path = place.dir ? `${place.dir}/${typed}` : typed;
     try {
       if (creating === "folder") {
@@ -407,6 +409,14 @@ export function Explorer({
         </button>
         <button
           className="icon-button"
+          onClick={() => void startCreate("blueprint")}
+          title="New blueprint: draw a system, simulate it, have the agent build it (asks where)"
+          aria-label="New blueprint"
+        >
+          <Icon d={BLUEPRINT} />
+        </button>
+        <button
+          className="icon-button"
           onClick={async () => {
             const folder = await pickFolder();
             if (folder) onGraph(folder);
@@ -442,7 +452,7 @@ export function Explorer({
             autoFocus
             type="text"
             value={name}
-            placeholder={creating === "file" ? "main.c" : "src"}
+            placeholder={creating === "file" ? "main.c" : creating === "blueprint" ? "shop.blueprint" : "src"}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {

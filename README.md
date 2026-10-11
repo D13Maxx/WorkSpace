@@ -169,6 +169,41 @@ file" works). Writes show as diffs with Undo. Commands always ask first, and
 are how it edits PDFs and Word files (with Python's `pypdf` and
 `python-docx`). Changes made by commands cannot be undone from the chat.
 
+## Blueprints: draw a system, simulate it, have the agent build it
+
+The **New blueprint** button on the left (two boxes joined by a wire) makes a
+`.blueprint` file. It opens as a canvas, a bit like LTspice or Multisim but
+for software:
+
+- **Parts:** drag them from the left onto the canvas, or click one to add it:
+  users, web front end, API service, worker, queue, database, cache, LLM, AI
+  agent, vector database, third-party API, and more. **+ New part** defines
+  your own, with its numbers and which connectors it takes.
+- **Connectors:** drag from a part's right dot to another part's left dot.
+  HTTP, function call, SQL, cache, LLM request, queue message, event, or your
+  own (**+ New connector**). The connector picked on the left is used for
+  new wires; **Automatic** picks one the target takes. Dashed connectors do
+  not wait for an answer.
+- **Details:** click a part or a wire to set what it should do (the agent
+  builds from this), its load, its speed, its error rate and how many copies
+  run. **Describe** sets the system's purpose and the stack you want.
+- **Run** simulates steady traffic through the drawing. Each wire shows its
+  requests per second and each part its load, latency and how full it is.
+  Findings are listed as **Bug** (connectors a part does not take, loops that
+  wait on themselves, parts nothing reaches), **Scaling** (overloaded parts
+  and how many copies they need, how far the load can grow) and **Deploy**
+  (requests past a 30 s timeout, single points of failure, low success rates).
+  The load slider runs it at 0.1× to 50×, and **Simulate this part failing**
+  takes one part down.
+- **Build with agent** (enabled once Run finds no bugs) saves, then opens a
+  new chat that asks the agent to write the whole system into the
+  blueprint's folder in one go, with a README, local run config and tests.
+
+The simulation is a model (steady-state queueing), not your code running: it
+catches design mistakes before code exists. The file is plain JSON, so the
+agent can read or change a blueprint too. Test the model with
+`node ws/app/scripts/test-blueprint.mjs`.
+
 ## Connect tool servers (Serena)
 
 Models can call tools from any MCP server. List them in `mcp.json` in the app
