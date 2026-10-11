@@ -78,9 +78,17 @@ export default function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A tool call waiting for the user. The turn is paused until it is answered.
-  const [approval, setApproval] = useState<{ callId: string; name: string; args: string } | null>(
-    null,
+  // Helper agents run side by side, so several can wait at once: a queue.
+  const [approvals, setApprovals] = useState<{ callId: string; name: string; args: string }[]>(
+    [],
   );
+  // "Allow all for this reply": later requests in the same reply are allowed unasked.
+  const allowAll = useRef(false);
+  const approval = approvals[0] ?? null;
+  const answer = (callId: string, approved: boolean) => {
+    void api.resolveApproval(callId, approved);
+    setApprovals((q) => q.filter((a) => a.callId !== callId));
+  };
 
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
@@ -199,7 +207,12 @@ export default function App() {
               setStatus(`Running ${event.name}…`);
               break;
             case "approval_required":
-              setApproval({ callId: event.call_id, name: event.name, args: event.args });
+              if (allowAll.current) {
+                void api.resolveApproval(event.call_id, true);
+              } else {
+                const asked = { callId: event.call_id, name: event.name, args: event.args };
+                setApprovals((q) => [...q, asked]);
+              }
               break;
             case "tool_result":
               setStatus(null);
@@ -226,7 +239,8 @@ export default function App() {
         setReasoning("");
         setStatus(null);
         setPrefill(null);
-        setApproval(null);
+        setApprovals([]);
+        allowAll.current = false;
         await refreshThread(conversation);
         await refreshConversations();
       }
@@ -471,25 +485,25 @@ export default function App() {
               <div className="approval" role="alertdialog" aria-label="Approve tool call">
                 <p>
                   The model wants to run <code>{approval.name}</code>:
+                  {approvals.length > 1 && (
+                    <span className="muted"> ({approvals.length - 1} more waiting)</span>
+                  )}
                 </p>
                 <ToolArgs args={approval.args} />
                 <div className="row">
-                  <button
-                    className="primary"
-                    onClick={() => {
-                      void api.resolveApproval(approval.callId, true);
-                      setApproval(null);
-                    }}
-                  >
+                  <button className="primary" onClick={() => answer(approval.callId, true)}>
                     Allow
                   </button>
+                  <button onClick={() => answer(approval.callId, false)}>Deny</button>
                   <button
+                    title="Allow this and every other tool call until this reply finishes"
                     onClick={() => {
-                      void api.resolveApproval(approval.callId, false);
-                      setApproval(null);
+                      allowAll.current = true;
+                      for (const a of approvals) void api.resolveApproval(a.callId, true);
+                      setApprovals([]);
                     }}
                   >
-                    Deny
+                    Allow all for this reply
                   </button>
                 </div>
               </div>

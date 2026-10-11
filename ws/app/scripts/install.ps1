@@ -31,6 +31,17 @@ if (-not (Test-Path $built)) { throw "the build finished but $built is missing" 
 New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item $built $installed -Force
 
+# Understand-Anything's /understand pipeline, which the app finds beside it.
+$pipeline = Join-Path $app 'src-tauri\ua-pipeline'
+if (-not (Test-Path (Join-Path $pipeline 'agents'))) {
+    Write-Host 'Building the Understand-Anything pipeline (downloads UA once)...'
+    node (Join-Path $PSScriptRoot 'build-ua-pipeline.mjs')
+    if ($LASTEXITCODE -ne 0) { throw "the pipeline build failed (exit $LASTEXITCODE)" }
+}
+$installedPipeline = Join-Path $dest 'ua-pipeline'
+if (Test-Path $installedPipeline) { Remove-Item $installedPipeline -Recurse -Force }
+Copy-Item $pipeline $installedPipeline -Recurse
+
 $link = Join-Path ([Environment]::GetFolderPath('Desktop')) 'F.R.I.D.A.Y.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($link)

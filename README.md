@@ -205,8 +205,22 @@ a codebase into a knowledge graph in the project's `.ua` folder.
 - **Ask about it:** `/understand-chat`, `/understand-explain`,
   `/understand-diff`, `/understand-onboard`. The agent reads the graph with
   its built-in `search_files` and `read_file` tools.
-- **Build a graph:** not yet in this app. `/understand` dispatches subagents
-  and needs UA's Node packages; build the graph with Claude Code for now.
+- **Build a free graph:** Settings → Knowledge graph → **Build free graph**.
+  FRIDAY reads the code itself (Rust, no model, no Node): files, the functions
+  and types they define, what imports what, one layer per folder, a short
+  tour. Summaries come from each file's leading comment. It will not replace
+  an AI-built graph unless you confirm.
+- **Build the AI graph:** type `/understand` in a chat with a Claude model and
+  the project open. This is UA's own pipeline: the model dispatches helper
+  agents (`dispatch_agent`, up to five at once) that run UA's bundled scripts
+  and write real summaries, layers and a tour. It makes many API calls and
+  needs Node.js, Python and Git Bash. **Allow all for this reply** on the
+  approval prompt saves clicking through every step.
+
+The pipeline lives in `ws/app/src-tauri/ua-pipeline` (gitignored, 38 MB). It
+is built by `node ws/app/scripts/build-ua-pipeline.mjs`, which clones UA
+v2.9.0, installs with scripts disabled, and bundles each script with esbuild;
+`install.ps1` builds it when missing and copies it next to `FRIDAY.exe`.
 
 ## Add a provider
 

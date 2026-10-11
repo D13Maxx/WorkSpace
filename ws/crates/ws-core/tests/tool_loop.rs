@@ -223,12 +223,12 @@ async fn bad_json_arguments_become_an_error_result_not_a_failed_turn() {
 #[tokio::test]
 async fn a_model_that_never_stops_calling_tools_is_cut_off() {
     let h = harness(
-        (0..30)
+        (0..90)
             .map(|i| Scripted::calls(&format!("c{i}"), "read_file", "{}"))
             .collect(),
     );
     let conv = h.conversation();
-    let (tx, mut rx) = mpsc::channel(256);
+    let (tx, mut rx) = mpsc::channel(1024);
     let orch = h.orch.clone();
     let turn = tokio::spawn(async move { orch.run_turn(conv, tx, CancellationToken::new()).await });
     let mut failed = false;
@@ -237,7 +237,7 @@ async fn a_model_that_never_stops_calling_tools_is_cut_off() {
     }
     assert!(turn.await.unwrap().is_err());
     assert!(failed, "the UI must be told why it stopped");
-    assert_eq!(h.tools.calls.lock().unwrap().len(), 25);
+    assert_eq!(h.tools.calls.lock().unwrap().len(), 80);
 }
 
 #[tokio::test]

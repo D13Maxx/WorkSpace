@@ -1262,13 +1262,3 @@ mod tests {
         assert!(std::fs::read_to_string(&file).unwrap().contains(MARKER));
     }
 }
-
-/// Graph a real project by hand: `FRIDAY_GRAPH=<dir> cargo test -p ws-app -- --ignored graph_a_real_project`.
-#[cfg(test)]
-#[test]
-#[ignore = "writes into the folder named by FRIDAY_GRAPH"]
-fn graph_a_real_project() {
-    #[allow(clippy::expect_used)]
-    let dir = std::env::var("FRIDAY_GRAPH").expect("set FRIDAY_GRAPH");
-    println!("{:?}", write(&dir, true));
-}
