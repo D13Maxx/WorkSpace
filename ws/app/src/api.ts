@@ -282,6 +282,21 @@ export const api = {
 
   createFile: (root: string, path: string) => invoke<void>("create_file", { root, path }),
   createDir: (root: string, path: string) => invoke<void>("create_dir", { root, path }),
+  /** Returns the new relative path. */
+  renamePath: (root: string, path: string, name: string) =>
+    invoke<string>("rename_path", { root, path, name }),
+  /** To the Recycle Bin. */
+  deletePath: (root: string, path: string) => invoke<void>("delete_path", { root, path }),
+  openTerminal: (root: string, onEvent: (e: RunEvent) => void) => {
+    const channel = new Channel<RunEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("open_terminal", { root, onEvent: channel });
+  },
+  pipInstall: (root: string, pkg: string, onEvent: (e: RunEvent) => void) => {
+    const channel = new Channel<RunEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("pip_install", { root, package: pkg, onEvent: channel });
+  },
 
   /** Tell the agent's tools which folder and file are open. */
   setWorkspace: (root: string | null, file: string | null) =>

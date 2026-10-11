@@ -26,6 +26,16 @@ export function extOf(path: string): string {
 // shortcut: lost when the app closes, upgrade to a warn-on-close if that bites.
 const drafts = new Map<string, string>();
 
+/** After `from` (a file or folder) in `root` became `to`, keep its drafts. */
+export function moveDrafts(root: string, from: string, to: string | null) {
+  for (const [key, text] of [...drafts]) {
+    const [r, path] = key.split("\n");
+    if (r !== root || (path !== from && !path.startsWith(`${from}/`))) continue;
+    drafts.delete(key);
+    if (to !== null) drafts.set(`${root}\n${to}${path.slice(from.length)}`, text);
+  }
+}
+
 interface Props {
   project: string;
   path: string;

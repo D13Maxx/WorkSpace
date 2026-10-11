@@ -17,6 +17,12 @@ interface Props {
   onOpenFile: (file: OpenFile) => void;
   /** A folder was picked to make or view a knowledge graph of. */
   onGraph: (folder: string) => void;
+  /** Open a terminal in the current folder; absent with no folder open. */
+  onTerminal?: () => void;
+  /** `from` in `root` is now called `to` (relative paths). */
+  onRenamed: (root: string, from: string, to: string) => void;
+  /** `path` in `root` went to the Recycle Bin. */
+  onDeleted: (root: string, path: string) => void;
   open: OpenFile | null;
   /** Bumped when files may have changed on disk; open folders re-list. */
   version: number;
@@ -31,6 +37,19 @@ const FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13z";
 const FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3";
 const NEW_FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M8 7.5v5M5.5 10h5";
 const NEW_FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13zM8 6.8v4.4M5.8 9h4.4";
+
+const TERMINAL = "M1.5 2.5h13v11h-13zM4 6l2.5 2L4 10M8 10.5h4";
+const RENAME = "M10.5 2.5l3 3-8 8h-3v-3zM9 4l3 3";
+const TRASH = "M2.5 4.5h11M6 4.5v-2h4v2M4 4.5l.8 9h6.4l.8-9M6.8 7v4.5M9.2 7v4.5";
+
+/** Rename and delete, for any row of the tree. */
+interface RowEdit {
+  editing: { root: string; path: string; mode: "rename" | "delete" } | null;
+  begin: (root: string, path: string, mode: "rename" | "delete") => void;
+  cancel: () => void;
+  rename: (name: string) => void;
+  remove: () => void;
+}
 
 /** A folder inside an open folder: where new files and folders go. */
 interface Place {
@@ -56,6 +75,7 @@ function Folder({
   onPlace,
   isOpen,
   onToggle,
+  edit,
   version,
 }: {
   root: string;
@@ -67,6 +87,7 @@ function Folder({
   onPlace: (place: Place) => void;
   isOpen: (path: string) => boolean;
   onToggle: (path: string) => void;
+  edit: RowEdit;
   version: number;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
@@ -88,28 +109,89 @@ function Folder({
     <ul className="tree" role="group">
       {entries.map((e) => (
         <li key={e.path} role="treeitem" aria-expanded={e.is_dir ? isOpen(e.path) : undefined}>
-          <button
-            className={`tree-item ${
-              (e.is_dir ? place?.root === root && place.dir === e.path : open?.root === root && e.path === open.path)
-                ? "selected"
-                : ""
-            }`}
-            style={{ paddingLeft: `${depth * 12 + 6}px` }}
-            onClick={() => {
-              if (e.is_dir) {
-                onToggle(e.path);
-                onPlace({ root, dir: e.path });
-              } else {
-                onOpenFile({ root, path: e.path });
-              }
-            }}
-            title={e.path}
-          >
-            <span className="tree-icon" aria-hidden="true">
-              {e.is_dir ? (isOpen(e.path) ? "▾" : "▸") : " "}
-            </span>
-            {e.name}
-          </button>
+          {edit.editing?.root === root && edit.editing.path === e.path && edit.editing.mode === "rename" ? (
+            <form
+              className="tree-rename"
+              style={{ paddingLeft: `${depth * 12 + 6}px` }}
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                const input = ev.currentTarget.elements.namedItem("name") as HTMLInputElement;
+                edit.rename(input.value);
+              }}
+            >
+              <input
+                name="name"
+                autoFocus
+                defaultValue={e.name}
+                // The name without its extension, ready to retype.
+                onFocus={(ev) => {
+                  const dot = e.is_dir ? -1 : e.name.lastIndexOf(".");
+                  ev.currentTarget.setSelectionRange(0, dot > 0 ? dot : e.name.length);
+                }}
+                onKeyDown={(ev) => ev.key === "Escape" && edit.cancel()}
+                onBlur={edit.cancel}
+                spellCheck={false}
+                aria-label={`New name for ${e.name}`}
+              />
+            </form>
+          ) : (
+            <div className="tree-row">
+            <button
+              className={`tree-item ${
+                (e.is_dir ? place?.root === root && place.dir === e.path : open?.root === root && e.path === open.path)
+                  ? "selected"
+                  : ""
+              }`}
+              style={{ paddingLeft: `${depth * 12 + 6}px` }}
+              onClick={() => {
+                if (e.is_dir) {
+                  onToggle(e.path);
+                  onPlace({ root, dir: e.path });
+                } else {
+                  onOpenFile({ root, path: e.path });
+                }
+              }}
+              title={e.path}
+            >
+              <span className="tree-icon" aria-hidden="true">
+                {e.is_dir ? (isOpen(e.path) ? "▾" : "▸") : " "}
+              </span>
+              {e.name}
+            </button>
+              <span className="tree-actions">
+                <button
+                  className="icon-button"
+                  onClick={() => edit.begin(root, e.path, "rename")}
+                  title={`Rename ${e.name}`}
+                  aria-label={`Rename ${e.name}`}
+                >
+                  <Icon d={RENAME} />
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={() => edit.begin(root, e.path, "delete")}
+                  title={`Delete ${e.name}`}
+                  aria-label={`Delete ${e.name}`}
+                >
+                  <Icon d={TRASH} />
+                </button>
+              </span>
+            </div>
+          )}
+          {edit.editing?.root === root && edit.editing.path === e.path && edit.editing.mode === "delete" && (
+            <div className="tree-confirm" role="alertdialog" aria-label={`Delete ${e.name}`}>
+              <span>
+                Move <strong>{e.name}</strong>
+                {e.is_dir ? " and everything in it" : ""} to the Recycle Bin?
+              </span>
+              <span className="row">
+                <button className="danger" autoFocus onClick={edit.remove}>
+                  Delete
+                </button>
+                <button onClick={edit.cancel}>Cancel</button>
+              </span>
+            </div>
+          )}
           {e.is_dir && isOpen(e.path) && (
             <Folder
               root={root}
@@ -121,6 +203,7 @@ function Folder({
               onPlace={onPlace}
               isOpen={isOpen}
               onToggle={onToggle}
+              edit={edit}
               version={version}
             />
           )}
@@ -130,7 +213,18 @@ function Folder({
   );
 }
 
-export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onGraph, open, version }: Props) {
+export function Explorer({
+  folders,
+  onAddFolder,
+  onRemoveFolder,
+  onOpenFile,
+  onGraph,
+  onTerminal,
+  onRenamed,
+  onDeleted,
+  open,
+  version,
+}: Props) {
   // Collapsed roots; a newly opened folder starts expanded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Expanded folders inside the roots, by root and path.
@@ -193,6 +287,44 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
     setName("");
     setError(null);
     setCreating(kind);
+  };
+
+  const [editing, setEditing] = useState<RowEdit["editing"]>(null);
+  const edit: RowEdit = {
+    editing,
+    begin: (root, path, mode) => {
+      setError(null);
+      setEditing({ root, path, mode });
+    },
+    cancel: () => setEditing(null),
+    rename: async (name) => {
+      if (!editing) return;
+      const { root, path } = editing;
+      const old = path.split("/").pop();
+      setEditing(null);
+      if (!name.trim() || name.trim() === old) return;
+      try {
+        const to = await api.renamePath(root, path, name);
+        onRenamed(root, path, to);
+        setPicked(null);
+        setCreated((n) => n + 1);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    remove: async () => {
+      if (!editing) return;
+      const { root, path } = editing;
+      setEditing(null);
+      try {
+        await api.deletePath(root, path);
+        onDeleted(root, path);
+        setPicked(null);
+        setCreated((n) => n + 1);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
   };
 
   // Opening a file moves the place for new things to beside it.
@@ -284,6 +416,15 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
         >
           <Icon d={GRAPH} />
         </button>
+        <button
+          className="icon-button"
+          onClick={onTerminal}
+          disabled={!onTerminal}
+          title={onTerminal ? "Terminal (pip, npm, cargo…)" : "Open a folder first"}
+          aria-label="Terminal"
+        >
+          <Icon d={TERMINAL} />
+        </button>
       </div>
 
       {creating && place && (
@@ -354,6 +495,7 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
                 open={open}
                 place={picked ? place : null}
                 onPlace={setPicked}
+                edit={edit}
                 isOpen={(path) => !!expanded[key(root, path)]}
                 onToggle={(path) => setExpanded((x) => ({ ...x, [key(root, path)]: !x[key(root, path)] }))}
                 version={version + created}

@@ -935,6 +935,46 @@ pub fn write_file_bytes(root: String, path: String, bytes: Vec<u8>) -> CmdResult
 }
 
 #[tauri::command]
+pub fn rename_path(root: String, path: String, name: String) -> CmdResult<String> {
+    crate::files::rename(&root, &path, &name)
+}
+
+/// To the Recycle Bin, not gone.
+#[tauri::command]
+pub fn delete_path(root: String, path: String) -> CmdResult<()> {
+    crate::files::delete(&root, &path)
+}
+
+/// A shell in the output panel, in `root`, for pip, npm, cargo and the rest.
+#[tauri::command]
+pub fn open_terminal(
+    state: State<'_, AppState>,
+    root: String,
+    on_event: Channel<crate::run::RunEvent>,
+) -> CmdResult<()> {
+    let root = std::path::Path::new(root.trim())
+        .canonicalize()
+        .map_err(err)?;
+    state.runner.start(crate::run::terminal(&root)?, on_event)
+}
+
+/// `pip install` one package for the Python that runs `.py` files.
+#[tauri::command]
+pub fn pip_install(
+    state: State<'_, AppState>,
+    root: String,
+    package: String,
+    on_event: Channel<crate::run::RunEvent>,
+) -> CmdResult<()> {
+    let root = std::path::Path::new(root.trim())
+        .canonicalize()
+        .map_err(err)?;
+    state
+        .runner
+        .start(crate::run::pip_install(&root, &package)?, on_event)
+}
+
+#[tauri::command]
 pub fn create_dir(root: String, path: String) -> CmdResult<()> {
     crate::files::create_dir(&root, &path)
 }

@@ -8,8 +8,8 @@ import { Settings } from "./components/Settings";
 import { PrefillProgress } from "./components/PrefillProgress";
 import { Explorer, baseName, type OpenFile } from "./components/Explorer";
 import { GraphDialog } from "./components/GraphDialog";
-import { FileViewer } from "./components/FileViewer";
-import { RunPanel } from "./components/RunPanel";
+import { FileViewer, moveDrafts } from "./components/FileViewer";
+import { RunPanel, type RunTask } from "./components/RunPanel";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
 const MIN_CHAT = 300;
@@ -108,7 +108,9 @@ export default function App() {
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
-  const [run, setRun] = useState<{ root: string; path: string; key: number } | null>(null);
+  // What the output panel is running: a file, a terminal or a pip install.
+  const [run, setRun] = useState<{ task: RunTask; key: number } | null>(null);
+  const startTask = (task: RunTask) => setRun((r) => ({ task, key: (r?.key ?? 0) + 1 }));
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("ws.chatWidth")) || 420);
 
   useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
@@ -349,6 +351,19 @@ export default function App() {
             if (focus === f) setFocus(null);
           }}
           onGraph={setGraphFor}
+          onTerminal={project ? () => startTask({ kind: "terminal", root: project }) : undefined}
+          onRenamed={(root, from, to) => {
+            moveDrafts(root, from, to);
+            if (openFile?.root === root && (openFile.path === from || openFile.path.startsWith(`${from}/`))) {
+              setOpenFile({ root, path: to + openFile.path.slice(from.length) });
+            }
+          }}
+          onDeleted={(root, path) => {
+            moveDrafts(root, path, null);
+            if (openFile?.root === root && (openFile.path === path || openFile.path.startsWith(`${path}/`))) {
+              setOpenFile(null);
+            }
+          }}
           onOpenFile={setOpenFile}
           open={openFile}
           version={fileVersion}
@@ -368,9 +383,7 @@ export default function App() {
             path={openFile.path}
             version={fileVersion}
             onClose={() => setOpenFile(null)}
-            onRun={(path) =>
-              setRun((r) => ({ root: openFile.root, path, key: (r?.key ?? 0) + 1 }))
-            }
+            onRun={(path) => startTask({ kind: "file", root: openFile.root, path })}
           />
         ) : (
           <div className="empty">
@@ -379,16 +392,16 @@ export default function App() {
         )}
         {run && (
           <RunPanel
-            project={run.root}
-            path={run.path}
+            task={run.task}
             runKey={run.key}
-            onExit={(path, code) => {
+            onExit={(task, code) => {
               // A build leaves new files (a program, a PDF) to show.
               setFileVersion((v) => v + 1);
-              if (code === 0 && path.toLowerCase().endsWith(".tex")) {
-                setOpenFile({ root: run.root, path: path.replace(/[.]tex$/i, ".pdf") });
+              if (task.kind === "file" && code === 0 && task.path.toLowerCase().endsWith(".tex")) {
+                setOpenFile({ root: task.root, path: task.path.replace(/[.]tex$/i, ".pdf") });
               }
             }}
+            onInstall={(pkg) => startTask({ kind: "pip", root: run.task.root, package: pkg })}
             onClose={() => setRun(null)}
           />
         )}

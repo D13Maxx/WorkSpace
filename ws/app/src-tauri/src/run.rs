@@ -178,6 +178,59 @@ fn plan_with(
     Ok(Plan { cwd, steps })
 }
 
+/// The user's shell, interactive, in `root`.
+///
+/// # Errors
+/// No shell was found.
+pub fn terminal(root: &Path) -> Result<Plan, String> {
+    let shell = if cfg!(windows) {
+        find(&["pwsh", "powershell", "cmd"])
+    } else {
+        find(&["bash", "sh"])
+    }
+    .ok_or("No shell found.")?;
+    let args: &[&str] = if shell.file_stem().is_some_and(|s| s != "cmd") && cfg!(windows) {
+        &["-NoLogo"]
+    } else {
+        &[]
+    };
+    Ok(Plan {
+        cwd: plain(root),
+        steps: vec![step(shell, args)],
+    })
+}
+
+/// A package name as pip accepts one, optionally with extras and a version:
+/// `numpy`, `requests[socks]`, `pandas==2.2.3`. Nothing that a shell, or pip,
+/// would read as another option or a path.
+fn is_package(spec: &str) -> bool {
+    !spec.is_empty()
+        && spec.len() <= 100
+        && spec
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && spec
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-[],=<>!~".contains(c))
+}
+
+/// `python -m pip install <package>`, with the Python that runs `.py` files.
+///
+/// # Errors
+/// The name is not a plain package spec, or Python is not installed.
+pub fn pip_install(root: &Path, package: &str) -> Result<Plan, String> {
+    let package = package.trim();
+    if !is_package(package) {
+        return Err(format!("{package} is not a package name"));
+    }
+    let python = find(&["python", "python3", "py"]).ok_or(NO_PYTHON)?;
+    Ok(Plan {
+        cwd: plain(root),
+        steps: vec![step(python, &["-m", "pip", "install", package])],
+    })
+}
+
 /// The longest valid UTF-8 prefix of `buf`, leaving a character cut off by
 /// the end of a read for the next one.
 fn take_utf8(buf: &mut Vec<u8>) -> String {
@@ -432,6 +485,30 @@ mod tests {
             plain(Path::new(r"\\?\UNC\srv\x")),
             Path::new(r"\\?\UNC\srv\x")
         );
+    }
+
+    #[test]
+    fn only_plain_package_names_reach_pip() {
+        for ok in [
+            "numpy",
+            "pandas==2.2.3",
+            "requests[socks]",
+            "scikit-learn",
+            "opencv_python",
+        ] {
+            assert!(is_package(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "-r requirements.txt",
+            "--index-url=http://x",
+            "../x",
+            "a b",
+            "x;rm",
+            "C:\\x",
+        ] {
+            assert!(!is_package(bad), "{bad}");
+        }
     }
 
     #[test]

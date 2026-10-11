@@ -1241,3 +1241,63 @@ body.resizing iframe {
   color: var(--accent);
   text-decoration: underline;
 }
+
+/* ---- tree rows: rename and delete ---------------------------------------- */
+
+.tree-row {
+  display: flex;
+  align-items: center;
+}
+
+.tree-row > .tree-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-actions {
+  display: none;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.tree-actions .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+.tree-row:hover .tree-actions,
+.tree-row:focus-within .tree-actions {
+  display: flex;
+}
+
+.tree-rename {
+  padding: 1px 6px 1px 0;
+}
+
+.tree-rename input {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+}
+
+.tree-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 8px 6px;
+  padding: 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger-dim);
+}
+
+.tree-confirm .row {
+  display: flex;
+  gap: 6px;
+}
+
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}

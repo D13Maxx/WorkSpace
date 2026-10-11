@@ -1,29 +1,80 @@
-// The output panel: a terminal for the program being built and run.
+// The output panel: a real terminal for a program being built and run, a
+// shell, or a pip install.
 //
-// It is a real terminal, not a log: what the user types here goes to the
-// program, so `input()` and `scanf` work.
+// It is a terminal, not a log: what the user types here goes to the program,
+// so `input()`, `scanf` and an interactive shell all work.
 
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { api } from "../api";
+import { api, type RunEvent } from "../api";
+import { baseName } from "./Explorer";
+
+export type RunTask =
+  | { kind: "file"; root: string; path: string }
+  | { kind: "terminal"; root: string }
+  | { kind: "pip"; root: string; package: string };
+
+/** Import names whose pip package is called something else. */
+const PIP_NAMES: Record<string, string> = {
+  cv2: "opencv-python",
+  PIL: "pillow",
+  sklearn: "scikit-learn",
+  yaml: "pyyaml",
+  bs4: "beautifulsoup4",
+  dotenv: "python-dotenv",
+  docx: "python-docx",
+  fitz: "pymupdf",
+  serial: "pyserial",
+  Crypto: "pycryptodome",
+};
+
+/** The package a failed Python run is missing, from its output. */
+export function missingPackage(output: string): string | null {
+  const m = /ModuleNotFoundError: No module named '([A-Za-z0-9_]+)/.exec(output);
+  return m ? (PIP_NAMES[m[1]] ?? m[1]) : null;
+}
+
+function label(task: RunTask): string {
+  switch (task.kind) {
+    case "file":
+      return task.path;
+    case "terminal":
+      return `Terminal in ${baseName(task.root)}`;
+    case "pip":
+      return `pip install ${task.package}`;
+  }
+}
+
+function start(task: RunTask, onEvent: (e: RunEvent) => void): Promise<void> {
+  switch (task.kind) {
+    case "file":
+      return api.runFile(task.root, task.path, onEvent);
+    case "terminal":
+      return api.openTerminal(task.root, onEvent);
+    case "pip":
+      return api.pipInstall(task.root, task.package, onEvent);
+  }
+}
 
 interface Props {
-  project: string;
-  path: string;
+  task: RunTask;
   /** A new value starts a new run. */
   runKey: number;
-  onExit: (path: string, code: number | null) => void;
+  onExit: (task: RunTask, code: number | null) => void;
+  /** Install a package the last Python run was missing. */
+  onInstall: (pkg: string) => void;
   onClose: () => void;
 }
 
-export function RunPanel({ project, path, runKey, onExit, onClose }: Props) {
+export function RunPanel({ task, runKey, onExit, onInstall, onClose }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const [running, setRunning] = useState(false);
-  const exitRef = useRef(onExit);
-  exitRef.current = onExit;
+  const [missing, setMissing] = useState<string | null>(null);
+  const latest = useRef({ task, onExit });
+  latest.current = { task, onExit };
 
   useEffect(() => {
     if (!host.current) return;
@@ -58,25 +109,33 @@ export function RunPanel({ project, path, runKey, onExit, onClose }: Props) {
   useEffect(() => {
     const t = term.current;
     if (!t) return;
+    const current = latest.current.task;
     let live = true;
+    // The tail of the output, for spotting a missing Python package.
+    let tail = "";
     t.reset();
     setRunning(true);
-    api
-      .runFile(project, path, (e) => {
-        if (!live) return;
-        if (e.type === "output") {
-          t.write(e.data);
-          return;
-        }
-        setRunning(false);
-        const how = e.stopped
-          ? "Stopped"
-          : e.code === null
-            ? "Did not finish"
-            : `Exited with code ${e.code}`;
-        t.write(`\r\n\x1b[2m${how}\x1b[0m\r\n`);
-        exitRef.current(path, e.code);
-      })
+    setMissing(null);
+    start(current, (e) => {
+      if (!live) return;
+      if (e.type === "output") {
+        t.write(e.data);
+        tail = (tail + e.data).slice(-8000);
+        return;
+      }
+      setRunning(false);
+      const how = e.stopped
+        ? "Stopped"
+        : e.code === null
+          ? "Did not finish"
+          : `Exited with code ${e.code}`;
+      t.write(`\r\n\x1b[2m${how}\x1b[0m\r\n`);
+      if (current.kind === "file" && current.path.endsWith(".py") && e.code !== 0) {
+        // eslint-disable-next-line no-control-regex
+        setMissing(missingPackage(tail.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")));
+      }
+      latest.current.onExit(current, e.code);
+    })
       .then(() => api.runResize(t.cols, t.rows))
       .catch((err) => {
         if (!live) return;
@@ -87,15 +146,24 @@ export function RunPanel({ project, path, runKey, onExit, onClose }: Props) {
     return () => {
       live = false;
     };
-  }, [project, path, runKey]);
+  }, [runKey]);
 
   return (
     <section className="run-panel" aria-label="Output">
       <header>
         <span>
-          Output <code>{path}</code>
+          Output <code>{label(task)}</code>
         </span>
         <span className="actions">
+          {missing && (
+            <button
+              className="primary"
+              onClick={() => onInstall(missing)}
+              title={`Run pip install ${missing}`}
+            >
+              Install {missing}
+            </button>
+          )}
           <button onClick={() => void api.stopRun()} disabled={!running}>
             Stop
           </button>

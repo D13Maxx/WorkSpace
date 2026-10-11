@@ -153,6 +153,47 @@ pub fn write_bytes(root: &str, rel: &str, bytes: &[u8]) -> Result<(), String> {
     ws_core::edits::restore(&path, Some(bytes)).map_err(|e| e.to_string())
 }
 
+/// Give the file or folder at `rel` a new name in the same folder. Returns
+/// its new relative path.
+pub fn rename(root: &str, rel: &str, name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty()
+        || Path::new(name).components().count() != 1
+        || !matches!(
+            Path::new(name).components().next(),
+            Some(Component::Normal(_))
+        )
+    {
+        return Err(format!("{name} is not a name"));
+    }
+    if rel.trim().is_empty() {
+        return Err("an open folder cannot be renamed here".to_owned());
+    }
+    let from = resolve(root, rel)?;
+    let to = from.with_file_name(name);
+    // Same name in a different case is a rename on Windows, not a clash.
+    let same = to
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&from.to_string_lossy());
+    if to.exists() && !same {
+        return Err(format!("{name} already exists there"));
+    }
+    std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
+    Ok(match rel.rsplit_once('/') {
+        Some((parent, _)) => format!("{parent}/{name}"),
+        None => name.to_owned(),
+    })
+}
+
+/// Move the file or folder at `rel` to the Recycle Bin.
+pub fn delete(root: &str, rel: &str) -> Result<(), String> {
+    if rel.trim().is_empty() {
+        return Err("an open folder is closed, not deleted, from here".to_owned());
+    }
+    let path = resolve(root, rel)?;
+    trash::delete(&path).map_err(|e| format!("could not move {rel} to the Recycle Bin: {e}"))
+}
+
 /// A new folder, and any missing ones above it. Refuses one that exists.
 pub fn create_dir(root: &str, rel: &str) -> Result<(), String> {
     let path = resolve_for_write(root, rel)?;
@@ -275,9 +316,33 @@ mod tests {
         }
         assert_eq!(read_bytes(&root, "blob.bin").unwrap(), [0xff, 0xfe, 0x00]);
 
+        // Renames stay in their folder, and never clobber.
+        assert_eq!(
+            rename(&root, "src/main.rs", "app.rs").unwrap(),
+            "src/app.rs"
+        );
+        assert!(read_text(&root, "src/app.rs").is_ok());
+        assert!(rename(&root, "src/app.rs", "../x.rs").is_err());
+        assert!(
+            rename(&root, "src/app.rs", "README.md").is_ok(),
+            "other folder, no clash"
+        );
+        std::fs::write(Path::new(&root).join("src/b.rs"), "").unwrap();
+        assert!(
+            rename(&root, "src/b.rs", "README.md")
+                .unwrap_err()
+                .contains("already exists")
+        );
+        assert!(rename(&root, "", "x").is_err());
+        assert!(delete(&root, "").is_err());
+
         create_dir(&root, "made/deeper").unwrap();
         assert!(list_dir(&root, "made").unwrap()[0].is_dir);
-        assert!(create_dir(&root, "made").unwrap_err().contains("already exists"));
+        assert!(
+            create_dir(&root, "made")
+                .unwrap_err()
+                .contains("already exists")
+        );
         assert!(create_dir(&root, "../outside").is_err());
     }
 }

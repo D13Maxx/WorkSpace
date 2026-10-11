@@ -130,6 +130,22 @@ winget install -e --id MiKTeX.MiKTeX
 
 then restart FRIDAY so it sees the new PATH.
 
+### Packages (numpy and friends)
+
+- When a Python run fails with `No module named …`, the output panel offers
+  **Install …**, which runs `python -m pip install` for the Python that runs
+  your files (common import names map to their package: `cv2` →
+  `opencv-python`, `PIL` → `pillow`, `sklearn` → `scikit-learn`, …).
+- The terminal button in the left toolbar opens PowerShell in the current
+  folder, inside the output panel, for anything else: `pip install`,
+  `npm install`, `cargo add`, virtual environments.
+
+## Files and folders
+
+Hover a file or folder on the left for rename (pencil) and delete (bin).
+Delete asks first and moves it to the Recycle Bin. New file and New folder
+ask where, in the folder picker, then for a name.
+
 ## PDFs, Word and text files
 
 - **Text and code** are edited in place; Ctrl+S saves.
