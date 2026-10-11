@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
+import { api, ask, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
@@ -110,6 +110,8 @@ export default function App() {
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
+  // Bumped when a blueprint window saves a new file: only the tree rereads.
+  const [treeVersion, setTreeVersion] = useState(0);
   // What the output panel is running: a file, a terminal or a pip install.
   const [run, setRun] = useState<{ task: RunTask; key: number } | null>(null);
   const startTask = (task: RunTask) => setRun((r) => ({ task, key: (r?.key ?? 0) + 1 }));
@@ -330,6 +332,34 @@ export default function App() {
     }
   };
 
+  // Closing this window closes FRIDAY, blueprint windows too: ask about unsaved ones first.
+  useEffect(() => {
+    const off = getCurrentWindow().onCloseRequested(async (e) => {
+      const n = await api.unsavedBlueprints().catch(() => 0);
+      const what = n === 1 ? "A blueprint has" : `${n} blueprints have`;
+      if (n && !(await ask(`${what} unsaved changes. Close FRIDAY anyway?`))) e.preventDefault();
+    });
+    return () => void off.then((f) => f());
+  }, []);
+
+  // An untitled blueprint saved for the first time: show it on the left, in
+  // the open folder holding it, or as a folder of its own.
+  useEffect(() => {
+    const off = listen<{ root: string; path: string }>("blueprint-saved", ({ payload }) => {
+      const at = payload.root.replace(/[\\/]+$/, "").toLowerCase();
+      setFolders((fs) =>
+        fs.some((f) => {
+          const r = f.replace(/[\\/]+$/, "").toLowerCase();
+          return at === r || at.startsWith(r + "\\");
+        })
+          ? fs
+          : [...fs, payload.root],
+      );
+      setTreeVersion((v) => v + 1);
+    });
+    return () => void off.then((f) => f());
+  }, []);
+
   // A blueprint window's Build with agent: the chat is here.
   const startAgentRef = useRef(startAgent);
   startAgentRef.current = startAgent;
@@ -381,6 +411,7 @@ export default function App() {
             if (focus === f) setFocus(null);
           }}
           onGraph={setGraphFor}
+          onNewBlueprint={() => api.openBlueprintWindow(null, null, project || null).catch((e) => setError(String(e)))}
           onTerminal={project ? () => startTask({ kind: "terminal", root: project }) : undefined}
           onRenamed={(root, from, to) => {
             moveDrafts(root, from, to);
@@ -396,7 +427,7 @@ export default function App() {
           }}
           onOpenFile={openAny}
           open={openFile}
-          version={fileVersion}
+          version={fileVersion + treeVersion}
         />
         <button className="settings" onClick={() => setShowSettings(true)}>
           Settings

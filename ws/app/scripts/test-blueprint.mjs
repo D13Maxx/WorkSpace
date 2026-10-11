@@ -1,6 +1,6 @@
 // Checks the blueprint simulator: `node scripts/test-blueprint.mjs`.
 import assert from "node:assert/strict";
-import { buildPrompt, emptyBlueprint, forSave, parseLibrary, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
+import { buildPrompt, byCategory, emptyBlueprint, forSave, parseLibrary, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
 
 const part = (id, type, set = {}) => ({ id, type, label: id, x: 0, y: 0, notes: "", set });
 const wire = (from, to, kind, calls = 1) => ({ id: `${from}-${to}`, from, to, kind, calls, notes: "" });
@@ -90,5 +90,9 @@ assert.equal(simulate(merged).parts.a.load, 50);
 assert.deepEqual(upsert([auth], { ...auth, name: "B" }).map((t) => t.name), ["B"]);
 assert.equal(upsert([auth], { ...auth, id: "x" }).length, 2);
 assert.equal(parseLibrary('{"parts": 3}').parts.length, 0);
+
+// Categories: unnamed ones are General, which comes first.
+const groups = byCategory([{ category: "Data" }, {}, { category: " AI " }, { category: "" }, { category: "Data" }]);
+assert.deepEqual(groups.map(([c, list]) => [c, list.length]), [["General", 2], ["AI", 1], ["Data", 2]]);
 
 console.log("blueprint model: ok");

@@ -294,8 +294,14 @@ export const api = {
     invoke<string>("rename_path", { root, path, name }),
   /** To the Recycle Bin. */
   deletePath: (root: string, path: string) => invoke<void>("delete_path", { root, path }),
-  /** A blueprint opens in its own window; a second open brings it forward. */
-  openBlueprintWindow: (root: string, path: string) => invoke<void>("open_blueprint_window", { root, path }),
+  /** A blueprint opens in its own window; a second open brings it forward.
+   *  With no file it opens untitled, and its save dialog starts in `dir`. */
+  openBlueprintWindow: (root: string | null, path: string | null, dir: string | null = null) =>
+    invoke<void>("open_blueprint_window", { root, path, dir }),
+  blueprintSavedAs: (root: string, path: string) => invoke<void>("blueprint_saved_as", { root, path }),
+  /** This blueprint window has (or no longer has) unsaved changes. */
+  blueprintDirty: (dirty: boolean) => invoke<void>("blueprint_dirty", { dirty }),
+  unsavedBlueprints: () => invoke<number>("unsaved_blueprints"),
   /** The inventory of parts and connectors every blueprint shares, as JSON. */
   readPartsLibrary: () => invoke<string>("read_parts_library"),
   writePartsLibrary: (text: string) => invoke<void>("write_parts_library", { text }),

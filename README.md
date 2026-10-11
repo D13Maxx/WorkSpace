@@ -171,10 +171,14 @@ are how it edits PDFs and Word files (with Python's `pypdf` and
 
 ## Blueprints: draw a system, simulate it, have the agent build it
 
-The **New blueprint** button on the left (two boxes joined by a wire) makes a
-`.blueprint` file. Each blueprint opens in its own window, the way Simulink
-opens beside MATLAB (opening it again brings that window forward), as a
-canvas a bit like LTspice or Multisim but for software:
+The **New blueprint** button on the left (two boxes joined by a wire) opens
+an untitled blueprint in its own window, the way Simulink opens beside
+MATLAB. Nothing is written until you press **Save as…** (or Ctrl+S), which
+asks where; the file then shows on the left. Opening a `.blueprint` file
+from the left opens it in its own window too, and opening it again brings
+that window forward. Closing the main window closes FRIDAY with its
+blueprint windows, after asking if any has unsaved changes. The canvas is
+a bit like LTspice or Multisim but for software:
 
 - **Parts:** drag them from the left onto the canvas, or click one to add it:
   users, web front end, API service, worker, queue, database, cache, LLM, AI
@@ -184,6 +188,9 @@ canvas a bit like LTspice or Multisim but for software:
   `parts-library.json`). ✎ edits one everywhere it is used; 🗑 removes it from
   the inventory, and blueprints that use it keep their own copy. A custom part
   that is only in one blueprint shows ⤓ to keep it in the inventory.
+  Each has a **category** (set in its editor; General if left empty), and
+  the inventory groups them under collapsible headings. ✎ on a heading
+  renames that category.
 - **Connectors:** drag from a part's right dot to another part's left dot.
   HTTP, function call, SQL, cache, LLM request, queue message, event, or your
   own. The connector picked on the left is used for

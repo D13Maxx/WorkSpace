@@ -17,6 +17,8 @@ interface Props {
   onOpenFile: (file: OpenFile) => void;
   /** A folder was picked to make or view a knowledge graph of. */
   onGraph: (folder: string) => void;
+  /** Open an untitled blueprint in its own window. */
+  onNewBlueprint: () => void;
   /** Open a terminal in the current folder; absent with no folder open. */
   onTerminal?: () => void;
   /** `from` in `root` is now called `to` (relative paths). */
@@ -220,6 +222,7 @@ export function Explorer({
   onRemoveFolder,
   onOpenFile,
   onGraph,
+  onNewBlueprint,
   onTerminal,
   onRenamed,
   onDeleted,
@@ -244,7 +247,7 @@ export function Explorer({
     });
   };
   // What is being created, and its name as typed, while that box is open.
-  const [creating, setCreating] = useState<null | "file" | "folder" | "blueprint">(null);
+  const [creating, setCreating] = useState<null | "file" | "folder">(null);
   const [name, setName] = useState("");
   const [created, setCreated] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -275,7 +278,7 @@ export function Explorer({
   };
 
   /** Ask where, in Windows' folder picker, then ask for the name. */
-  const startCreate = async (kind: "file" | "folder" | "blueprint") => {
+  const startCreate = async (kind: "file" | "folder") => {
     const start = place
       ? place.root.replace(/[\\/]+$/, "") + (place.dir ? "\\" + place.dir.replace(/\//g, "\\") : "")
       : undefined;
@@ -335,9 +338,8 @@ export function Explorer({
   };
 
   const create = async () => {
-    let typed = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const typed = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
     if (!place || !typed) return;
-    if (creating === "blueprint" && !/\.blueprint$/i.test(typed)) typed += ".blueprint";
     const path = place.dir ? `${place.dir}/${typed}` : typed;
     try {
       if (creating === "folder") {
@@ -409,8 +411,8 @@ export function Explorer({
         </button>
         <button
           className="icon-button"
-          onClick={() => void startCreate("blueprint")}
-          title="New blueprint: draw a system, simulate it, have the agent build it (asks where)"
+          onClick={onNewBlueprint}
+          title="New blueprint: draw a system, simulate it, have the agent build it (saved only when you save it)"
           aria-label="New blueprint"
         >
           <Icon d={BLUEPRINT} />
@@ -452,7 +454,7 @@ export function Explorer({
             autoFocus
             type="text"
             value={name}
-            placeholder={creating === "file" ? "main.c" : creating === "blueprint" ? "shop.blueprint" : "src"}
+            placeholder={creating === "file" ? "main.c" : "src"}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {

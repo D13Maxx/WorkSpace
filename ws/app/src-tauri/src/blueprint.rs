@@ -1,8 +1,11 @@
 //! Blueprints: their own windows, and the inventory of parts and connectors
 //! every blueprint shares.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -39,29 +42,86 @@ pub fn write_parts_library(app: AppHandle, text: String) -> CmdResult<()> {
     ws_core::edits::restore(&path, Some(text.as_bytes())).map_err(|e| e.to_string())
 }
 
+/// A blueprint file's full path, the same however it was reached: through an
+/// open folder (`root` + `sub/x.blueprint`) or the save dialog (`dir` + `x.blueprint`).
+fn key(root: &str, path: &str) -> String {
+    format!("{}\\{}", root.trim_end_matches(['\\', '/']), path)
+        .replace('/', "\\")
+        .to_lowercase()
+}
+
 /// One window per blueprint file: opening it again brings that window forward.
 fn label(root: &str, path: &str) -> String {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    (root.to_lowercase(), path.to_lowercase()).hash(&mut h);
+    key(root, path).hash(&mut h);
     format!("blueprint-{:016x}", h.finish())
 }
 
+/// Untitled windows saved since: file key to window label, so opening that
+/// file again finds the window it is already in.
+static SAVED: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+static UNTITLED: AtomicU32 = AtomicU32::new(0);
+/// Blueprint windows with unsaved changes, by label.
+static UNSAVED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+#[tauri::command]
+pub fn blueprint_dirty(window: WebviewWindow, dirty: bool) -> CmdResult<()> {
+    let mut unsaved = UNSAVED.lock().map_err(|e| e.to_string())?;
+    if dirty {
+        unsaved.insert(window.label().to_owned());
+    } else {
+        unsaved.remove(window.label());
+    }
+    Ok(())
+}
+
+/// How many open blueprint windows have unsaved changes, for the main window
+/// to ask about before it closes FRIDAY (and them with it).
+#[tauri::command]
+pub fn unsaved_blueprints(app: AppHandle) -> CmdResult<usize> {
+    let unsaved = UNSAVED.lock().map_err(|e| e.to_string())?;
+    Ok(unsaved
+        .iter()
+        .filter(|l| app.get_webview_window(l).is_some())
+        .count())
+}
+
+/// With no file, an untitled blueprint: nothing is written until it is saved,
+/// and `dir` is where the save dialog starts.
+///
 /// Async: on Windows a window made inside a synchronous command deadlocks
 /// and stays blank.
 #[tauri::command]
-pub async fn open_blueprint_window(app: AppHandle, root: String, path: String) -> CmdResult<()> {
-    let label = label(&root, &path);
-    if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.unminimize();
-        return w.set_focus().map_err(|e| e.to_string());
-    }
-    let name = path
-        .rsplit('/')
-        .next()
-        .unwrap_or(&path)
-        .trim_end_matches(".blueprint");
+pub async fn open_blueprint_window(
+    app: AppHandle,
+    root: Option<String>,
+    path: Option<String>,
+    dir: Option<String>,
+) -> CmdResult<()> {
+    let (label, name) = match (&root, &path) {
+        (Some(root), Some(path)) => {
+            let known = SAVED
+                .lock()
+                .map_err(|e| e.to_string())?
+                .get(&key(root, path))
+                .cloned();
+            let label = known
+                .filter(|l| app.get_webview_window(l).is_some())
+                .unwrap_or_else(|| label(root, path));
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.unminimize();
+                return w.set_focus().map_err(|e| e.to_string());
+            }
+            let name = path.rsplit('/').next().unwrap_or(path);
+            (label, name.trim_end_matches(".blueprint").to_owned())
+        }
+        _ => {
+            let n = UNTITLED.fetch_add(1, Ordering::Relaxed) + 1;
+            (format!("blueprint-new-{n}"), "Untitled".to_owned())
+        }
+    };
     // The page reads which file it is from here; JSON keeps any path safe to embed.
-    let file = serde_json::json!({ "root": root, "path": path });
+    let file = serde_json::json!({ "root": root, "path": path, "dir": dir });
     WebviewWindowBuilder::new(&app, label, WebviewUrl::App("index.html".into()))
         .title(format!("{name} — Blueprint — F.R.I.D.A.Y"))
         .inner_size(1280.0, 820.0)
@@ -72,9 +132,19 @@ pub async fn open_blueprint_window(app: AppHandle, root: String, path: String) -
         .map_err(|e| e.to_string())
 }
 
+/// An untitled blueprint was saved as `path` in `root`: note which window has it.
+#[tauri::command]
+pub fn blueprint_saved_as(window: WebviewWindow, root: String, path: String) -> CmdResult<()> {
+    SAVED
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(key(&root, &path), window.label().to_owned());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::label;
+    use super::{key, label};
 
     #[test]
     fn one_label_per_file_whatever_the_case() {
@@ -83,6 +153,11 @@ mod tests {
             label("c:\\a", "X/Y.blueprint")
         );
         assert_ne!(label("C:\\A", "x.blueprint"), label("C:\\A", "y.blueprint"));
+        // Through an open folder or straight from the save dialog: one file.
+        assert_eq!(
+            key("C:\\A\\", "sub/x.blueprint"),
+            key("C:\\A\\sub", "x.blueprint")
+        );
         assert!(
             label("C:\\A", "x")
                 .chars()

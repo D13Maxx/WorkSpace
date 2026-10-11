@@ -27,12 +27,15 @@ import {
 import "@xyflow/react/dist/style.css";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api, ask } from "../api";
 import {
   CONNECTORS,
   PARTS,
   accepts,
   buildPrompt,
+  byCategory,
+  categoryOf,
   connectorTypes,
   emptyLibrary,
   forSave,
@@ -56,15 +59,28 @@ import {
   type Wire,
 } from "../blueprint/model";
 
-interface Props {
-  project: string;
+/** Where a blueprint file is: `path` inside the folder `root`. */
+export interface BlueprintPath {
+  root: string;
   path: string;
+}
+
+interface Props {
+  /** Null for an untitled blueprint, written only when it is first saved. */
+  file: BlueprintPath | null;
+  /** Where the save dialog starts for an untitled blueprint. */
+  dir?: string | null;
   version: number;
   header: (actions: ReactNode) => ReactNode;
-  /** Hand the finished blueprint to the agent, as this request. */
-  onBuild: (prompt: string) => void;
+  /** Hand the finished blueprint, saved as `file`, to the agent as this request. */
+  onBuild: (prompt: string, file: BlueprintPath) => void;
   onDirty?: (dirty: boolean) => void;
+  /** An untitled blueprint was saved for the first time. */
+  onSaved?: (file: BlueprintPath) => void;
 }
+
+/** A file name from the blueprint's own name. */
+const fileName = (name: string) => (name.trim().replace(/[\\/:*?"<>|]+/g, "-") || "Untitled") + ".blueprint";
 
 const uid = () => crypto.randomUUID().slice(0, 8);
 
@@ -107,7 +123,8 @@ function PartNode({ data, selected }: NodeProps<PartNodeT>) {
 const NODE_TYPES = { part: PartNode };
 
 /** A whole window for one blueprint (main.tsx renders it in blueprint windows). */
-export function BlueprintWindow({ root, path }: { root: string; path: string }) {
+export function BlueprintWindow({ root, path, dir }: { root: string | null; path: string | null; dir: string | null }) {
+  const [file, setFile] = useState<BlueprintPath | null>(root && path ? { root, path } : null);
   // Bumped when the main window's agent or a run may have changed files.
   const [version, setVersion] = useState(0);
   const dirty = useRef(false);
@@ -123,19 +140,32 @@ export function BlueprintWindow({ root, path }: { root: string; path: string }) 
   }, []);
   const onDirty = useCallback((d: boolean) => {
     dirty.current = d;
+    // The main window asks about these before closing FRIDAY.
+    void api.blueprintDirty(d);
   }, []);
   return (
     <div className="bp-window">
       <BlueprintFile
-        project={root}
-        path={path}
+        file={file}
+        dir={dir}
         version={version}
         onDirty={onDirty}
+        onSaved={(f) => {
+          setFile(f);
+          void getCurrentWindow().setTitle(`${f.path.replace(/\.blueprint$/i, "")} — Blueprint — F.R.I.D.A.Y`);
+          // So opening the file again finds this window, and the main window shows it.
+          void api.blueprintSavedAs(f.root, f.path);
+          void emitTo("main", "blueprint-saved", f);
+        }}
         // The chat lives in the main window, which starts the agent.
-        onBuild={(prompt) => void emitTo("main", "blueprint-build", { root, path, prompt })}
+        onBuild={(prompt, f) => void emitTo("main", "blueprint-build", { ...f, prompt })}
         header={(actions) => (
           <header>
-            <code title={root + "\\" + path.replace(/\//g, "\\")}>{path}</code>
+            {file ? (
+              <code title={file.root + "\\" + file.path.replace(/\//g, "\\")}>{file.path}</code>
+            ) : (
+              <code className="muted">Untitled (not saved yet)</code>
+            )}
             <span className="actions">{actions}</span>
           </header>
         )}
@@ -155,8 +185,11 @@ export function BlueprintFile(props: Props) {
 type Selection = { kind: "part" | "wire"; id: string } | null;
 type TypeEdit = { kind: "part"; value: PartType; isNew: boolean } | { kind: "connector"; value: ConnectorType; isNew: boolean };
 
-function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
-  const name = (path.split("/").pop() ?? "blueprint").replace(/\.blueprint$/i, "");
+function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props) {
+  const name = file ? (file.path.split("/").pop() ?? "blueprint").replace(/\.blueprint$/i, "") : "Untitled";
+  const fileKey = file ? `${file.root}\n${file.path}` : null;
+  // Set when this editor just saved an untitled blueprint, so it does not reread it.
+  const saved = useRef<string | null>(null);
   const [bp, setBp] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -227,10 +260,20 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
 
   useEffect(() => {
     let live = true;
+    if (fileKey && saved.current === fileKey) {
+      saved.current = null;
+      return;
+    }
     setError(null);
     setDirty(false);
+    if (!file) {
+      // Untitled: nothing on disk yet.
+      setBp(withLibrary(parseBlueprint("", name), libRef.current));
+      setInfo(true);
+      return;
+    }
     api
-      .readTextFile(project, path)
+      .readTextFile(file.root, file.path)
       .then((text) => {
         if (!live) return;
         const next = withLibrary(parseBlueprint(text, name), libRef.current);
@@ -242,7 +285,8 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
     return () => {
       live = false;
     };
-  }, [project, path, name, nonce]);
+    // `fileKey` stands for `file`, which is a new object on every render.
+  }, [fileKey, name, nonce]);
 
   // Pick up the agent's edits, but never over unsaved work.
   const seen = useRef(version);
@@ -417,17 +461,34 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
     };
   });
 
-  const save = async (): Promise<boolean> => {
-    if (!bp) return false;
+  /** Write the blueprint; an untitled one asks where first. Null if not saved. */
+  const save = async (): Promise<BlueprintPath | null> => {
+    if (!bp) return null;
+    let target = file;
+    if (!target) {
+      const picked = await saveDialog({
+        title: "Save blueprint",
+        defaultPath: dir ? `${dir.replace(/[\\/]+$/, "")}\\${fileName(bp.name)}` : fileName(bp.name),
+        filters: [{ name: "Blueprint", extensions: ["blueprint"] }],
+      });
+      if (!picked) return null;
+      const full = /\.blueprint$/i.test(picked) ? picked : `${picked}.blueprint`;
+      const cut = Math.max(full.lastIndexOf("\\"), full.lastIndexOf("/"));
+      target = { root: full.slice(0, cut), path: full.slice(cut + 1) };
+    }
     setSaving(true);
     try {
-      await api.writeTextFile(project, path, JSON.stringify(forSave(bp), null, 2) + "\n");
+      await api.writeTextFile(target.root, target.path, JSON.stringify(forSave(bp), null, 2) + "\n");
       setDirty(false);
       setError(null);
-      return true;
+      if (!file) {
+        saved.current = `${target.root}\n${target.path}`;
+        onSaved?.(target);
+      }
+      return target;
     } catch (e) {
       setError(String(e));
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -437,7 +498,7 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (dirtyRef.current) void save();
+        if (dirtyRef.current || !file) void save();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -445,9 +506,20 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
   });
 
   const build = async () => {
-    if (!bp || !base || (dirtyRef.current && !(await save()))) return;
-    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    onBuild(buildPrompt(forSave(bp), path, dir, base));
+    if (!bp || !base) return;
+    const target = dirtyRef.current || !file ? await save() : file;
+    if (!target) return;
+    const sub = target.path.includes("/") ? target.path.slice(0, target.path.lastIndexOf("/")) : "";
+    onBuild(buildPrompt(forSave(bp), target.path, sub, base), target);
+  };
+
+  /** Rename a category: the inventory's parts or connectors under it, and copies only in this blueprint. */
+  const renameCategory = (kind: TypeEdit["kind"], from: string, to: string) => {
+    const name = to.trim();
+    if (!name || name === from) return;
+    const move = <T extends { category?: string }>(t: T): T => (categoryOf(t) === from ? { ...t, category: name } : t);
+    void storeLib(kind === "part" ? { ...lib, parts: lib.parts.map(move) } : { ...lib, connectors: lib.connectors.map(move) });
+    setBp((b) => b && (kind === "part" ? { ...b, customParts: b.customParts.map(move) } : { ...b, customConnectors: b.customConnectors.map(move) }));
   };
 
   const selPart = sel?.kind === "part" ? bp?.parts.find((p) => p.id === sel.id) : undefined;
@@ -456,7 +528,7 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
   const actions = (
     <>
       {dirty && <span className="muted unsaved">unsaved</span>}
-      <button onClick={() => (setSel(null), setInfo(!info))} disabled={!bp} title="Name, purpose and stack of this blueprint">
+      <button onClick={() => (setSel(null), setInfo(!info || !!sel))} disabled={!bp} title="Name, purpose and stack of this blueprint">
         Describe
       </button>
       <button
@@ -470,12 +542,17 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
       >
         {running ? "■ Stop" : "▶ Run"}
       </button>
-      <button onClick={() => void save()} disabled={!dirty || saving} title="Ctrl+S">
-        {saving ? "Saving…" : "Save"}
+      <button
+        onClick={() => void save()}
+        disabled={(!dirty && !!file) || saving}
+        title={file ? "Ctrl+S" : "Choose where to keep it (Ctrl+S)"}
+      >
+        {saving ? "Saving…" : file ? "Save" : "Save as…"}
       </button>
       <button
         onClick={() => setNonce((n) => n + 1)}
-        title={dirty ? "Throw away your changes and reload from disk" : "Reload from disk"}
+        disabled={!file && !dirty}
+        title={dirty ? "Throw away your changes" : "Reload from disk"}
       >
         {dirty ? "Discard changes" : "Reload"}
       </button>
@@ -491,7 +568,7 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
   );
 
   return (
-    <section className="file-viewer" aria-label={path}>
+    <section className="file-viewer" aria-label={file?.path ?? "Untitled blueprint"}>
       {header(actions)}
       {error && <p className="failure">{error}</p>}
       {!bp && !error && <p className="muted">Loading…</p>}
@@ -508,6 +585,7 @@ function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
             lib={lib}
             onEdit={setTypeEdit}
             onStore={keep}
+            onRenameCategory={renameCategory}
             onRemove={async (t) => {
               if (await ask(`Remove ${t.value.name} from the inventory? Blueprints that use it keep their own copy.`)) removeFromLib(t);
             }}
@@ -614,6 +692,7 @@ function Palette({
   onEdit,
   onStore,
   onRemove,
+  onRenameCategory,
 }: {
   bp: Blueprint;
   lib: Library;
@@ -623,7 +702,61 @@ function Palette({
   onEdit: (t: TypeEdit) => void;
   onStore: (t: TypeEdit) => void;
   onRemove: (t: TypeEdit) => void;
+  onRenameCategory: (kind: TypeEdit["kind"], from: string, to: string) => void;
 }) {
+  // Collapsed categories, and the one being renamed, as "part:Data" or "connector:Data".
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const grouped = <T extends PartType | ConnectorType>(kind: TypeEdit["kind"], items: T[], render: (t: T) => ReactNode) =>
+    byCategory(items).map(([cat, list]) => {
+      const k = `${kind}:${cat}`;
+      const open = !closed.has(k);
+      return (
+        <div key={k} className="bp-group">
+          {renaming === k ? (
+            <form
+              className="bp-group-rename"
+              onSubmit={(e) => {
+                e.preventDefault();
+                onRenameCategory(kind, cat, (e.currentTarget.elements.namedItem("name") as HTMLInputElement).value);
+                setRenaming(null);
+              }}
+            >
+              <input
+                name="name"
+                autoFocus
+                defaultValue={cat}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={() => setRenaming(null)}
+                onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                aria-label={`New name for the ${cat} category`}
+              />
+            </form>
+          ) : (
+            <div className="bp-group-head">
+              <button
+                className="bp-group-name"
+                aria-expanded={open}
+                onClick={() =>
+                  setClosed((c) => {
+                    const next = new Set(c);
+                    if (open) next.add(k);
+                    else next.delete(k);
+                    return next;
+                  })
+                }
+              >
+                <span aria-hidden="true">{open ? "▾" : "▸"}</span> {cat} <span className="muted">{list.length}</span>
+              </button>
+              <button className="icon-button" onClick={() => setRenaming(k)} aria-label={`Rename the ${cat} category`} title="Rename this category">
+                ✎
+              </button>
+            </div>
+          )}
+          {open && list.map(render)}
+        </div>
+      );
+    });
   // A custom type is in the inventory, or only in this blueprint (made before
   // the inventory existed, or removed from it while still used here).
   const stored = new Set([...lib.parts, ...lib.connectors].map((t) => t.id));
@@ -671,7 +804,7 @@ function Palette({
       {PARTS.map((t) => item(t, false))}
       <h3 title="Your own parts and connectors, kept for every blueprint">Inventory</h3>
       {bp.customParts.length === 0 && <p className="muted bp-note">Parts you make are kept here for every blueprint.</p>}
-      {bp.customParts.map((t) => item(t, true))}
+      {grouped("part", bp.customParts, (t) => item(t, true))}
       <button
         className="bp-new"
         onClick={() =>
@@ -691,7 +824,7 @@ function Palette({
         Automatic
       </button>
       {CONNECTORS.map((c) => conn(c, false))}
-      {bp.customConnectors.map((c) => conn(c, true))}
+      {grouped("connector", bp.customConnectors, (c) => conn(c, true))}
       <button
         className="bp-new"
         onClick={() =>
@@ -1001,7 +1134,8 @@ function TypeEditor({
         aria-label={t.kind === "part" ? "Part type" : "Connector type"}
         onSubmit={(e) => {
           e.preventDefault();
-          if (t.value.name.trim()) onSave({ ...t, value: { ...t.value, name: t.value.name.trim() } } as TypeEdit);
+          const category = t.value.category?.trim() || undefined;
+          if (t.value.name.trim()) onSave({ ...t, value: { ...t.value, name: t.value.name.trim(), category } } as TypeEdit);
         }}
       >
         <header>
@@ -1016,6 +1150,20 @@ function TypeEditor({
           <label className="bp-field">
             <span>Name</span>
             <input autoFocus required value={t.value.name} onChange={(e) => set({ name: e.target.value })} />
+          </label>
+          <label className="bp-field">
+            <span>Category</span>
+            <input
+              list="bp-categories"
+              value={t.value.category ?? ""}
+              placeholder="General"
+              onChange={(e) => set({ category: e.target.value })}
+            />
+            <datalist id="bp-categories">
+              {[...new Set([...bp.customParts, ...bp.customConnectors].map(categoryOf))].map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </label>
           <label className="bp-field">
             <span>Colour</span>

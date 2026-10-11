@@ -13,6 +13,8 @@ export interface ConnectorType {
   /** Network time for one call, ms. */
   latency: number;
   description: string;
+  /** The inventory heading it sits under. */
+  category?: string;
 }
 
 export interface PartType {
@@ -35,6 +37,8 @@ export interface PartType {
   source: number;
   /** Connector ids it can be called over; "*" takes any, empty takes none. */
   accepts: string[];
+  /** The inventory heading it sits under. */
+  category?: string;
 }
 
 export const TUNABLES = ["capacity", "latency", "errorRate", "replicas", "source"] as const;
@@ -137,6 +141,19 @@ export function parseLibrary(text: string): Library {
   if (!text.trim()) return emptyLibrary();
   const raw = JSON.parse(text) as Partial<Library>;
   return { version: 1, parts: Array.isArray(raw.parts) ? raw.parts : [], connectors: Array.isArray(raw.connectors) ? raw.connectors : [] };
+}
+
+/** The inventory heading a custom part or connector sits under. */
+export const categoryOf = (t: { category?: string }) => t.category?.trim() || "General";
+
+/** `items` by category: General first, then the rest A to Z. */
+export function byCategory<T extends { category?: string }>(items: T[]): [string, T[]][] {
+  const groups = new Map<string, T[]>();
+  for (const t of items) {
+    const c = categoryOf(t);
+    (groups.get(c) ?? groups.set(c, []).get(c)!).push(t);
+  }
+  return [...groups].sort(([a], [b]) => (a === "General" ? -1 : b === "General" ? 1 : a.localeCompare(b)));
 }
 
 /** Put `item` in `list`, replacing the one with its id. */

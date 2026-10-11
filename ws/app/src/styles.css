@@ -1737,3 +1737,38 @@ button.danger {
 .bp-window .bp-palette {
   width: 190px;
 }
+
+/* Inventory categories. */
+.bp-group-head {
+  display: flex;
+  align-items: center;
+}
+
+.bp-group-name {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-group-name:hover {
+  color: var(--text);
+}
+
+.bp-group .bp-item {
+  padding-left: 10px;
+}
+
+.bp-group-rename input {
+  width: 100%;
+  padding: 2px 6px;
+  font-size: 0.8rem;
+}

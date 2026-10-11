@@ -40,6 +40,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
+        // closing it closes FRIDAY. It asks first about unsaved blueprints.
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             let state = AppState::initialise(app)?;
             app.manage(state);
@@ -98,6 +105,9 @@ pub fn run() {
             blueprint::read_parts_library,
             blueprint::write_parts_library,
             blueprint::open_blueprint_window,
+            blueprint::blueprint_saved_as,
+            blueprint::blueprint_dirty,
+            blueprint::unsaved_blueprints,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");
