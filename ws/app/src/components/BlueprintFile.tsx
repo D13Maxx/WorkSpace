@@ -1,10 +1,12 @@
 // A blueprint file (.blueprint): software drawn as parts wired with
-// connectors, run in a simulation, then handed to the agent to build.
+// connectors, run in a simulation, then handed to the agent to build. Each
+// opens in its own window, with the inventory of parts and connectors that
+// every blueprint shares.
 //
 // The file is plain JSON (see blueprint/model.ts), so the agent can read and
 // change it too; the view reloads when it does.
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Background,
   Controls,
@@ -23,22 +25,30 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { api } from "../api";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api, ask } from "../api";
 import {
   CONNECTORS,
   PARTS,
   accepts,
   buildPrompt,
   connectorTypes,
+  emptyLibrary,
+  forSave,
   ms,
   parseBlueprint,
+  parseLibrary,
   partTypes,
   rate,
   simulate,
   typeOf,
+  upsert,
+  withLibrary,
   type Blueprint,
   type ConnectorType,
   type Finding,
+  type Library,
   type Part,
   type PartStats,
   type PartType,
@@ -53,6 +63,7 @@ interface Props {
   header: (actions: ReactNode) => ReactNode;
   /** Hand the finished blueprint to the agent, as this request. */
   onBuild: (prompt: string) => void;
+  onDirty?: (dirty: boolean) => void;
 }
 
 const uid = () => crypto.randomUUID().slice(0, 8);
@@ -95,6 +106,44 @@ function PartNode({ data, selected }: NodeProps<PartNodeT>) {
 }
 const NODE_TYPES = { part: PartNode };
 
+/** A whole window for one blueprint (main.tsx renders it in blueprint windows). */
+export function BlueprintWindow({ root, path }: { root: string; path: string }) {
+  // Bumped when the main window's agent or a run may have changed files.
+  const [version, setVersion] = useState(0);
+  const dirty = useRef(false);
+  useEffect(() => {
+    const off = listen("files-changed", () => setVersion((v) => v + 1));
+    return () => void off.then((f) => f());
+  }, []);
+  useEffect(() => {
+    const off = getCurrentWindow().onCloseRequested(async (e) => {
+      if (dirty.current && !(await ask("This blueprint has unsaved changes. Close it anyway?"))) e.preventDefault();
+    });
+    return () => void off.then((f) => f());
+  }, []);
+  const onDirty = useCallback((d: boolean) => {
+    dirty.current = d;
+  }, []);
+  return (
+    <div className="bp-window">
+      <BlueprintFile
+        project={root}
+        path={path}
+        version={version}
+        onDirty={onDirty}
+        // The chat lives in the main window, which starts the agent.
+        onBuild={(prompt) => void emitTo("main", "blueprint-build", { root, path, prompt })}
+        header={(actions) => (
+          <header>
+            <code title={root + "\\" + path.replace(/\//g, "\\")}>{path}</code>
+            <span className="actions">{actions}</span>
+          </header>
+        )}
+      />
+    </div>
+  );
+}
+
 export function BlueprintFile(props: Props) {
   return (
     <ReactFlowProvider>
@@ -106,7 +155,7 @@ export function BlueprintFile(props: Props) {
 type Selection = { kind: "part" | "wire"; id: string } | null;
 type TypeEdit = { kind: "part"; value: PartType; isNew: boolean } | { kind: "connector"; value: ConnectorType; isNew: boolean };
 
-function Editor({ project, path, version, header, onBuild }: Props) {
+function Editor({ project, path, version, header, onBuild, onDirty }: Props) {
   const name = (path.split("/").pop() ?? "blueprint").replace(/\.blueprint$/i, "");
   const [bp, setBp] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +174,55 @@ function Editor({ project, path, version, header, onBuild }: Props) {
   const [info, setInfo] = useState(false);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  useEffect(() => {
+    onDirty?.(dirty);
+  }, [dirty, onDirty]);
   const flow = useReactFlow();
+
+  // The inventory, shared by every blueprint and window; reread when any window changes it.
+  const [lib, setLib] = useState<Library>(emptyLibrary);
+  const libRef = useRef(lib);
+  libRef.current = lib;
+  useEffect(() => {
+    const load = () =>
+      api
+        .readPartsLibrary()
+        .then((text) => setLib(parseLibrary(text)))
+        .catch((e) => setError(`Could not read the parts inventory: ${e}`));
+    void load();
+    const off = listen("parts-library-changed", () => void load());
+    return () => void off.then((f) => f());
+  }, []);
+  // Its parts are on hand in this blueprint too (not a change to save).
+  useEffect(() => {
+    setBp((b) => b && withLibrary(b, lib));
+  }, [lib]);
+  const storeLib = async (next: Library) => {
+    try {
+      await api.writePartsLibrary(JSON.stringify(next, null, 2) + "\n");
+      setLib(next);
+      void emit("parts-library-changed");
+    } catch (e) {
+      setError(`Could not save the parts inventory: ${e}`);
+    }
+  };
+  const keep = (t: TypeEdit) =>
+    void storeLib(t.kind === "part" ? { ...lib, parts: upsert(lib.parts, t.value) } : { ...lib, connectors: upsert(lib.connectors, t.value) });
+  /** Out of the inventory; this blueprint keeps a copy only if it uses it. */
+  const removeFromLib = (t: TypeEdit) => {
+    const id = t.value.id;
+    void storeLib(
+      t.kind === "part" ? { ...lib, parts: lib.parts.filter((x) => x.id !== id) } : { ...lib, connectors: lib.connectors.filter((x) => x.id !== id) },
+    );
+    setBp(
+      (b) =>
+        b && {
+          ...b,
+          customParts: b.customParts.filter((x) => x.id !== id || b.parts.some((p) => p.type === id)),
+          customConnectors: b.customConnectors.filter((x) => x.id !== id || b.wires.some((w) => w.kind === id)),
+        },
+    );
+  };
   const canvas = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -136,7 +233,7 @@ function Editor({ project, path, version, header, onBuild }: Props) {
       .readTextFile(project, path)
       .then((text) => {
         if (!live) return;
-        const next = parseBlueprint(text, name);
+        const next = withLibrary(parseBlueprint(text, name), libRef.current);
         setBp(next);
         // A new blueprint starts by saying what it is for.
         setInfo(!next.parts.length && !next.description);
@@ -324,7 +421,7 @@ function Editor({ project, path, version, header, onBuild }: Props) {
     if (!bp) return false;
     setSaving(true);
     try {
-      await api.writeTextFile(project, path, JSON.stringify(bp, null, 2) + "\n");
+      await api.writeTextFile(project, path, JSON.stringify(forSave(bp), null, 2) + "\n");
       setDirty(false);
       setError(null);
       return true;
@@ -350,7 +447,7 @@ function Editor({ project, path, version, header, onBuild }: Props) {
   const build = async () => {
     if (!bp || !base || (dirtyRef.current && !(await save()))) return;
     const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    onBuild(buildPrompt(bp, path, dir, base));
+    onBuild(buildPrompt(forSave(bp), path, dir, base));
   };
 
   const selPart = sel?.kind === "part" ? bp?.parts.find((p) => p.id === sel.id) : undefined;
@@ -408,7 +505,12 @@ function Editor({ project, path, version, header, onBuild }: Props) {
               e.preventDefault();
               setGhost({ type, x: e.clientX, y: e.clientY, moved: false });
             }}
+            lib={lib}
             onEdit={setTypeEdit}
+            onStore={keep}
+            onRemove={async (t) => {
+              if (await ask(`Remove ${t.value.name} from the inventory? Blueprints that use it keep their own copy.`)) removeFromLib(t);
+            }}
           />
           <div className="bp-canvas" ref={canvas}>
             <ReactFlow
@@ -486,26 +588,15 @@ function Editor({ project, path, version, header, onBuild }: Props) {
         <TypeEditor
           bp={bp}
           edit={typeEdit}
+          stored={[...lib.parts, ...lib.connectors].some((x) => x.id === typeEdit.value.id)}
           onClose={() => setTypeEdit(null)}
           onSave={(t) => {
-            change((b) =>
-              t.kind === "part"
-                ? { ...b, customParts: t.isNew ? [...b.customParts, t.value] : b.customParts.map((x) => (x.id === t.value.id ? t.value : x)) }
-                : {
-                    ...b,
-                    customConnectors: t.isNew
-                      ? [...b.customConnectors, t.value]
-                      : b.customConnectors.map((x) => (x.id === t.value.id ? t.value : x)),
-                  },
-            );
+            // Saving a part or connector always keeps it in the inventory.
+            keep(t);
             setTypeEdit(null);
           }}
           onDelete={(t) => {
-            change((b) =>
-              t.kind === "part"
-                ? { ...b, customParts: b.customParts.filter((x) => x.id !== t.value.id) }
-                : { ...b, customConnectors: b.customConnectors.filter((x) => x.id !== t.value.id) },
-            );
+            removeFromLib(t);
             setTypeEdit(null);
           }}
         />
@@ -516,17 +607,41 @@ function Editor({ project, path, version, header, onBuild }: Props) {
 
 function Palette({
   bp,
+  lib,
   pen,
   onPen,
   onGrab,
   onEdit,
+  onStore,
+  onRemove,
 }: {
   bp: Blueprint;
+  lib: Library;
   pen: string | null;
   onPen: (id: string | null) => void;
   onGrab: (t: PartType, e: React.PointerEvent) => void;
   onEdit: (t: TypeEdit) => void;
+  onStore: (t: TypeEdit) => void;
+  onRemove: (t: TypeEdit) => void;
 }) {
+  // A custom type is in the inventory, or only in this blueprint (made before
+  // the inventory existed, or removed from it while still used here).
+  const stored = new Set([...lib.parts, ...lib.connectors].map((t) => t.id));
+  const tools = (t: TypeEdit) =>
+    stored.has(t.value.id) ? (
+      <>
+        <button className="icon-button" onClick={() => onEdit(t)} aria-label={`Edit ${t.value.name}`} title="Edit (every blueprint using it gets the change)">
+          ✎
+        </button>
+        <button className="icon-button" onClick={() => onRemove(t)} aria-label={`Remove ${t.value.name} from the inventory`} title="Remove from the inventory">
+          🗑
+        </button>
+      </>
+    ) : (
+      <button className="icon-button" onClick={() => onStore(t)} aria-label={`Keep ${t.value.name} in the inventory`} title="Only in this blueprint: keep it in the inventory for every blueprint">
+        ⤓
+      </button>
+    );
   const item = (t: PartType, custom: boolean) => (
     <div key={t.id} className="bp-item">
       <button
@@ -538,19 +653,24 @@ function Palette({
         <span className="bp-swatch" />
         {t.name}
       </button>
-      {custom && (
-        <button className="icon-button" onClick={() => onEdit({ kind: "part", value: t, isNew: false })} aria-label={`Edit ${t.name}`} title="Edit this part">
-          ✎
-        </button>
-      )}
+      {custom && tools({ kind: "part", value: t, isNew: false })}
     </div>
   );
-  const connectors = connectorTypes(bp);
+  const conn = (c: ConnectorType, custom: boolean) => (
+    <div key={c.id} className="bp-item">
+      <button className={`bp-conn ${pen === c.id ? "picked" : ""}`} onClick={() => onPen(c.id)} title={c.description}>
+        <span className="bp-line" style={{ borderColor: c.color, borderTopStyle: c.sync ? "solid" : "dashed" }} />
+        {c.name}
+      </button>
+      {custom && tools({ kind: "connector", value: c, isNew: false })}
+    </div>
+  );
   return (
     <aside className="bp-palette" aria-label="Parts and connectors">
       <h3>Parts</h3>
       {PARTS.map((t) => item(t, false))}
-      <h3>Your parts</h3>
+      <h3 title="Your own parts and connectors, kept for every blueprint">Inventory</h3>
+      {bp.customParts.length === 0 && <p className="muted bp-note">Parts you make are kept here for every blueprint.</p>}
       {bp.customParts.map((t) => item(t, true))}
       <button
         className="bp-new"
@@ -570,19 +690,8 @@ function Palette({
         <span className="bp-line" style={{ borderColor: "var(--muted)" }} />
         Automatic
       </button>
-      {connectors.map((c) => (
-        <div key={c.id} className="bp-item">
-          <button className={`bp-conn ${pen === c.id ? "picked" : ""}`} onClick={() => onPen(c.id)} title={c.description}>
-            <span className="bp-line" style={{ borderColor: c.color, borderTopStyle: c.sync ? "solid" : "dashed" }} />
-            {c.name}
-          </button>
-          {!CONNECTORS.includes(c) && (
-            <button className="icon-button" onClick={() => onEdit({ kind: "connector", value: c, isNew: false })} aria-label={`Edit ${c.name}`} title="Edit this connector">
-              ✎
-            </button>
-          )}
-        </div>
-      ))}
+      {CONNECTORS.map((c) => conn(c, false))}
+      {bp.customConnectors.map((c) => conn(c, true))}
       <button
         className="bp-new"
         onClick={() =>
@@ -847,12 +956,15 @@ function Results({
 function TypeEditor({
   bp,
   edit,
+  stored,
   onClose,
   onSave,
   onDelete,
 }: {
   bp: Blueprint;
   edit: TypeEdit;
+  /** Kept in the inventory, rather than only in this blueprint. */
+  stored: boolean;
   onClose: () => void;
   onSave: (t: TypeEdit) => void;
   onDelete: (t: TypeEdit) => void;
@@ -962,6 +1074,9 @@ function TypeEditor({
             </label>
           </>
         )}
+        <p className="muted bp-note">
+          Saved to the inventory, for every blueprint.{used > 0 && ` Used ${used} time${used > 1 ? "s" : ""} here.`}
+        </p>
         <div className="row">
           <button className="primary" type="submit">
             Save
@@ -969,15 +1084,9 @@ function TypeEditor({
           <button type="button" onClick={onClose}>
             Cancel
           </button>
-          {!t.isNew && (
-            <button
-              type="button"
-              className="danger"
-              disabled={used > 0}
-              title={used ? `Used ${used} time${used > 1 ? "s" : ""} in this blueprint` : undefined}
-              onClick={() => onDelete(t)}
-            >
-              Delete
+          {stored && (
+            <button type="button" className="danger" onClick={() => onDelete(t)}>
+              Remove from inventory
             </button>
           )}
         </div>

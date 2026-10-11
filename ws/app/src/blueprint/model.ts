@@ -123,6 +123,44 @@ export function parseBlueprint(text: string, name: string): Blueprint {
   return { ...emptyBlueprint(name), ...raw } as Blueprint;
 }
 
+// ---- the inventory: parts and connectors shared by every blueprint ----------
+
+export interface Library {
+  version: 1;
+  parts: PartType[];
+  connectors: ConnectorType[];
+}
+
+export const emptyLibrary = (): Library => ({ version: 1, parts: [], connectors: [] });
+
+export function parseLibrary(text: string): Library {
+  if (!text.trim()) return emptyLibrary();
+  const raw = JSON.parse(text) as Partial<Library>;
+  return { version: 1, parts: Array.isArray(raw.parts) ? raw.parts : [], connectors: Array.isArray(raw.connectors) ? raw.connectors : [] };
+}
+
+/** Put `item` in `list`, replacing the one with its id. */
+export const upsert = <T extends { id: string }>(list: T[], item: T) =>
+  list.some((x) => x.id === item.id) ? list.map((x) => (x.id === item.id ? item : x)) : [...list, item];
+
+/** The blueprint with the whole inventory to hand; the inventory's version of a type wins. */
+export function withLibrary(bp: Blueprint, lib: Library): Blueprint {
+  const merge = <T extends { id: string }>(own: T[], shared: T[]) => [...shared, ...own.filter((t) => !shared.some((s) => s.id === t.id))];
+  return { ...bp, customParts: merge(bp.customParts, lib.parts), customConnectors: merge(bp.customConnectors, lib.connectors) };
+}
+
+/** What the file keeps: a copy of each custom type it uses, so it still works
+ *  (and builds) without the inventory, on another machine or for the agent. */
+export function forSave(bp: Blueprint): Blueprint {
+  const parts = new Set(bp.parts.map((p) => p.type));
+  const kinds = new Set(bp.wires.map((w) => w.kind));
+  return {
+    ...bp,
+    customParts: bp.customParts.filter((t) => parts.has(t.id)),
+    customConnectors: bp.customConnectors.filter((c) => kinds.has(c.id)),
+  };
+}
+
 export const partTypes = (bp: Blueprint) => [...PARTS, ...bp.customParts];
 export const connectorTypes = (bp: Blueprint) => [...CONNECTORS, ...bp.customConnectors];
 

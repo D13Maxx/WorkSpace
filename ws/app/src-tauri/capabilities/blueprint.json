@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "blueprint",
+  "description": "Blueprint windows: the same narrow grant as the main window, plus closing themselves once the page has had a chance to warn about unsaved work.",
+  "windows": ["blueprint-*"],
+  "permissions": ["core:default", "core:event:default", "core:window:allow-destroy", "dialog:allow-message"]
+}

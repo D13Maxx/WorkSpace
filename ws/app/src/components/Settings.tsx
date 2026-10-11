@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  ask,
   type BackendInfo,
   type CompatProvider,
   type ModelOption,
@@ -338,7 +339,7 @@ function CompatSection({ onChanged }: { onChanged: () => void }) {
               </span>
               <button
                 onClick={async () => {
-                  if (window.confirm(`Remove "${p.display_name}"?`)) {
+                  if (await ask(`Remove "${p.display_name}"?`)) {
                     await api.deleteCompatProvider(p.id);
                     refresh();
                     onChanged();

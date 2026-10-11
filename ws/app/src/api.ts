@@ -5,7 +5,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
+
+/** Ask before something that cannot be taken back. The dialog plugin swaps
+ *  `window.confirm` for an async one, so a plain `if (confirm(...))` is always
+ *  true; this waits for the answer. */
+export function ask(message: string): Promise<boolean> {
+  return confirm(message, { title: "F.R.I.D.A.Y", kind: "warning" });
+}
 
 /** Windows' own folder picker. `null` if cancelled. */
 export async function pickFolder(defaultPath?: string, title?: string): Promise<string | null> {
@@ -287,6 +294,11 @@ export const api = {
     invoke<string>("rename_path", { root, path, name }),
   /** To the Recycle Bin. */
   deletePath: (root: string, path: string) => invoke<void>("delete_path", { root, path }),
+  /** A blueprint opens in its own window; a second open brings it forward. */
+  openBlueprintWindow: (root: string, path: string) => invoke<void>("open_blueprint_window", { root, path }),
+  /** The inventory of parts and connectors every blueprint shares, as JSON. */
+  readPartsLibrary: () => invoke<string>("read_parts_library"),
+  writePartsLibrary: (text: string) => invoke<void>("write_parts_library", { text }),
   openTerminal: (root: string, onEvent: (e: RunEvent) => void) => {
     const channel = new Channel<RunEvent>();
     channel.onmessage = onEvent;

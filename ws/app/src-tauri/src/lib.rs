@@ -7,6 +7,7 @@
 //! Streaming uses a Tauri IPC channel per turn rather than global events, so
 //! two conversations streaming at once cannot interleave into one another.
 
+mod blueprint;
 mod commands;
 mod files;
 mod graph;
@@ -94,6 +95,9 @@ pub fn run() {
             commands::run_resize,
             commands::stop_run,
             commands::undo_edit,
+            blueprint::read_parts_library,
+            blueprint::write_parts_library,
+            blueprint::open_blueprint_window,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ConversationSummary } from "../api";
+import { ask, type ConversationSummary } from "../api";
 
 interface Props {
   conversations: ConversationSummary[];
@@ -49,10 +49,10 @@ export function Sidebar(props: Props) {
               </button>
               <button
                 title="Delete"
-                onClick={() => {
+                onClick={async () => {
                   // Deleting a conversation is the only destructive operation
                   // in the product, so it always confirms (master spec s5.1).
-                  if (window.confirm(`Delete "${c.title}"? This cannot be undone.`)) {
+                  if (await ask(`Delete "${c.title}"? This cannot be undone.`)) {
                     props.onDelete(c.id);
                   }
                 }}

@@ -2,7 +2,6 @@
 //
 // Text and code open in an editor. PDFs open in pdf.js, which can annotate
 // them. Word files open in SuperDoc, a .docx editor that saves back to .docx.
-// Blueprints (.blueprint) open as a canvas of parts to simulate and build.
 
 import { Component, useEffect, useRef, useState } from "react";
 import { SuperDoc } from "superdoc";
@@ -11,7 +10,6 @@ import type { EditorView } from "codemirror";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
 import { PdfFile } from "./PdfFile";
-import { BlueprintFile } from "./BlueprintFile";
 
 /** Files the output panel can build and run. */
 export const RUNNABLE = new Set([
@@ -45,8 +43,6 @@ interface Props {
   version: number;
   onClose: () => void;
   onRun: (path: string) => void;
-  /** Start the agent on `message` in a new chat. */
-  onAgent: (title: string, message: string) => void;
 }
 
 function Header({ path, children, onClose }: { path: string; children?: React.ReactNode; onClose: () => void }) {
@@ -106,19 +102,6 @@ function FileView(props: Props) {
     );
   }
   if (ext === "docx") return <DocxFile {...props} />;
-  if (ext === "blueprint") {
-    return (
-      <BlueprintFile
-        {...props}
-        onBuild={(prompt) => props.onAgent(`Build: ${props.path.split("/").pop()}`, prompt)}
-        header={(actions) => (
-          <Header path={props.path} onClose={props.onClose}>
-            {actions}
-          </Header>
-        )}
-      />
-    );
-  }
   return <TextFile {...props} ext={ext} />;
 }
 

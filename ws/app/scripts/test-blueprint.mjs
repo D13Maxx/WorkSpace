@@ -1,6 +1,6 @@
 // Checks the blueprint simulator: `node scripts/test-blueprint.mjs`.
 import assert from "node:assert/strict";
-import { buildPrompt, emptyBlueprint, simulate } from "../src/blueprint/model.ts";
+import { buildPrompt, emptyBlueprint, forSave, parseLibrary, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
 
 const part = (id, type, set = {}) => ({ id, type, label: id, x: 0, y: 0, notes: "", set });
 const wire = (from, to, kind, calls = 1) => ({ id: `${from}-${to}`, from, to, kind, calls, notes: "" });
@@ -68,5 +68,27 @@ assert.ok(has(simulate(slow), "deploy", "past the 30 s"));
 // The hand-off names every part and connection.
 const prompt = buildPrompt(shop, "shop.blueprint", "", simulate(shop));
 assert.ok(prompt.includes("**api**") && prompt.includes("api → db: SQL query") && prompt.includes("2 calls per request"));
+
+// The inventory: every blueprint sees it, the inventory's version wins, and a
+// file keeps copies of only the custom types it uses.
+const auth = { id: "custom-auth", name: "Auth", color: "#fff", description: "v2", capacity: 10, latency: 5, errorRate: 0, replicas: 1, stateful: false, source: 0, accepts: ["*"] };
+const lib = { ...parseLibrary(""), parts: [auth], connectors: [{ id: "custom-grpc", name: "gRPC", color: "#fff", sync: true, latency: 2, description: "" }] };
+const own = {
+  ...emptyBlueprint("own"),
+  parts: [part("a", "custom-auth"), part("u", "users")],
+  wires: [wire("u", "a", "http")],
+  customParts: [{ ...auth, description: "v1" }, { ...auth, id: "custom-old", name: "Old" }],
+};
+const merged = withLibrary(own, lib);
+assert.equal(merged.customParts.find((t) => t.id === "custom-auth").description, "v2");
+assert.ok(merged.customParts.some((t) => t.id === "custom-old"));
+assert.ok(merged.customConnectors.some((c) => c.id === "custom-grpc"));
+const saved = forSave(merged);
+assert.deepEqual(saved.customParts.map((t) => t.id), ["custom-auth"]);
+assert.deepEqual(saved.customConnectors, []);
+assert.equal(simulate(merged).parts.a.load, 50);
+assert.deepEqual(upsert([auth], { ...auth, name: "B" }).map((t) => t.name), ["B"]);
+assert.equal(upsert([auth], { ...auth, id: "x" }).length, 2);
+assert.equal(parseLibrary('{"parts": 3}').parts.length, 0);
 
 console.log("blueprint model: ok");

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
@@ -119,6 +121,17 @@ export default function App() {
   useEffect(() => {
     void api.setWorkspace(project || null, openFile?.path ?? null);
   }, [project, openFile]);
+
+  // Blueprint windows reload what the agent or a run changed, as this window does.
+  useEffect(() => {
+    if (fileVersion) void emit("files-changed");
+  }, [fileVersion]);
+
+  /** Files open in the middle; a blueprint opens in its own window. */
+  const openAny = (f: OpenFile) => {
+    if (!f.path.toLowerCase().endsWith(".blueprint")) return setOpenFile(f);
+    api.openBlueprintWindow(f.root, f.path).catch((e) => setError(String(e)));
+  };
 
   const addFolder = (f: string) => {
     setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]));
@@ -317,6 +330,17 @@ export default function App() {
     }
   };
 
+  // A blueprint window's Build with agent: the chat is here.
+  const startAgentRef = useRef(startAgent);
+  startAgentRef.current = startAgent;
+  useEffect(() => {
+    const off = listen<{ root: string; path: string; prompt: string }>("blueprint-build", ({ payload }) => {
+      void getCurrentWindow().setFocus();
+      void startAgentRef.current(payload.root, payload.path, `Build: ${baseName(payload.path)}`, payload.prompt);
+    });
+    return () => void off.then((f) => f());
+  }, []);
+
   /** Build `folder`'s AI graph: open it, then run /understand in a new chat
    *  with a Claude model, which is what the pipeline needs. */
   const startUnderstand = (folder: string) => {
@@ -370,7 +394,7 @@ export default function App() {
               setOpenFile(null);
             }
           }}
-          onOpenFile={setOpenFile}
+          onOpenFile={openAny}
           open={openFile}
           version={fileVersion}
         />
@@ -390,7 +414,6 @@ export default function App() {
             version={fileVersion}
             onClose={() => setOpenFile(null)}
             onRun={(path) => startTask({ kind: "file", root: openFile.root, path })}
-            onAgent={(title, message) => void startAgent(openFile.root, openFile.path, title, message)}
           />
         ) : (
           <div className="empty">

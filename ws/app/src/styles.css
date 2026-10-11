@@ -1727,3 +1727,13 @@ button.danger {
   color: var(--muted);
   font-size: 0.76rem;
 }
+
+/* A blueprint's own window: the editor fills it. */
+.bp-window {
+  height: 100%;
+  display: flex;
+}
+
+.bp-window .bp-palette {
+  width: 190px;
+}
