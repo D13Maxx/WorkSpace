@@ -191,6 +191,21 @@ a bit like LTspice or Multisim but for software:
   Each has a **category** (set in its editor; General if left empty), and
   the inventory groups them under collapsible headings. ✎ on a heading
   renames that category.
+- **Parts builder:** the editor for a new part or connector starts with
+  *Build it from a description*. **Build (free)** reads the description
+  itself, no AI and no cost: it spots the kind of part (database, cache,
+  queue, LLM, vector store, worker, front end, users, external API, service…),
+  the product named (Postgres, Redis, Kafka, gpt-4o…) and any numbers
+  ("2 replicas", "5 ms", "300 requests/s"). **Build with AI** asks your model
+  instead, for anything unusual. Either fills in the form to check before
+  Save. Whatever a model answers is checked and cleaned before it can reach
+  the inventory.
+- **Ports and settings** (config-driven, as in VectorShift's node configs): a
+  part can have named ports in (how others call it) and out (what it calls),
+  each taking one connector or any, and settings (text, number or a choice)
+  that each placed part can change. Wires attach to a port; Run reports a
+  connector a port does not take, or a wire to a port that is gone. The agent
+  is told every port, setting and which ports each wire joins.
 - **Connectors:** drag from a part's right dot to another part's left dot.
   HTTP, function call, SQL, cache, LLM request, queue message, event, or your
   own. The connector picked on the left is used for
@@ -214,8 +229,8 @@ a bit like LTspice or Multisim but for software:
 The simulation is a model (steady-state queueing), not your code running: it
 catches design mistakes before code exists. The file is plain JSON with a copy
 of each custom part it uses, so it works without the inventory and the agent
-can read or change it too. Test the model with
-`node ws/app/scripts/test-blueprint.mjs`.
+can read or change it too. Test the model and the parts builder with
+`node ws/app/scripts/test-blueprint.mjs` and `node ws/app/scripts/test-builder.mjs`.
 
 ## Connect tool servers (Serena)
 

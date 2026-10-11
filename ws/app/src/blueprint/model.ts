@@ -17,6 +17,27 @@ export interface ConnectorType {
   category?: string;
 }
 
+/** A named way in or out of a part, as VectorShift's node handles are: an API's
+ *  "public" and "admin" endpoints, a worker's "jobs" in and "calls" out. */
+export interface Port {
+  /** Stable within its part type: wires keep pointing at it when others change. */
+  id: string;
+  name: string;
+  dir: "in" | "out";
+  /** The connector it works with, or "*" for any. */
+  kind: string;
+}
+
+/** A setting the part is built with: a model name, a database engine, a size. */
+export interface Setting {
+  key: string;
+  label: string;
+  type: "text" | "number" | "choice";
+  default: string;
+  /** For "choice". */
+  options?: string[];
+}
+
 export interface PartType {
   id: string;
   name: string;
@@ -35,10 +56,14 @@ export interface PartType {
   stateful: boolean;
   /** Requests per second it starts by itself (users, a schedule); 0 for none. */
   source: number;
-  /** Connector ids it can be called over; "*" takes any, empty takes none. */
+  /** Connector ids it can be called over; "*" takes any, empty takes none.
+   *  With `ports`, the union of its in-ports' connectors. */
   accepts: string[];
   /** The inventory heading it sits under. */
   category?: string;
+  /** Named ways in and out; without them, one "in" (taking `accepts`) and one "out". */
+  ports?: Port[];
+  settings?: Setting[];
 }
 
 export const TUNABLES = ["capacity", "latency", "errorRate", "replicas", "source"] as const;
@@ -54,6 +79,8 @@ export interface Part {
   notes: string;
   /** This part's own numbers, over its type's. */
   set: Partial<Record<Tunable, number>>;
+  /** Its settings, by key, over each setting's default. */
+  values?: Record<string, string>;
 }
 
 export interface Wire {
@@ -64,6 +91,9 @@ export interface Wire {
   /** Calls made for each request the caller handles. */
   calls: number;
   notes: string;
+  /** The ports it joins; absent on wires drawn before parts had ports. */
+  fromPort?: string;
+  toPort?: string;
 }
 
 export interface Blueprint {
@@ -192,6 +222,28 @@ export function typeOf(bp: Blueprint, p: Part): PartType {
 export const value = (bp: Blueprint, p: Part, key: Tunable) => p.set[key] ?? typeOf(bp, p)[key];
 
 export const accepts = (t: PartType, kind: string) => t.accepts.includes("*") || t.accepts.includes(kind);
+
+/** A part type's ports: its own, or the plain "in" and "out" every part had before. */
+export function portsOf(t: PartType): Port[] {
+  if (t.ports?.length) return t.ports;
+  const ins: Port[] = t.accepts.length
+    ? [{ id: "in", name: "in", dir: "in", kind: t.accepts.length === 1 && t.accepts[0] !== "*" ? t.accepts[0] : "*" }]
+    : [];
+  return [...ins, { id: "out", name: "out", dir: "out", kind: "*" }];
+}
+
+/** Whether a call over `kind` may arrive at `t` through its port `port`. */
+export function takes(t: PartType, port: string | undefined, kind: string): boolean {
+  const p = t.ports?.find((x) => x.id === port && x.dir === "in");
+  // No port named (or ports derived from `accepts`): the part as a whole decides.
+  return p ? p.kind === "*" || p.kind === kind : accepts(t, kind);
+}
+
+/** The connectors `ports` take in, as `accepts` records them. */
+export function acceptsOf(ports: Port[]): string[] {
+  const ins = ports.filter((p) => p.dir === "in").map((p) => p.kind);
+  return ins.includes("*") ? ["*"] : [...new Set(ins)];
+}
 
 // ---- simulation --------------------------------------------------------------
 
@@ -335,9 +387,20 @@ export function simulate(bp: Blueprint, scale = 1, down: Set<string> = new Set()
       continue;
     }
     const t = typeOf(bp, byId.get(w.to)!);
-    if (!accepts(t, w.kind)) {
-      const takes = t.accepts.map((k) => kinds.get(k)?.name ?? k).join(", ");
-      add("error", "bug", `${name(w.from)} talks to ${name(w.to)} over ${c.name}, but a ${t.name} ${takes ? `only takes ${takes}` : "takes no incoming calls"}.`, [w.from, w.to]);
+    const src = typeOf(bp, byId.get(w.from)!);
+    const inPort = t.ports?.find((x) => x.id === w.toPort);
+    const outPort = src.ports?.find((x) => x.id === w.fromPort);
+    if (t.ports?.length && w.toPort && !inPort) {
+      add("error", "bug", `${name(w.from)} is wired to a port ${name(w.to)} no longer has.`, [w.from, w.to]);
+    } else if (src.ports?.length && w.fromPort && !outPort) {
+      add("error", "bug", `${name(w.from)}'s wire to ${name(w.to)} leaves from a port ${name(w.from)} no longer has.`, [w.from, w.to]);
+    } else if (inPort && !takes(t, w.toPort, w.kind)) {
+      add("error", "bug", `${name(w.from)} talks to ${name(w.to)}'s "${inPort.name}" over ${c.name}, but that port takes ${kinds.get(inPort.kind)?.name ?? inPort.kind}.`, [w.from, w.to]);
+    } else if (!inPort && !accepts(t, w.kind)) {
+      const list = t.accepts.map((k) => kinds.get(k)?.name ?? k).join(", ");
+      add("error", "bug", `${name(w.from)} talks to ${name(w.to)} over ${c.name}, but a ${t.name} ${list ? `only takes ${list}` : "takes no incoming calls"}.`, [w.from, w.to]);
+    } else if (outPort && outPort.kind !== "*" && outPort.kind !== w.kind) {
+      add("error", "bug", `${name(w.from)}'s "${outPort.name}" sends ${kinds.get(outPort.kind)?.name ?? outPort.kind}, not ${c.name}.`, [w.from, w.to]);
     }
   }
 
@@ -478,12 +541,29 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
     ].filter(Boolean);
     lines.push(`- **${p.label}** (${facts.join("; ")})${t.description ? ` — ${t.description}` : ""}`);
     if (p.notes.trim()) lines.push(`  - What it does: ${p.notes.trim().replace(/\n+/g, " ")}`);
+    if (t.ports?.length) {
+      const port = (x: Port) => `${x.name} (${x.kind === "*" ? "any connector" : (kinds.get(x.kind)?.name ?? x.kind)})`;
+      const ins = t.ports.filter((x) => x.dir === "in").map(port);
+      const outs = t.ports.filter((x) => x.dir === "out").map(port);
+      lines.push(`  - Ports: ${[ins.length ? `in ${ins.join(", ")}` : "", outs.length ? `out ${outs.join(", ")}` : ""].filter(Boolean).join("; ")}`);
+    }
+    const settings = (t.settings ?? []).map((x) => `${x.label} = ${p.values?.[x.key] ?? x.default}`).filter((x) => !x.endsWith("= "));
+    if (settings.length) lines.push(`  - Settings: ${settings.join("; ")}`);
   }
   lines.push("", "## Connections");
   if (!bp.wires.length) lines.push("- (none)");
   for (const w of bp.wires) {
-    const from = byId.get(w.from)?.label ?? w.from;
-    const to = byId.get(w.to)?.label ?? w.to;
+    const portName = (partId: string, port?: string) => {
+      const owner = byId.get(partId);
+      return (owner && typeOf(bp, owner).ports?.find((x) => x.id === port)?.name) || "";
+    };
+    const end = (partId: string, port?: string) => {
+      const label = byId.get(partId)?.label ?? partId;
+      const pn = portName(partId, port);
+      return pn ? `${label}.${pn}` : label;
+    };
+    const from = end(w.from, w.fromPort);
+    const to = end(w.to, w.toPort);
     const c = kinds.get(w.kind);
     const how = c ? `${c.name}, ${c.sync ? "waits for the answer" : "does not wait"}` : w.kind;
     lines.push(`- ${from} → ${to}: ${how}${w.calls !== 1 ? `, ${w.calls} calls per request` : ""}${w.notes.trim() ? ` — ${w.notes.trim()}` : ""}`);

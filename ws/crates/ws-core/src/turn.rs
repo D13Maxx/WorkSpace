@@ -82,6 +82,29 @@ struct PendingCall {
     args: String,
 }
 
+/// Send `request` and gather the reply's text; the error is the backend's message.
+async fn collect_text(
+    backend: &dyn ChatBackend,
+    request: BackendRequest,
+    cancel: &CancellationToken,
+) -> std::result::Result<String, String> {
+    use futures_util::StreamExt as _;
+    let mut stream = backend
+        .stream(request, cancel.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    while let Some(event) = stream.next().await {
+        match event {
+            BackendEvent::TextDelta(t) => text.push_str(&t),
+            BackendEvent::Error(e) => return Err(e.to_string()),
+            BackendEvent::Done { .. } => break,
+            _ => {}
+        }
+    }
+    Ok(text)
+}
+
 pub struct Orchestrator {
     /// `rusqlite::Connection` is `Send` but not `Sync`, so access is
     /// serialised. Every lock is held for one synchronous statement and never
@@ -476,6 +499,44 @@ impl Orchestrator {
         Err(CoreError::SummaryLoopDidNotConverge)
     }
 
+    /// One question, one answer, outside any conversation: nothing is stored.
+    /// For app features that need a model's help with a single task, such as
+    /// turning a description into a blueprint part.
+    ///
+    /// # Errors
+    /// Fails if the backend is unknown, the request fails, or the reply is empty.
+    pub async fn complete(
+        &self,
+        model: &ModelRef,
+        system: String,
+        prompt: String,
+        max_output_tokens: u32,
+        cancel: &CancellationToken,
+    ) -> std::result::Result<String, String> {
+        let backend = self.backend(&model.backend).map_err(|e| e.to_string())?;
+        let request = BackendRequest {
+            model: model.clone(),
+            view: RenderedView {
+                system: Some(system),
+                messages: vec![RenderedMessage {
+                    source_id: MsgId::new(),
+                    role: Role::User,
+                    parts: vec![Part::text(prompt)],
+                }],
+            },
+            max_output_tokens,
+            thinking: ws_context::ThinkingMode::Off,
+            raw_payloads: BTreeMap::new(),
+            blobs: BTreeMap::new(),
+            tools: Vec::new(),
+        };
+        let text = collect_text(backend.as_ref(), request, cancel).await?;
+        if text.trim().is_empty() {
+            return Err(format!("{model} returned nothing"));
+        }
+        Ok(text)
+    }
+
     /// Ask a model to summarise the evicted prefix (master spec s6.5).
     async fn write_summary(
         &self,
@@ -514,28 +575,12 @@ impl Orchestrator {
             tools: Vec::new(),
         };
 
-        let mut stream = backend.stream(request, cancel.clone()).await.map_err(|e| {
-            CoreError::SummaryFailed {
+        let text = collect_text(backend.as_ref(), request, cancel)
+            .await
+            .map_err(|message| CoreError::SummaryFailed {
                 model: writer.clone(),
-                message: e.to_string(),
-            }
-        })?;
-
-        let mut text = String::new();
-        use futures_util::StreamExt as _;
-        while let Some(event) = stream.next().await {
-            match event {
-                BackendEvent::TextDelta(t) => text.push_str(&t),
-                BackendEvent::Error(e) => {
-                    return Err(CoreError::SummaryFailed {
-                        model: writer,
-                        message: e.to_string(),
-                    });
-                }
-                BackendEvent::Done { .. } => break,
-                _ => {}
-            }
-        }
+                message,
+            })?;
 
         if text.trim().is_empty() {
             return Err(CoreError::SummaryFailed {

@@ -17,6 +17,7 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useReactFlow,
+  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -28,7 +29,16 @@ import "@xyflow/react/dist/style.css";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { api, ask } from "../api";
+import { api, ask, type ModelOption } from "../api";
+import {
+  buildConnectorFree,
+  buildPartFree,
+  normaliseConnector,
+  normalisePart,
+  parseAiConnector,
+  parseAiPart,
+  partPrompt,
+} from "../blueprint/builder";
 import {
   CONNECTORS,
   PARTS,
@@ -43,6 +53,7 @@ import {
   parseBlueprint,
   parseLibrary,
   partTypes,
+  portsOf,
   rate,
   simulate,
   typeOf,
@@ -55,6 +66,8 @@ import {
   type Part,
   type PartStats,
   type PartType,
+  type Port,
+  type Setting,
   type Tunable,
   type Wire,
 } from "../blueprint/model";
@@ -87,15 +100,40 @@ const uid = () => crypto.randomUUID().slice(0, 8);
 type PartData = { part: Part; type: PartType; stats?: PartStats; down: boolean; level?: Finding["level"] };
 type PartNodeT = Node<PartData, "part">;
 
-function PartNode({ data, selected }: NodeProps<PartNodeT>) {
+function PartNode({ id, data, selected }: NodeProps<PartNodeT>) {
   const { part, type, stats, down, level } = data;
+  const ports = portsOf(type);
+  const ins = ports.filter((p) => p.dir === "in");
+  const outs = ports.filter((p) => p.dir === "out");
+  // Named ports get labels; the plain "in" and "out" of a part without ports do not.
+  const named = !!type.ports?.length;
+  // React Flow measures handles once; when a part type's ports change, measure
+  // again, or wires attach to where the old ports were.
+  const updateInternals = useUpdateNodeInternals();
+  const shape = ports.map((p) => p.id + p.dir).join();
+  useEffect(() => updateInternals(id), [id, shape, updateInternals]);
+  const at = (i: number, n: number) => `${((i + 1) / (n + 1)) * 100}%`;
   return (
     <div
-      className={`bp-part ${selected ? "selected" : ""} ${level ?? ""} ${down ? "down" : ""}`}
-      style={{ "--part": type.color } as CSSProperties}
+      className={`bp-part ${selected ? "selected" : ""} ${level ?? ""} ${down ? "down" : ""} ${named ? "ported" : ""}`}
+      style={{ "--part": type.color, minHeight: named ? 22 + 18 * Math.max(ins.length, outs.length) : undefined } as CSSProperties}
       title={type.description}
     >
-      <Handle type="target" position={Position.Left} />
+      {ins.map((p, i) => (
+        <Handle key={p.id} id={p.id} type="target" position={Position.Left} style={{ top: at(i, ins.length) }} title={p.name} />
+      ))}
+      {named &&
+        ins.map((p, i) => (
+          <span key={p.id} className="bp-port in" style={{ top: at(i, ins.length) }}>
+            {p.name}
+          </span>
+        ))}
+      {named &&
+        outs.map((p, i) => (
+          <span key={p.id} className="bp-port out" style={{ top: at(i, outs.length) }}>
+            {p.name}
+          </span>
+        ))}
       <div className="bp-part-type">{type.name}</div>
       <div className="bp-part-label">{part.label}</div>
       {stats && (
@@ -116,7 +154,9 @@ function PartNode({ data, selected }: NodeProps<PartNodeT>) {
           )}
         </div>
       )}
-      <Handle type="source" position={Position.Right} />
+      {outs.map((p, i) => (
+        <Handle key={p.id} id={p.id} type="source" position={Position.Right} style={{ top: at(i, outs.length) }} title={p.name} />
+      ))}
     </div>
   );
 }
@@ -340,6 +380,12 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
   }, [bp, live, running, sel, down, levels]);
 
   const kinds = useMemo(() => new Map(bp ? connectorTypes(bp).map((c) => [c.id, c]) : []), [bp]);
+  // A port id the part still has; otherwise none, so React Flow draws the wire to
+  // the first port (and it can be seen and deleted) while Run reports it.
+  const handle = (partId: string, port: string | undefined) => {
+    const p = bp?.parts.find((x) => x.id === partId);
+    return p && port && portsOf(typeOf(bp!, p)).some((x) => x.id === port) ? port : null;
+  };
   const edges: Edge[] = (bp?.wires ?? []).map((w) => {
     const c = kinds.get(w.kind);
     const load = live?.wires[w.id] ?? 0;
@@ -348,6 +394,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
       id: w.id,
       source: w.from,
       target: w.to,
+      sourceHandle: handle(w.from, w.fromPort),
+      targetHandle: handle(w.to, w.toPort),
       selected: sel?.kind === "wire" && sel.id === w.id,
       animated: running && load > 0,
       label: running ? `${rate(load)}/s` : (c?.name ?? w.kind) + (w.calls !== 1 ? ` ×${w.calls}` : ""),
@@ -409,10 +457,17 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
   const onConnect = (c: Connection) => {
     if (!bp || c.source === c.target) return;
     const target = bp.parts.find((p) => p.id === c.target);
-    const takes = target ? typeOf(bp, target).accepts.filter((k) => kinds.has(k)) : [];
-    const kind = pen ?? takes[0] ?? "http";
+    const source = bp.parts.find((p) => p.id === c.source);
+    const toType = target && typeOf(bp, target);
+    // The connector the ports name, else one the target takes.
+    const inKind = toType?.ports?.find((p) => p.id === c.targetHandle)?.kind;
+    const outKind = source && typeOf(bp, source).ports?.find((p) => p.id === c.sourceHandle)?.kind;
+    const named = [inKind, outKind].find((k) => k && k !== "*" && kinds.has(k));
+    const takes = toType ? toType.accepts.filter((k) => kinds.has(k)) : [];
+    const kind = pen ?? named ?? takes[0] ?? "http";
     const id = uid();
-    change((b) => ({ ...b, wires: [...b.wires, { id, from: c.source, to: c.target, kind, calls: 1, notes: "" }] }));
+    const ends = { fromPort: c.sourceHandle ?? undefined, toPort: c.targetHandle ?? undefined };
+    change((b) => ({ ...b, wires: [...b.wires, { id, from: c.source, to: c.target, kind, calls: 1, notes: "", ...ends }] }));
     setSel({ kind: "wire", id });
   };
 
@@ -424,6 +479,9 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     if (!where) {
       const r = canvas.current?.getBoundingClientRect();
       where = r ? flow.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) : { x: 0, y: 0 };
+      // Parts added by clicking step aside from ones already there, so none hides another.
+      const taken = (x: number, y: number) => bp.parts.some((q) => Math.abs(q.x + 70 - x) < 40 && Math.abs(q.y + 25 - y) < 40);
+      while (taken(where.x, where.y)) where = { x: where.x + 60, y: where.y + 60 };
     }
     const same = bp.parts.filter((p) => p.type === typeId).length;
     const id = uid();
@@ -939,6 +997,27 @@ function Details({
             }
           />
         ))}
+        {(t.settings ?? []).length > 0 && <h4>Settings</h4>}
+        {(t.settings ?? []).map((s) => (
+          <SettingField
+            key={s.key}
+            setting={s}
+            value={part.values?.[s.key]}
+            onChange={(v) =>
+              setPart(part.id, (p) => {
+                const values = { ...p.values };
+                if (v === undefined) delete values[s.key];
+                else values[s.key] = v;
+                return { ...p, values };
+              })
+            }
+          />
+        ))}
+        {t.ports?.length ? (
+          <p className="muted bp-note">
+            Ports: {t.ports.map((x) => `${x.dir === "in" ? "→" : ""}${x.name}${x.dir === "out" ? "→" : ""}`).join("  ")}
+          </p>
+        ) : null}
         {running && (
           <label className="bp-check">
             <input type="checkbox" checked={down.has(part.id)} onChange={(e) => onDown(part.id, e.target.checked)} />
@@ -963,7 +1042,9 @@ function Details({
       <aside className="bp-details" aria-label="Connection details">
         {close}
         <h3>
-          {from?.label} → {to?.label}
+          {from?.label}
+          {from && typeOf(bp, from).ports?.find((x) => x.id === wire.fromPort) ? `.${typeOf(bp, from).ports!.find((x) => x.id === wire.fromPort)!.name}` : ""} → {to?.label}
+          {target?.ports?.find((x) => x.id === wire.toPort) ? `.${target.ports.find((x) => x.id === wire.toPort)!.name}` : ""}
         </h3>
         <label className="bp-field">
           <span>Connector</span>
@@ -1086,6 +1167,166 @@ function Results({
   );
 }
 
+/** A setting's field: empty means its default. */
+function SettingField({ setting, value, onChange }: { setting: Setting; value?: string; onChange: (v: string | undefined) => void }) {
+  return (
+    <label className="bp-field">
+      <span>{setting.label}</span>
+      {setting.type === "choice" ? (
+        <select value={value ?? setting.default} onChange={(e) => onChange(e.target.value === setting.default ? undefined : e.target.value)}>
+          {(setting.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={setting.type === "number" ? "number" : "text"}
+          value={value ?? ""}
+          placeholder={setting.default}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+/** The model the AI builder asks: a Claude Sonnet if there is one, else any. */
+const pickModel = (models: ModelOption[]) =>
+  models.find((m) => m.backend === "anthropic" && m.model_id.includes("sonnet")) ?? models.find((m) => m.backend === "anthropic") ?? models[0];
+
+/** The parts builder: a description in, the form below filled in. */
+function Builder({ bp, kind, onBuilt }: { bp: Blueprint; kind: TypeEdit["kind"]; onBuilt: (v: PartType | ConnectorType) => void }) {
+  const [desc, setDesc] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  useEffect(() => {
+    api
+      .listModels()
+      .then(setModels)
+      .catch(() => setModels([]));
+  }, []);
+  const model = pickModel(models);
+  const connectors = connectorTypes(bp);
+  const free = () => {
+    setError(null);
+    onBuilt(kind === "part" ? buildPartFree(desc) : buildConnectorFree(desc));
+  };
+  const ai = async () => {
+    if (!model) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const reply = await api.askModel(model.backend, model.model_id, partPrompt(kind, connectors), desc);
+      onBuilt(kind === "part" ? parseAiPart(reply, desc, connectors) : parseAiConnector(reply, desc));
+    } catch (e) {
+      setError(`${e}. The free builder works without AI.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <fieldset className="bp-builder">
+      <legend>Build it from a description</legend>
+      <textarea
+        rows={2}
+        value={desc}
+        placeholder={kind === "part" ? "e.g. A Postgres database for orders, 2 replicas, 5 ms per query" : "e.g. gRPC between internal services, 3 ms"}
+        onChange={(e) => setDesc(e.target.value)}
+        aria-label={`Describe the ${kind}`}
+      />
+      <div className="row">
+        <button type="button" onClick={free} disabled={!desc.trim() || busy} title="Reads the description itself: no AI, no cost, instant">
+          Build (free)
+        </button>
+        <button
+          type="button"
+          onClick={() => void ai()}
+          disabled={!desc.trim() || busy || !model}
+          title={model ? `Asks ${model.display_name}; costs a little` : "Add a model in Settings first"}
+        >
+          {busy ? "Building…" : "Build with AI"}
+        </button>
+        <span className="muted bp-note">{model ? `AI: ${model.display_name}` : "AI needs a model (Settings)"}</span>
+      </div>
+      {error && <p className="failure">{error}</p>}
+      <p className="muted bp-note">It fills in the form below. Check it, change what you like, then Save.</p>
+    </fieldset>
+  );
+}
+
+function PortsEditor({ bp, ports, onChange }: { bp: Blueprint; ports: Port[]; onChange: (ports: Port[]) => void }) {
+  const edit = (i: number, patch: Partial<Port>) => onChange(ports.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  return (
+    <fieldset className="bp-list">
+      <legend>Ports: ways in (how others call it) and out (what it calls)</legend>
+      {ports.map((p, i) => (
+        <div key={p.id} className="bp-list-row">
+          <input value={p.name} onChange={(e) => edit(i, { name: e.target.value })} aria-label="Port name" />
+          <select value={p.dir} onChange={(e) => edit(i, { dir: e.target.value as Port["dir"] })} aria-label="Direction">
+            <option value="in">in</option>
+            <option value="out">out</option>
+          </select>
+          <select value={p.kind} onChange={(e) => edit(i, { kind: e.target.value })} aria-label="Connector">
+            <option value="*">any connector</option>
+            {connectorTypes(bp).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="icon-button" onClick={() => onChange(ports.filter((_, j) => j !== i))} aria-label={`Remove port ${p.name}`}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button type="button" className="bp-new" onClick={() => onChange([...ports, { id: `port_${uid().slice(0, 4)}`, name: "port", dir: "in", kind: "*" }])}>
+        + Add port
+      </button>
+    </fieldset>
+  );
+}
+
+function SettingsEditor({ settings, onChange }: { settings: Setting[]; onChange: (settings: Setting[]) => void }) {
+  const edit = (i: number, patch: Partial<Setting>) => onChange(settings.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  return (
+    <fieldset className="bp-list">
+      <legend>Settings it is built with (each placed part can change them)</legend>
+      {settings.map((s, i) => (
+        <div key={s.key} className="bp-list-row">
+          <input value={s.label} onChange={(e) => edit(i, { label: e.target.value })} aria-label="Setting name" placeholder="Name" />
+          <select value={s.type} onChange={(e) => edit(i, { type: e.target.value as Setting["type"] })} aria-label="Kind of value">
+            <option value="text">text</option>
+            <option value="number">number</option>
+            <option value="choice">choice</option>
+          </select>
+          <input value={s.default} onChange={(e) => edit(i, { default: e.target.value })} aria-label="Default" placeholder="Default" />
+          {s.type === "choice" && (
+            <input
+              value={(s.options ?? []).join(", ")}
+              onChange={(e) => edit(i, { options: e.target.value.split(",").map((o) => o.trim()).filter(Boolean) })}
+              aria-label="Choices, comma separated"
+              placeholder="Choices, a, b, c"
+            />
+          )}
+          <button type="button" className="icon-button" onClick={() => onChange(settings.filter((_, j) => j !== i))} aria-label={`Remove setting ${s.label}`}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="bp-new"
+        onClick={() => onChange([...settings, { key: `setting_${uid().slice(0, 4)}`, label: "", type: "text", default: "" }])}
+      >
+        + Add setting
+      </button>
+    </fieldset>
+  );
+}
+
 function TypeEditor({
   bp,
   edit,
@@ -1102,7 +1343,8 @@ function TypeEditor({
   onSave: (t: TypeEdit) => void;
   onDelete: (t: TypeEdit) => void;
 }) {
-  const [t, setT] = useState(edit);
+  // A part edits its ports as a list: the plain in/out of an older part become real ports.
+  const [t, setT] = useState<TypeEdit>(edit.kind === "part" ? { ...edit, value: { ...edit.value, ports: portsOf(edit.value) } } : edit);
   const used =
     t.kind === "part" ? bp.parts.filter((p) => p.type === t.value.id).length : bp.wires.filter((w) => w.kind === t.value.id).length;
   const set = (patch: Partial<PartType & ConnectorType>) => setT((x) => ({ ...x, value: { ...x.value, ...patch } }) as TypeEdit);
@@ -1134,8 +1376,13 @@ function TypeEditor({
         aria-label={t.kind === "part" ? "Part type" : "Connector type"}
         onSubmit={(e) => {
           e.preventDefault();
-          const category = t.value.category?.trim() || undefined;
-          if (t.value.name.trim()) onSave({ ...t, value: { ...t.value, name: t.value.name.trim(), category } } as TypeEdit);
+          if (!t.value.name.trim()) return;
+          // The same checks a built part gets: unique port ids, sane numbers, `accepts` from the ports.
+          onSave(
+            t.kind === "part"
+              ? { ...t, value: normalisePart({ ...t.value, settings: (t.value.settings ?? []).filter((s) => s.label.trim()) }, connectorTypes(bp)) }
+              : { ...t, value: normaliseConnector(t.value) },
+          );
         }}
       >
         <header>
@@ -1146,10 +1393,16 @@ function TypeEditor({
             ✕
           </button>
         </header>
+        <Builder
+          bp={bp}
+          kind={t.kind}
+          // The built part replaces the form, keeping the id so an edit stays the same part.
+          onBuilt={(v) => setT((x) => ({ ...x, value: { ...v, id: x.value.id } }) as TypeEdit)}
+        />
         <div className="bp-type-grid">
           <label className="bp-field">
             <span>Name</span>
-            <input autoFocus required value={t.value.name} onChange={(e) => set({ name: e.target.value })} />
+            <input required value={t.value.name} onChange={(e) => set({ name: e.target.value })} />
           </label>
           <label className="bp-field">
             <span>Category</span>
@@ -1187,31 +1440,8 @@ function TypeEditor({
               <input type="checkbox" checked={t.value.stateful} onChange={(e) => set({ stateful: e.target.checked })} />
               Holds data (more copies need replication)
             </label>
-            <fieldset className="bp-accepts">
-              <legend>Can be called over</legend>
-              <label className="bp-check">
-                <input
-                  type="checkbox"
-                  checked={t.value.accepts.includes("*")}
-                  onChange={(e) => set({ accepts: e.target.checked ? ["*"] : [] })}
-                />
-                Any connector
-              </label>
-              {!t.value.accepts.includes("*") &&
-                connectorTypes(bp).map((c) => (
-                  <label key={c.id} className="bp-check">
-                    <input
-                      type="checkbox"
-                      checked={(t.value as PartType).accepts.includes(c.id)}
-                      onChange={(e) => {
-                        const a = (t.value as PartType).accepts.filter((k) => k !== c.id);
-                        set({ accepts: e.target.checked ? [...a, c.id] : a });
-                      }}
-                    />
-                    {c.name}
-                  </label>
-                ))}
-            </fieldset>
+            <PortsEditor bp={bp} ports={t.value.ports ?? []} onChange={(ports) => set({ ports })} />
+            <SettingsEditor settings={t.value.settings ?? []} onChange={(settings) => set({ settings })} />
           </>
         ) : (
           <>

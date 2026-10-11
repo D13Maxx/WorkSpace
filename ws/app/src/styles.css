@@ -1772,3 +1772,87 @@ button.danger {
   padding: 2px 6px;
   font-size: 0.8rem;
 }
+
+/* Named ports on a part, VectorShift style: labelled where the wires attach. */
+.bp-part.ported {
+  padding: 0 46px;
+}
+
+.bp-port {
+  position: absolute;
+  transform: translateY(-50%);
+  max-width: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.bp-port.in {
+  left: 8px;
+}
+
+.bp-port.out {
+  right: 8px;
+  text-align: right;
+}
+
+.bp-details h4 {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The parts builder, and the port and setting lists, in the part editor. */
+.bp-builder,
+.bp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.bp-builder {
+  border-color: var(--accent);
+}
+
+.bp-builder legend,
+.bp-list legend {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.bp-builder textarea {
+  width: 100%;
+  font: inherit;
+}
+
+.bp-builder .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-list-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.bp-list-row input,
+.bp-list-row select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+
+.bp-type-editor {
+  width: min(680px, 100%);
+}

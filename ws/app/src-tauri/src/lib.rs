@@ -86,6 +86,7 @@ pub fn run() {
             commands::build_graph,
             commands::has_graph,
             commands::list_dir,
+            commands::ask_model,
             commands::read_text_file,
             commands::read_file_bytes,
             commands::write_text_file,

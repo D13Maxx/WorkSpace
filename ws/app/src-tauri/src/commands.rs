@@ -912,6 +912,29 @@ pub fn list_dir(root: String, path: String) -> CmdResult<Vec<crate::files::Entry
     crate::files::list_dir(&root, &path)
 }
 
+/// One question to a model outside any chat; nothing is stored. The blueprint
+/// parts builder uses it to turn a description into a part.
+#[tauri::command]
+pub async fn ask_model(
+    state: State<'_, AppState>,
+    backend: String,
+    model_id: String,
+    system: String,
+    prompt: String,
+) -> CmdResult<String> {
+    let model = ModelRef::new(backend, model_id);
+    state
+        .orchestrator
+        .complete(
+            &model,
+            system,
+            prompt,
+            2048,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+}
+
 #[tauri::command]
 pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
     crate::files::read_text(&root, &path)

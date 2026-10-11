@@ -717,3 +717,34 @@ async fn compaction_is_occasional_rather_than_once_per_turn() {
         );
     }
 }
+
+#[tokio::test]
+async fn complete_answers_one_question_and_stores_nothing() {
+    let h = harness(vec![Scripted::Text(vec![
+        "{\"name\":".into(),
+        "\"Cache\"}".into(),
+    ])]);
+    let text = h
+        .orch
+        .complete(
+            &model(),
+            "Answer in JSON.".into(),
+            "A Redis cache".into(),
+            256,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(text, "{\"name\":\"Cache\"}");
+    let sent = &h.backend.requests()[0];
+    assert_eq!(sent.view.system.as_deref(), Some("Answer in JSON."));
+    assert_eq!(sent.view.messages.len(), 1);
+    assert!(
+        h.store
+            .lock()
+            .unwrap()
+            .list_conversations()
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -302,6 +302,9 @@ export const api = {
   /** This blueprint window has (or no longer has) unsaved changes. */
   blueprintDirty: (dirty: boolean) => invoke<void>("blueprint_dirty", { dirty }),
   unsavedBlueprints: () => invoke<number>("unsaved_blueprints"),
+  /** One question to a model, outside any chat; nothing is stored. */
+  askModel: (backend: string, modelId: string, system: string, prompt: string) =>
+    invoke<string>("ask_model", { backend, modelId, system, prompt }),
   /** The inventory of parts and connectors every blueprint shares, as JSON. */
   readPartsLibrary: () => invoke<string>("read_parts_library"),
   writePartsLibrary: (text: string) => invoke<void>("write_parts_library", { text }),
