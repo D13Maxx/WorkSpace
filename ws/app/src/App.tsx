@@ -6,7 +6,7 @@ import { MessageList } from "./components/MessageList";
 import { Inspector } from "./components/Inspector";
 import { Settings } from "./components/Settings";
 import { PrefillProgress } from "./components/PrefillProgress";
-import { Explorer } from "./components/Explorer";
+import { Explorer, type OpenFile } from "./components/Explorer";
 import { FileViewer } from "./components/FileViewer";
 import { RunPanel } from "./components/RunPanel";
 
@@ -95,18 +95,34 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   // The chat pane shows either the open conversation or the list of them.
   const [showChats, setShowChats] = useState(false);
-  const [project, setProject] = useState(() => readPref("ws.project") ?? "");
-  const [openFile, setOpenFile] = useState<string | null>(null);
+  // The folders open on the left. Older versions kept a single one.
+  const [folders, setFolders] = useState<string[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(readPref("ws.folders") ?? "null");
+      if (Array.isArray(saved)) return saved.filter((f): f is string => typeof f === "string");
+    } catch {
+      // Unreadable: start from the single folder, if any.
+    }
+    const single = readPref("ws.project");
+    return single ? [single] : [];
+  });
+  const [openFile, setOpenFile] = useState<OpenFile | null>(null);
+  // The folder the agent, Run and the graph builder work in.
+  const project = openFile?.root ?? folders[0] ?? "";
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
-  const [run, setRun] = useState<{ path: string; key: number } | null>(null);
+  const [run, setRun] = useState<{ root: string; path: string; key: number } | null>(null);
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("ws.chatWidth")) || 420);
 
   useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
 
-  // The agent's file tools act on whatever is open here.
+  useEffect(() => writePref("ws.folders", JSON.stringify(folders)), [folders]);
+
+  // The agent's file tools act on whatever is open here. Settings' graph
+  // section starts on the same folder.
   useEffect(() => {
-    void api.setWorkspace(project || null, openFile);
+    writePref("ws.project", project);
+    void api.setWorkspace(project || null, openFile?.path ?? null);
   }, [project, openFile]);
 
   const busy = streaming !== null;
@@ -302,14 +318,14 @@ export default function App() {
       {/* Left: the open folder. */}
       <div className="pane-left">
         <Explorer
-          project={project}
-          onProjectChange={(p) => {
-            writePref("ws.project", p);
-            setProject(p);
-            setOpenFile(null);
+          folders={folders}
+          onAddFolder={(f) => setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]))}
+          onRemoveFolder={(f) => {
+            setFolders((fs) => fs.filter((x) => x !== f));
+            if (openFile?.root === f) setOpenFile(null);
           }}
           onOpenFile={setOpenFile}
-          openPath={openFile}
+          open={openFile}
           version={fileVersion}
         />
         <button className="settings" onClick={() => setShowSettings(true)}>
@@ -319,31 +335,33 @@ export default function App() {
 
       {/* Middle: the file being viewed. */}
       <section className="pane-middle">
-        {openFile && project ? (
+        {openFile ? (
           <FileViewer
             // One editor per file, so unsaved text stays with its file.
-            key={`${project}|${openFile}`}
-            project={project}
-            path={openFile}
+            key={`${openFile.root}|${openFile.path}`}
+            project={openFile.root}
+            path={openFile.path}
             version={fileVersion}
             onClose={() => setOpenFile(null)}
-            onRun={(path) => setRun((r) => ({ path, key: (r?.key ?? 0) + 1 }))}
+            onRun={(path) =>
+              setRun((r) => ({ root: openFile.root, path, key: (r?.key ?? 0) + 1 }))
+            }
           />
         ) : (
           <div className="empty">
-            <p>{project ? "Choose a file on the left, or make a new one." : "Open a folder on the left to start."}</p>
+            <p>{folders.length ? "Choose a file on the left, or make a new one." : "Open a folder on the left to start."}</p>
           </div>
         )}
-        {run && project && (
+        {run && (
           <RunPanel
-            project={project}
+            project={run.root}
             path={run.path}
             runKey={run.key}
             onExit={(path, code) => {
               // A build leaves new files (a program, a PDF) to show.
               setFileVersion((v) => v + 1);
               if (code === 0 && path.toLowerCase().endsWith(".tex")) {
-                setOpenFile(path.replace(/[.]tex$/i, ".pdf"));
+                setOpenFile({ root: run.root, path: path.replace(/[.]tex$/i, ".pdf") });
               }
             }}
             onClose={() => setRun(null)}

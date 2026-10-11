@@ -522,8 +522,16 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
 
   useEffect(refreshBackends, [refreshBackends]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <aside className="settings-panel">
+    // A click on the dimmed backdrop closes it; one inside does not.
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <aside className="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
       <header>
         <h2>Settings</h2>
         <button onClick={onClose} aria-label="Close settings">
@@ -545,5 +553,6 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <ProfileSection models={models} onSaved={onModelsChanged} />
       <CompatSection onChanged={refreshBackends} />
     </aside>
+    </div>
   );
 }

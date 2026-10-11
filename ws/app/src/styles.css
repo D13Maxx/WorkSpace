@@ -705,18 +705,7 @@ select:focus {
   min-height: 0;
 }
 
-.explorer-project {
-  display: flex;
-  gap: 6px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border);
-}
 
-.explorer-project input {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.8rem;
-}
 
 .explorer > .tree {
   overflow: auto;
@@ -1021,19 +1010,8 @@ body.resizing iframe {
   padding: 4px 0 0 8px;
 }
 
-.explorer-actions {
-  padding: 0 10px 6px;
-}
 
-.explorer-actions form {
-  display: flex;
-  gap: 6px;
-}
 
-.explorer-actions input {
-  flex: 1;
-  min-width: 0;
-}
 
 .pdf-area {
   position: relative;
@@ -1060,10 +1038,6 @@ body.resizing iframe {
   color: var(--accent);
 }
 
-.explorer-actions .row {
-  display: flex;
-  gap: 6px;
-}
 
 .graph-ways {
   margin: 0 0 10px;
@@ -1090,4 +1064,98 @@ body.resizing iframe {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* ---- settings pop-up ---------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal-backdrop .settings-panel {
+  position: static;
+  width: min(760px, 100%);
+  max-height: min(86vh, 900px);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 18px 22px;
+}
+
+/* ---- explorer: icon bar and folder roots --------------------------------- */
+
+.explorer-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 6px 12px;
+}
+
+.explorer-title {
+  flex: 1;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--raised);
+  border-color: var(--border);
+}
+
+.explorer-new {
+  padding: 0 10px 6px;
+}
+
+.explorer-new input {
+  width: 100%;
+}
+
+.explorer-roots {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.root-row {
+  display: flex;
+  align-items: center;
+}
+
+.root-row .root-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.root-row .root-close {
+  visibility: hidden;
+  font-size: 0.75rem;
+}
+
+.root-row:hover .root-close,
+.root-row .root-close:focus-visible {
+  visibility: visible;
 }
