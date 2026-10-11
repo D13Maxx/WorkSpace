@@ -25,3 +25,6 @@ ws/app/src-tauri/gen/
 
 # Built by ws/app/scripts/build-ua-pipeline.mjs (38 MB of bundles and grammars)
 ws/app/src-tauri/ua-pipeline/
+
+# Copied from pdfjs-dist by ws/app/scripts/copy-pdfjs-data.mjs
+ws/app/public/pdfjs/

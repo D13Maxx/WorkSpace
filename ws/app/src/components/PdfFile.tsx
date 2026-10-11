@@ -14,6 +14,17 @@ import { api } from "../api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
+/** pdf.js's data, copied into public/pdfjs by scripts/copy-pdfjs-data.mjs.
+ *  Without it, fonts a PDF does not embed and scanned images draw nothing. */
+const here = (dir: string) => new URL(`/pdfjs/${dir}/`, window.location.href).href;
+const PDF_DATA = {
+  cMapUrl: here("cmaps"),
+  cMapPacked: true,
+  standardFontDataUrl: here("standard_fonts"),
+  wasmUrl: here("wasm"),
+  iccUrl: here("iccs"),
+};
+
 const { NONE, FREETEXT, INK, HIGHLIGHT } = pdfjs.AnnotationEditorType;
 const TOOLS: [string, number, string][] = [
   ["Select", NONE, "Scroll, select text and move what you added"],
@@ -39,6 +50,10 @@ export function PdfFile({ project, path, version, header }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // For an encrypted PDF: the password tried, and whether one is being asked for.
+  const [password, setPassword] = useState<string | null>(null);
+  const [asking, setAsking] = useState<null | "needed" | "wrong">(null);
+  const [typed, setTyped] = useState("");
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
@@ -63,11 +78,16 @@ export function PdfFile({ project, path, version, header }: Props) {
       .readFileBytes(project, path)
       .then((bytes) => {
         if (!live) return null;
-        task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+        task = pdfjs.getDocument({
+          data: new Uint8Array(bytes),
+          password: password ?? undefined,
+          ...PDF_DATA,
+        });
         return task.promise;
       })
       .then((doc) => {
         if (!live || !doc) return;
+        setAsking(null);
         docRef.current = doc;
         // Typed as null in pdf.js, but it is the documented change hook.
         (doc.annotationStorage as unknown as { onSetModified: () => void }).onSetModified = () =>
@@ -75,7 +95,14 @@ export function PdfFile({ project, path, version, header }: Props) {
         viewer.setDocument(doc);
         linkService.setDocument(doc);
       })
-      .catch((e) => live && setError(String(e)));
+      .catch((e: unknown) => {
+        if (!live) return;
+        if (e instanceof Error && e.name === "PasswordException") {
+          setAsking(password === null ? "needed" : "wrong");
+        } else {
+          setError(String(e));
+        }
+      });
 
     return () => {
       live = false;
@@ -83,7 +110,7 @@ export function PdfFile({ project, path, version, header }: Props) {
       docRef.current = null;
       void (task as pdfjs.PDFDocumentLoadingTask | null)?.destroy();
     };
-  }, [project, path, nonce]);
+  }, [project, path, nonce, password]);
 
   // Reload when the agent may have changed it, unless there is unsaved work.
   const seen = useRef(version);
@@ -146,6 +173,30 @@ export function PdfFile({ project, path, version, header }: Props) {
         </>,
       )}
       {error && <p className="failure">{error}</p>}
+      {asking && (
+        <form
+          className="pdf-password"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPassword(typed);
+            setTyped("");
+          }}
+        >
+          <label>
+            {asking === "wrong" ? "That password is wrong. Try again:" : "This PDF needs a password:"}
+            <input
+              type="password"
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              aria-label="PDF password"
+            />
+          </label>
+          <button type="submit" disabled={!typed}>
+            Open
+          </button>
+        </form>
+      )}
       <div className="pdf-area">
         {/* Fresh DOM per load: a pdf.js viewer cannot take over another's. */}
         <div className="pdf-container" key={nonce} ref={container}>

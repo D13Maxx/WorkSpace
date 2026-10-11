@@ -1,11 +1,11 @@
 // The middle pane: one file, edited or viewed by its type.
 //
 // Text and code open in an editor. PDFs open in pdf.js, which can annotate
-// them. Word files are rendered to HTML in a sandboxed frame with no scripts, never
+// them. Word files are drawn into a sandboxed frame where scripts cannot run, never
 // into the app's own page (master spec s12): a document is untrusted input.
 
 import { useEffect, useRef, useState } from "react";
-import mammoth from "mammoth";
+import { renderAsync } from "docx-preview";
 import type { EditorView } from "codemirror";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
@@ -167,33 +167,57 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
   );
 }
 
-const DOCX_STYLE = `<style>
-body { font: 15px/1.6 system-ui, "Segoe UI", sans-serif; max-width: 50em; margin: 2em auto; padding: 0 1.5em; color: #16191d; background: #fff; }
-img { max-width: 100%; }
-table { border-collapse: collapse; }
-td, th { border: 1px solid #c8cfd8; padding: 4px 8px; }
-</style>`;
-
+/** A Word file as Word lays it out: fonts, sizes, colours, tables, headers,
+ *  footers and page breaks (docx-preview). */
 function DocxFile({ project, path, version, onClose }: Props) {
-  const [html, setHtml] = useState<string | null>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // A fresh frame per load, so nothing from the last render lingers.
+  const key = `${version}:${nonce}`;
 
   useEffect(() => {
     let live = true;
-    setHtml(null);
+    setReady(false);
     setError(null);
+    // A frame with no src keeps its first, empty document: ready at once.
+    const doc = frame.current?.contentDocument;
+    if (!doc) return;
     api
       .readFileBytes(project, path)
       .then(async (bytes) => {
-        const result = await mammoth.convertToHtml({ arrayBuffer: bytes });
-        if (live) setHtml(result.value);
+        if (!live) return;
+        doc.body.style.margin = "0";
+        await renderAsync(bytes, doc.body, doc.head, {
+          inWrapper: true,
+          breakPages: true,
+          // Images as data: URLs, which the app's content policy allows.
+          useBase64URL: true,
+          // Embedded HTML chunks are the one way a document carries markup.
+          renderAltChunks: false,
+          renderComments: false,
+          renderChanges: false,
+        });
+        if (live) setReady(true);
       })
       .catch((e) => live && setError(String(e)));
+    // Pages keep their real width (A4 is ~794px), so shrink them to the pane.
+    const iframe = frame.current;
+    const fit = () => {
+      const page = doc.querySelector<HTMLElement>("section.docx");
+      // A hidden frame measures 0 wide; the observer fires again once it shows.
+      if (iframe && page && iframe.clientWidth > 0) {
+        doc.body.style.zoom = String(Math.min(1, (iframe.clientWidth - 32) / page.offsetWidth));
+      }
+    };
+    const resize = new ResizeObserver(fit);
+    if (iframe) resize.observe(iframe);
     return () => {
       live = false;
+      resize.disconnect();
     };
-  }, [project, path, version, nonce]);
+  }, [project, path, key]);
 
   return (
     <section className="file-viewer" aria-label={path}>
@@ -206,11 +230,17 @@ function DocxFile({ project, path, version, onClose }: Props) {
         </button>
       </Header>
       {error && <p className="failure">{error}</p>}
-      {!error && html === null && <p className="muted">Loading…</p>}
-      {html !== null && (
-        // No allow-scripts, no same-origin: the document can only be looked at.
-        <iframe className="doc-frame" sandbox="" srcDoc={DOCX_STYLE + html} title={path} />
-      )}
+      {!error && !ready && <p className="muted">Loading…</p>}
+      {/* Same origin so FRIDAY can draw into it; no allow-scripts, so nothing
+          in the document can run. */}
+      <iframe
+        key={key}
+        ref={frame}
+        className="doc-frame"
+        sandbox="allow-same-origin"
+        title={path}
+        hidden={!ready}
+      />
     </section>
   );
 }
