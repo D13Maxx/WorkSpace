@@ -8,8 +8,8 @@ import { Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 /** Windows' own folder picker. `null` if cancelled. */
-export async function pickFolder(): Promise<string | null> {
-  const picked = await open({ directory: true });
+export async function pickFolder(defaultPath?: string, title?: string): Promise<string | null> {
+  const picked = await open({ directory: true, defaultPath, title });
   return typeof picked === "string" ? picked : null;
 }
 

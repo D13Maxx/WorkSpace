@@ -54,6 +54,8 @@ function Folder({
   open,
   place,
   onPlace,
+  isOpen,
+  onToggle,
   version,
 }: {
   root: string;
@@ -63,11 +65,12 @@ function Folder({
   open: OpenFile | null;
   place: Place | null;
   onPlace: (place: Place) => void;
+  isOpen: (path: string) => boolean;
+  onToggle: (path: string) => void;
   version: number;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setError(null);
@@ -84,7 +87,7 @@ function Folder({
   return (
     <ul className="tree" role="group">
       {entries.map((e) => (
-        <li key={e.path} role="treeitem" aria-expanded={e.is_dir ? !!expanded[e.path] : undefined}>
+        <li key={e.path} role="treeitem" aria-expanded={e.is_dir ? isOpen(e.path) : undefined}>
           <button
             className={`tree-item ${
               (e.is_dir ? place?.root === root && place.dir === e.path : open?.root === root && e.path === open.path)
@@ -94,7 +97,7 @@ function Folder({
             style={{ paddingLeft: `${depth * 12 + 6}px` }}
             onClick={() => {
               if (e.is_dir) {
-                setExpanded((x) => ({ ...x, [e.path]: !x[e.path] }));
+                onToggle(e.path);
                 onPlace({ root, dir: e.path });
               } else {
                 onOpenFile({ root, path: e.path });
@@ -103,11 +106,11 @@ function Folder({
             title={e.path}
           >
             <span className="tree-icon" aria-hidden="true">
-              {e.is_dir ? (expanded[e.path] ? "▾" : "▸") : " "}
+              {e.is_dir ? (isOpen(e.path) ? "▾" : "▸") : " "}
             </span>
             {e.name}
           </button>
-          {e.is_dir && expanded[e.path] && (
+          {e.is_dir && isOpen(e.path) && (
             <Folder
               root={root}
               path={e.path}
@@ -116,6 +119,8 @@ function Folder({
               open={open}
               place={place}
               onPlace={onPlace}
+              isOpen={isOpen}
+              onToggle={onToggle}
               version={version}
             />
           )}
@@ -128,6 +133,21 @@ function Folder({
 export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onGraph, open, version }: Props) {
   // Collapsed roots; a newly opened folder starts expanded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Expanded folders inside the roots, by root and path.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const key = (root: string, path: string) => `${root}\n${path}`;
+  /** Show `p`: its root and every folder on the way to it. */
+  const expandTo = (p: Place) => {
+    setCollapsed((c) => ({ ...c, [p.root]: false }));
+    const parts = p.dir ? p.dir.split("/") : [];
+    setExpanded((x) => {
+      const next = { ...x };
+      parts.forEach((_, i) => {
+        next[key(p.root, parts.slice(0, i + 1).join("/"))] = true;
+      });
+      return next;
+    });
+  };
   // What is being created, and its name as typed, while that box is open.
   const [creating, setCreating] = useState<null | "file" | "folder">(null);
   const [name, setName] = useState("");
@@ -146,6 +166,35 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
           : null;
   const where = place ? (place.dir ? `${baseName(place.root)}/${place.dir}` : baseName(place.root)) : "";
 
+  /** The open folder holding `folder`, or `folder` itself as a new root. */
+  const locate = (folder: string): Place => {
+    const lower = folder.replace(/[\\/]+$/, "").toLowerCase();
+    for (const root of folders) {
+      const r = root.replace(/[\\/]+$/, "");
+      if (lower === r.toLowerCase()) return { root, dir: "" };
+      if (lower.startsWith(r.toLowerCase() + "\\")) {
+        return { root, dir: folder.slice(r.length + 1).replace(/[\\/]+$/, "").replace(/\\/g, "/") };
+      }
+    }
+    return { root: folder, dir: "" };
+  };
+
+  /** Ask where, in Windows' folder picker, then ask for the name. */
+  const startCreate = async (kind: "file" | "folder") => {
+    const start = place
+      ? place.root.replace(/[\\/]+$/, "") + (place.dir ? "\\" + place.dir.replace(/\//g, "\\") : "")
+      : undefined;
+    const folder = await pickFolder(start, `Where should the new ${kind} go?`);
+    if (!folder) return;
+    const p = locate(folder);
+    if (!folders.includes(p.root)) onAddFolder(p.root);
+    setPicked(p);
+    expandTo(p);
+    setName("");
+    setError(null);
+    setCreating(kind);
+  };
+
   // Opening a file moves the place for new things to beside it.
   const openFromTree = (file: OpenFile) => {
     setPicked(null);
@@ -160,6 +209,7 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
       if (creating === "folder") {
         await api.createDir(place.root, path);
         setPicked({ root: place.root, dir: path });
+        expandTo({ root: place.root, dir: path });
       } else {
         await api.createFile(place.root, path);
         onOpenFile({ root: place.root, path });
@@ -209,18 +259,16 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
         </button>
         <button
           className="icon-button"
-          onClick={() => setCreating("file")}
-          disabled={!place}
-          title={place ? `New file in ${where}` : "Open a folder first"}
+          onClick={() => void startCreate("file")}
+          title="New file (asks where)"
           aria-label="New file"
         >
           <Icon d={NEW_FILE} />
         </button>
         <button
           className="icon-button"
-          onClick={() => setCreating("folder")}
-          disabled={!place}
-          title={place ? `New folder in ${where}` : "Open a folder first"}
+          onClick={() => void startCreate("folder")}
+          title="New folder (asks where)"
           aria-label="New folder"
         >
           <Icon d={NEW_FOLDER} />
@@ -306,6 +354,8 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
                 open={open}
                 place={picked ? place : null}
                 onPlace={setPicked}
+                isOpen={(path) => !!expanded[key(root, path)]}
+                onToggle={(path) => setExpanded((x) => ({ ...x, [key(root, path)]: !x[key(root, path)] }))}
                 version={version + created}
               />
             )}
