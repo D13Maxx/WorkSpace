@@ -11,9 +11,11 @@ interface Props {
   /** Start Understand-Anything's /understand on `folder` in a new chat. */
   onStartAi: (folder: string) => void;
   onOpenSettings: () => void;
+  /** Open `folder` on the left, as both graph choices do. */
+  onAddFolder: (folder: string) => void;
 }
 
-export function GraphDialog({ folder, onClose, onStartAi, onOpenSettings }: Props) {
+export function GraphDialog({ folder, onClose, onStartAi, onOpenSettings, onAddFolder }: Props) {
   const [exists, setExists] = useState(false);
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [state, setState] = useState<"idle" | "building" | "opening" | "replace">("idle");
@@ -47,6 +49,7 @@ export function GraphDialog({ folder, onClose, onStartAi, onOpenSettings }: Prop
     setState("building");
     try {
       await api.buildGraph(folder, replace);
+      onAddFolder(folder);
       await open();
     } catch (e) {
       const message = String(e);

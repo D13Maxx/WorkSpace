@@ -935,6 +935,11 @@ pub fn write_file_bytes(root: String, path: String, bytes: Vec<u8>) -> CmdResult
 }
 
 #[tauri::command]
+pub fn create_dir(root: String, path: String) -> CmdResult<()> {
+    crate::files::create_dir(&root, &path)
+}
+
+#[tauri::command]
 pub fn create_file(root: String, path: String) -> CmdResult<()> {
     crate::files::create_file(&root, &path)
 }

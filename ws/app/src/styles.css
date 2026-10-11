@@ -1116,7 +1116,11 @@ body.resizing iframe {
 }
 
 .explorer-new {
-  padding: 0 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 8px;
+  font-size: 0.8rem;
 }
 
 .explorer-new input {

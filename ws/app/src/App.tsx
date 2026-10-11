@@ -572,6 +572,7 @@ export default function App() {
           folder={graphFor}
           onClose={() => setGraphFor(null)}
           onOpenSettings={() => setShowSettings(true)}
+          onAddFolder={addFolder}
           onStartAi={(folder) => void startUnderstand(folder)}
         />
       )}

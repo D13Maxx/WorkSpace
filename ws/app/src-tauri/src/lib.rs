@@ -83,6 +83,7 @@ pub fn run() {
             commands::write_text_file,
             commands::write_file_bytes,
             commands::create_file,
+            commands::create_dir,
             commands::set_workspace,
             commands::run_file,
             commands::run_input,

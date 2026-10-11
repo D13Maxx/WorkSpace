@@ -30,6 +30,14 @@ const Icon = ({ d }: { d: string }) => (
 const FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13z";
 const FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3";
 const NEW_FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M8 7.5v5M5.5 10h5";
+const NEW_FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13zM8 6.8v4.4M5.8 9h4.4";
+
+/** A folder inside an open folder: where new files and folders go. */
+interface Place {
+  root: string;
+  /** Relative to `root`; empty for the top. */
+  dir: string;
+}
 // Three linked nodes.
 const GRAPH = "M4 4.5a1.5 1.5 0 1 1 0 .01zM12 3.5a1.5 1.5 0 1 1 0 .01zM8 12a1.5 1.5 0 1 1 0 .01zM5.3 5.3l2 5M10.6 4.4l-2 6M5.5 4.3h5";
 
@@ -44,6 +52,8 @@ function Folder({
   depth,
   onOpenFile,
   open,
+  place,
+  onPlace,
   version,
 }: {
   root: string;
@@ -51,6 +61,8 @@ function Folder({
   depth: number;
   onOpenFile: (file: OpenFile) => void;
   open: OpenFile | null;
+  place: Place | null;
+  onPlace: (place: Place) => void;
   version: number;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
@@ -74,13 +86,20 @@ function Folder({
       {entries.map((e) => (
         <li key={e.path} role="treeitem" aria-expanded={e.is_dir ? !!expanded[e.path] : undefined}>
           <button
-            className={`tree-item ${open?.root === root && e.path === open.path ? "selected" : ""}`}
+            className={`tree-item ${
+              (e.is_dir ? place?.root === root && place.dir === e.path : open?.root === root && e.path === open.path)
+                ? "selected"
+                : ""
+            }`}
             style={{ paddingLeft: `${depth * 12 + 6}px` }}
-            onClick={() =>
-              e.is_dir
-                ? setExpanded((x) => ({ ...x, [e.path]: !x[e.path] }))
-                : onOpenFile({ root, path: e.path })
-            }
+            onClick={() => {
+              if (e.is_dir) {
+                setExpanded((x) => ({ ...x, [e.path]: !x[e.path] }));
+                onPlace({ root, dir: e.path });
+              } else {
+                onOpenFile({ root, path: e.path });
+              }
+            }}
             title={e.path}
           >
             <span className="tree-icon" aria-hidden="true">
@@ -95,6 +114,8 @@ function Folder({
               depth={depth + 1}
               onOpenFile={onOpenFile}
               open={open}
+              place={place}
+              onPlace={onPlace}
               version={version}
             />
           )}
@@ -107,12 +128,50 @@ function Folder({
 export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onGraph, open, version }: Props) {
   // Collapsed roots; a newly opened folder starts expanded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // The path being typed for a new file, while that box is open.
-  const [newFile, setNewFile] = useState<string | null>(null);
+  // What is being created, and its name as typed, while that box is open.
+  const [creating, setCreating] = useState<null | "file" | "folder">(null);
+  const [name, setName] = useState("");
   const [created, setCreated] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  // New files go in the folder of the file in view, or the first folder.
-  const target = open?.root ?? folders[0];
+  // The folder last clicked. New things go there, else beside the file in
+  // view, else at the top of the first folder.
+  const [picked, setPicked] = useState<Place | null>(null);
+  const place: Place | null =
+    picked && folders.includes(picked.root)
+      ? picked
+      : open
+        ? { root: open.root, dir: open.path.includes("/") ? open.path.slice(0, open.path.lastIndexOf("/")) : "" }
+        : folders[0]
+          ? { root: folders[0], dir: "" }
+          : null;
+  const where = place ? (place.dir ? `${baseName(place.root)}/${place.dir}` : baseName(place.root)) : "";
+
+  // Opening a file moves the place for new things to beside it.
+  const openFromTree = (file: OpenFile) => {
+    setPicked(null);
+    onOpenFile(file);
+  };
+
+  const create = async () => {
+    const typed = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    if (!place || !typed) return;
+    const path = place.dir ? `${place.dir}/${typed}` : typed;
+    try {
+      if (creating === "folder") {
+        await api.createDir(place.root, path);
+        setPicked({ root: place.root, dir: path });
+      } else {
+        await api.createFile(place.root, path);
+        onOpenFile({ root: place.root, path });
+      }
+      setCreating(null);
+      setName("");
+      setError(null);
+      setCreated((n) => n + 1);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
 
   const openPicked = async () => {
     const file = await pickFile();
@@ -150,12 +209,21 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
         </button>
         <button
           className="icon-button"
-          onClick={() => setNewFile("")}
-          disabled={!target}
-          title={target ? `New file in ${baseName(target)}` : "Open a folder first"}
+          onClick={() => setCreating("file")}
+          disabled={!place}
+          title={place ? `New file in ${where}` : "Open a folder first"}
           aria-label="New file"
         >
           <Icon d={NEW_FILE} />
+        </button>
+        <button
+          className="icon-button"
+          onClick={() => setCreating("folder")}
+          disabled={!place}
+          title={place ? `New folder in ${where}` : "Open a folder first"}
+          aria-label="New folder"
+        >
+          <Icon d={NEW_FOLDER} />
         </button>
         <button
           className="icon-button"
@@ -170,33 +238,31 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
         </button>
       </div>
 
-      {newFile !== null && target && (
+      {creating && place && (
         <form
           className="explorer-new"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            const path = newFile.trim().replace(/\\/g, "/");
-            if (!path) return;
-            try {
-              await api.createFile(target, path);
-              setNewFile(null);
-              setError(null);
-              setCreated((n) => n + 1);
-              onOpenFile({ root: target, path });
-            } catch (err) {
-              setError(String(err));
-            }
+            void create();
           }}
         >
+          <label className="muted">
+            New {creating} in <strong>{where}</strong>
+          </label>
           <input
             autoFocus
             type="text"
-            value={newFile}
-            placeholder={`src/main.c in ${baseName(target)}`}
-            onChange={(e) => setNewFile(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setNewFile(null)}
+            value={name}
+            placeholder={creating === "file" ? "main.c" : "src"}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setCreating(null);
+                setName("");
+              }
+            }}
             spellCheck={false}
-            aria-label="New file path"
+            aria-label={`New ${creating} name`}
           />
         </form>
       )}
@@ -210,8 +276,11 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
           <div key={root} className="explorer-root" role="treeitem" aria-expanded={!collapsed[root]}>
             <div className="root-row">
               <button
-                className="tree-item root-name"
-                onClick={() => setCollapsed((c) => ({ ...c, [root]: !c[root] }))}
+                className={`tree-item root-name ${place?.root === root && place.dir === "" && picked ? "selected" : ""}`}
+                onClick={() => {
+                  setCollapsed((c) => ({ ...c, [root]: !c[root] }));
+                  setPicked({ root, dir: "" });
+                }}
                 title={root}
               >
                 <span className="tree-icon" aria-hidden="true">
@@ -233,8 +302,10 @@ export function Explorer({ folders, onAddFolder, onRemoveFolder, onOpenFile, onG
                 root={root}
                 path=""
                 depth={1}
-                onOpenFile={onOpenFile}
+                onOpenFile={openFromTree}
                 open={open}
+                place={picked ? place : null}
+                onPlace={setPicked}
                 version={version + created}
               />
             )}

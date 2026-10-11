@@ -281,6 +281,7 @@ export const api = {
     invoke<void>("write_file_bytes", { root, path, bytes: Array.from(bytes) }),
 
   createFile: (root: string, path: string) => invoke<void>("create_file", { root, path }),
+  createDir: (root: string, path: string) => invoke<void>("create_dir", { root, path }),
 
   /** Tell the agent's tools which folder and file are open. */
   setWorkspace: (root: string | null, file: string | null) =>

@@ -153,6 +153,15 @@ pub fn write_bytes(root: &str, rel: &str, bytes: &[u8]) -> Result<(), String> {
     ws_core::edits::restore(&path, Some(bytes)).map_err(|e| e.to_string())
 }
 
+/// A new folder, and any missing ones above it. Refuses one that exists.
+pub fn create_dir(root: &str, rel: &str) -> Result<(), String> {
+    let path = resolve_for_write(root, rel)?;
+    if path.exists() {
+        return Err(format!("{rel} already exists"));
+    }
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
 /// A new, empty file. Refuses to touch one that already exists.
 pub fn create_file(root: &str, rel: &str) -> Result<(), String> {
     let path = resolve_for_write(root, rel)?;
@@ -265,5 +274,10 @@ mod tests {
             );
         }
         assert_eq!(read_bytes(&root, "blob.bin").unwrap(), [0xff, 0xfe, 0x00]);
+
+        create_dir(&root, "made/deeper").unwrap();
+        assert!(list_dir(&root, "made").unwrap()[0].is_dir);
+        assert!(create_dir(&root, "made").unwrap_err().contains("already exists"));
+        assert!(create_dir(&root, "../outside").is_err());
     }
 }
