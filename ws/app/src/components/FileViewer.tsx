@@ -1,11 +1,11 @@
 // The middle pane: one file, edited or viewed by its type.
 //
 // Text and code open in an editor. PDFs open in pdf.js, which can annotate
-// them. Word files are drawn into a sandboxed frame where scripts cannot run, never
-// into the app's own page (master spec s12): a document is untrusted input.
+// them. Word files open in SuperDoc, a .docx editor that saves back to .docx.
 
-import { useEffect, useRef, useState } from "react";
-import { renderAsync } from "docx-preview";
+import { Component, useEffect, useRef, useState } from "react";
+import { SuperDoc } from "superdoc";
+import "superdoc/style.css";
 import type { EditorView } from "codemirror";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
@@ -59,7 +59,35 @@ function Header({ path, children, onClose }: { path: string; children?: React.Re
   );
 }
 
+/** A viewer that throws shows why, in its pane, instead of blanking the app. */
+class ViewerBoundary extends Component<{ path: string; children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    return this.state.error ? (
+      <section className="file-viewer">
+        <p className="failure">
+          Could not show {this.props.path}: {this.state.error.message}
+        </p>
+        <button onClick={() => this.setState({ error: null })}>Try again</button>
+      </section>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 export function FileViewer(props: Props) {
+  return (
+    <ViewerBoundary path={props.path}>
+      <FileView {...props} />
+    </ViewerBoundary>
+  );
+}
+
+function FileView(props: Props) {
   const ext = extOf(props.path);
   if (ext === "pdf") {
     return (
@@ -177,80 +205,111 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
   );
 }
 
-/** A Word file as Word lays it out: fonts, sizes, colours, tables, headers,
- *  footers and page breaks (docx-preview). */
+const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** A Word file, edited as Word lays it out (SuperDoc), saved back as .docx. */
 function DocxFile({ project, path, version, onClose }: Props) {
-  const frame = useRef<HTMLIFrameElement>(null);
+  const host = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const editor = useRef<SuperDoc | null>(null);
   const [ready, setReady] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
-  // A fresh frame per load, so nothing from the last render lingers.
-  const key = `${version}:${nonce}`;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
 
   useEffect(() => {
     let live = true;
     setReady(false);
+    setDirty(false);
     setError(null);
-    // A frame with no src keeps its first, empty document: ready at once.
-    const doc = frame.current?.contentDocument;
-    if (!doc) return;
     api
       .readFileBytes(project, path)
-      .then(async (bytes) => {
-        if (!live) return;
-        doc.body.style.margin = "0";
-        await renderAsync(bytes, doc.body, doc.head, {
-          inWrapper: true,
-          breakPages: true,
-          // Images as data: URLs, which the app's content policy allows.
-          useBase64URL: true,
-          // Embedded HTML chunks are the one way a document carries markup.
-          renderAltChunks: false,
-          renderComments: false,
-          renderChanges: false,
+      .then((bytes) => {
+        if (!live || !host.current || !bar.current) return;
+        editor.current = new SuperDoc({
+          selector: host.current,
+          document: new File([bytes], path.split("/").pop() ?? "document.docx", { type: DOCX_TYPE }),
+          documentMode: "editing",
+          // Sized to the middle pane, not the window, so it never runs under the chat.
+          ui: { toolbar: { container: bar.current, responsiveTo: "container" }, comments: false },
+          // A followed link would navigate FRIDAY's own window away.
+          hyperlinks: false,
+          onReady: () => live && setReady(true),
+          // onReady can be skipped when the editor recovers; the first render counts too.
+          onEditorCreate: () => live && setReady(true),
+          onEditorUpdate: () => live && setDirty(true),
+          onException: (e: unknown) => live && setError(String((e as { error?: unknown })?.error ?? e)),
         });
-        if (live) setReady(true);
       })
       .catch((e) => live && setError(String(e)));
-    // Pages keep their real width (A4 is ~794px), so shrink them to the pane.
-    const iframe = frame.current;
-    const fit = () => {
-      const page = doc.querySelector<HTMLElement>("section.docx");
-      // A hidden frame measures 0 wide; the observer fires again once it shows.
-      if (iframe && page && iframe.clientWidth > 0) {
-        doc.body.style.zoom = String(Math.min(1, (iframe.clientWidth - 32) / page.offsetWidth));
-      }
-    };
-    const resize = new ResizeObserver(fit);
-    if (iframe) resize.observe(iframe);
     return () => {
       live = false;
-      resize.disconnect();
+      editor.current?.destroy();
+      editor.current = null;
+      host.current?.replaceChildren();
+      bar.current?.replaceChildren();
     };
-  }, [project, path, key]);
+  }, [project, path, nonce]);
+
+  // Pick up the agent's edits, but never over unsaved typing.
+  const seen = useRef(version);
+  useEffect(() => {
+    if (version === seen.current) return;
+    seen.current = version;
+    if (!dirtyRef.current) setNonce((n) => n + 1);
+  }, [version]);
+
+  const save = async () => {
+    const doc = editor.current;
+    if (!doc) return;
+    setSaving(true);
+    try {
+      const blob = await doc.export({ exportType: ["docx"], triggerDownload: false });
+      await api.writeFileBytes(project, path, new Uint8Array(await blob.arrayBuffer()));
+      setDirty(false);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Ctrl+S saves here as in the code editor.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (dirtyRef.current) void save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
     <section className="file-viewer" aria-label={path}>
       <Header path={path} onClose={onClose}>
-        <span className="muted" title="Ask the agent in the chat to change this document">
-          read-only — ask the agent to edit
-        </span>
-        <button onClick={() => setNonce((n) => n + 1)} title="Reload from disk">
-          Reload
+        {dirty && <span className="muted unsaved">unsaved</span>}
+        <button onClick={() => void save()} disabled={!dirty || saving} title="Ctrl+S">
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={() => setNonce((n) => n + 1)}
+          title={dirty ? "Throw away your changes and reload from disk" : "Reload from disk"}
+        >
+          {dirty ? "Discard changes" : "Reload"}
         </button>
       </Header>
       {error && <p className="failure">{error}</p>}
       {!error && !ready && <p className="muted">Loading…</p>}
-      {/* Same origin so FRIDAY can draw into it; no allow-scripts, so nothing
-          in the document can run. */}
-      <iframe
-        key={key}
-        ref={frame}
-        className="doc-frame"
-        sandbox="allow-same-origin"
-        title={path}
-        hidden={!ready}
-      />
+      <div className="docx-toolbar" ref={bar} />
+      <div className="docx-area" key={nonce}>
+        <div className="docx-editor" ref={host} />
+      </div>
     </section>
   );
 }

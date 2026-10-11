@@ -148,11 +148,20 @@ ask where, in the folder picker, then for a name.
 
 ## PDFs, Word and text files
 
-- **Text and code** are edited in place; Ctrl+S saves.
-- **PDFs** open in pdf.js. Add text, draw or highlight, then **Save** writes
-  them into the file as annotations. The existing text of a PDF cannot be
-  retyped; ask the agent for that.
-- **Word (.docx)** files are shown read-only. Ask the agent to change them.
+Everything opens editable in the middle pane, and the agent can change the
+same files (the view reloads when it does, unless you have unsaved changes).
+
+- **Text and code:** the editor; Ctrl+S saves.
+- **Word (.docx):** [SuperDoc](https://www.superdoc.dev), a .docx editor with
+  a Word-style toolbar (fonts, sizes, colours, lists, tables, alignment).
+  Save writes the .docx back with its formatting. SuperDoc is AGPL-3.0:
+  free for personal use; sharing FRIDAY would mean publishing its source.
+- **PDFs:** pdf.js. **Edit text** changes words already on a page: click a
+  line, retype it, Enter, then Save. The old line is covered with white and
+  the new words are written over it, in Times, Helvetica or Courier at the
+  same size; the old text is still in the file underneath, so do not use it
+  to hide anything. **Text**, **Draw** and **Highlight** add annotations.
+  Encrypted PDFs can be annotated but not text-edited.
 
 The agent has its own tools for the open folder: `list_dir`, `search_files`, `read_file`,
 `write_file`, `edit_file`, `run_command`, and `get_open_file` (so "fix this

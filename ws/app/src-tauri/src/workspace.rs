@@ -261,7 +261,7 @@ impl ToolHost for Workspace {
             ),
             spec(
                 "read_file",
-                "Read a text file of the open project. PDF and Word files are not text: read those with run_command and Python (pypdf, python-docx; pip install them if missing).",
+                "Read a text file of the open project. PDF and Word files are not text; use run_command with Python (pip install what is missing). Word: python-docx, and edit the text of existing runs so formatting survives. PDF: PyMuPDF (import fitz): to change words, page.add_redact_annot(rect) then page.apply_redactions() removes the old text, then page.insert_text() writes the new; save with doc.save(path, incremental=False) to a temporary name and replace the file. The user sees the result as soon as the file changes.",
                 json!({"path": path}),
                 &["path"],
             ),

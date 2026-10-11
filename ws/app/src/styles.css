@@ -963,9 +963,11 @@ body.resizing iframe {
 
 .file-viewer header .actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .unsaved {
@@ -1300,4 +1302,61 @@ body.resizing iframe {
 button.danger {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+/* ---- Word editor (SuperDoc) ---------------------------------------------- */
+
+.docx-toolbar {
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  background: #fff;
+}
+
+.docx-area {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #e8eaed;
+}
+
+.docx-editor {
+  min-height: 100%;
+}
+
+/* ---- PDF: edit text -------------------------------------------------------- */
+
+.pdf-container.editing-text .page {
+  cursor: text;
+}
+
+.pdf-edit {
+  position: absolute;
+  z-index: 5;
+  box-sizing: content-box;
+  padding: 0 1px;
+  white-space: pre;
+  line-height: 1;
+  color: #000;
+  background: #fff;
+  pointer-events: none;
+}
+
+.pdf-edit.serif {
+  font-family: "Times New Roman", Times, serif;
+}
+
+.pdf-edit.sans-serif {
+  font-family: Helvetica, Arial, sans-serif;
+}
+
+.pdf-edit.monospace {
+  font-family: "Courier New", Courier, monospace;
+}
+
+.pdf-edit-input {
+  pointer-events: auto;
+  border: 0;
+  border-radius: 0;
+  outline: 2px solid var(--accent);
 }
