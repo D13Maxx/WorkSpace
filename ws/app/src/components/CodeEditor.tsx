@@ -12,6 +12,7 @@ import { StreamLanguage } from "@codemirror/language";
 import { cpp } from "@codemirror/lang-cpp";
 import { html } from "@codemirror/lang-html";
 import { java } from "@codemirror/lang-java";
+import { markdown } from "@codemirror/lang-markdown";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
@@ -40,6 +41,11 @@ function language(ext: string): Extension {
     case "mts":
     case "cts":
       return javascript({ typescript: true });
+    case "md":
+    case "markdown":
+    case "mdx":
+      // Prose: long lines wrap instead of scrolling sideways.
+      return [markdown(), EditorView.lineWrapping];
     case "py":
       return python();
     case "rs":

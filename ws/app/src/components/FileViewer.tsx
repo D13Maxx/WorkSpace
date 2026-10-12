@@ -5,6 +5,9 @@ import { Component, useEffect, useRef, useState } from "react";
 import type { EditorView } from "codemirror";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
+import { MarkdownPreview } from "./MarkdownPreview";
+
+const MARKDOWN = new Set(["md", "markdown", "mdx"]);
 
 /** Files the output panel can build and run. */
 export const RUNNABLE = new Set([
@@ -121,6 +124,11 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
   const viewRef = useRef<EditorView | null>(null);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // Markdown: the preview beside the editor, from the text as typed.
+  const md = MARKDOWN.has(ext);
+  const [preview, setPreview] = useState(true);
+  const [live, setLive] = useState("");
+  useEffect(() => setLive(text ?? ""), [text]);
 
   useEffect(() => {
     setError(null);
@@ -168,6 +176,11 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     <section className="file-viewer" aria-label={path}>
       <Header path={path} onClose={onClose}>
         {dirty && <span className="muted unsaved">unsaved</span>}
+        {md && (
+          <button onClick={() => setPreview(!preview)} className={preview ? "selected" : ""} aria-pressed={preview}>
+            Preview
+          </button>
+        )}
         {RUNNABLE.has(ext) && (
           <button
             className="primary"
@@ -196,16 +209,22 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
       {error && <p className="failure">{error}</p>}
       {text === null && !error && <p className="muted">Loading…</p>}
       {text !== null && (
-        <CodeEditor
-          text={text}
-          ext={ext}
-          viewRef={viewRef}
-          onChange={() => setDirty(true)}
-          onSave={() => void save()}
-          onDispose={(doc) => {
-            if (dirtyRef.current) drafts.set(key, doc);
-          }}
-        />
+        <div className={md && preview ? "md-split" : "md-solo"}>
+          <CodeEditor
+            text={text}
+            ext={ext}
+            viewRef={viewRef}
+            onChange={() => {
+              setDirty(true);
+              if (md) setLive(viewRef.current?.state.sliceDoc() ?? "");
+            }}
+            onSave={() => void save()}
+            onDispose={(doc) => {
+              if (dirtyRef.current) drafts.set(key, doc);
+            }}
+          />
+          {md && preview && <MarkdownPreview text={live} />}
+        </div>
       )}
     </section>
   );

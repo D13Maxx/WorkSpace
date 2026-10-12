@@ -1758,3 +1758,81 @@ button.danger {
 .file-note {
   padding: 24px 16px;
 }
+
+/* ---- Markdown: editor and preview side by side ---------------------------- */
+
+.md-solo,
+.md-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.md-split > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.md-preview {
+  overflow: auto;
+  padding: 16px 24px;
+  border-left: 1px solid var(--border);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.md-preview h1,
+.md-preview h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+
+.md-preview a {
+  color: var(--accent);
+}
+
+.md-preview code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--raised);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.md-preview pre {
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.md-preview pre code {
+  padding: 0;
+  background: none;
+}
+
+.md-preview blockquote {
+  margin: 0;
+  padding: 0 1em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.md-preview table {
+  border-collapse: collapse;
+}
+
+.md-preview th,
+.md-preview td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+
+.md-preview img {
+  max-width: 100%;
+}
+
+.file-viewer header button.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}

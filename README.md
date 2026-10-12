@@ -153,6 +153,12 @@ Ctrl+S saves, and the agent can change the same files (the view reloads when
 it does, unless you have unsaved changes). Other files (PDFs, Word, plain
 text, images…) show in the tree but do not open in FRIDAY.
 
+Markdown is highlighted, and **Preview** (on by default) shows it rendered
+beside the editor as you type. The preview is sanitized, since a Markdown
+file can carry HTML: scripts, event handlers, frames, forms and inline
+styles are removed, links do not navigate, and images load only if they are
+embedded in the file.
+
 The agent has its own tools for the open folder: `list_dir`, `search_files`, `read_file`,
 `write_file`, `edit_file`, `run_command`, and `get_open_file` (so "fix this
 file" works). Writes show as diffs with Undo. Commands always ask first;
