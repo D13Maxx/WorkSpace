@@ -157,13 +157,28 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
       .catch((e) => setError(String(e)));
   }, [key, project, path, nonce]);
 
-  // Pick up the agent's edits, but never over unsaved typing.
+  // Pick up the agent's edits, but never over unsaved typing, and only when
+  // the file really changed: most agent steps only read, and a reload costs
+  // the cursor, the scroll position and undo.
   const seen = useRef(version);
   useEffect(() => {
     if (version === seen.current) return;
     seen.current = version;
-    if (!dirtyRef.current) setNonce((n) => n + 1);
-  }, [version]);
+    if (dirtyRef.current) return;
+    let live = true;
+    api
+      .readTextFile(project, path)
+      .then((t) => {
+        if (!live || dirtyRef.current || t === base.current) return;
+        base.current = t;
+        setText(t);
+      })
+      // Gone or unreadable: keep what is shown; Reload says why.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [version, project, path]);
 
   const save = async (): Promise<boolean> => {
     const view = viewRef.current;

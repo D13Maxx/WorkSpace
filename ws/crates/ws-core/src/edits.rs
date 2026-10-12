@@ -68,10 +68,18 @@ pub fn restore(path: &Path, bytes: Option<&[u8]>) -> std::io::Result<()> {
         path.file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
     ));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })
+    // On disk before the rename: otherwise a power cut can keep the rename
+    // and lose the data, leaving an empty file.
+    let written = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()
+    })();
+    written
+        .and_then(|()| std::fs::rename(&tmp, path))
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })
 }
 
 #[cfg(test)]
