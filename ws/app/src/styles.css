@@ -779,34 +779,6 @@ select:focus {
   font-size: 0.82rem;
 }
 
-.file-viewer .code {
-  display: flex;
-  flex: 1;
-  overflow: auto;
-  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
-
-.file-viewer pre {
-  margin: 0;
-  padding: 8px 10px;
-}
-
-.file-viewer .gutter {
-  text-align: right;
-  color: var(--muted);
-  user-select: none;
-  border-right: 1px solid var(--border);
-  position: sticky;
-  left: 0;
-  background: var(--bg);
-}
-
-.file-viewer .source {
-  flex: 1;
-  tab-size: 4;
-}
 
 .tool-args {
   margin: 0 0 0.6rem;
@@ -971,12 +943,6 @@ body.resizing {
   font-size: 0.8rem;
 }
 
-.doc-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: #fff;
-}
 
 .run-panel {
   flex: 0 0 38%;
@@ -1613,18 +1579,6 @@ button.danger {
   gap: 10px;
 }
 
-.bp-accepts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-
-.bp-accepts legend {
-  color: var(--muted);
-  font-size: 0.76rem;
-}
 
 /* A blueprint's own window: the editor fills it. */
 .bp-window {

@@ -412,7 +412,11 @@ export function simulate(bp: Blueprint, scale = 1, down: Set<string> = new Set()
 
   // ---- bugs: wiring that cannot work
   for (const w of bp.wires) {
-    if (!byId.has(w.from) || !byId.has(w.to)) continue;
+    if (!byId.has(w.from) || !byId.has(w.to)) {
+      const missing = byId.has(w.from) ? w.to : w.from;
+      add("error", "bug", `A wire from "${w.from}" to "${w.to}" names a part that is not in this blueprint ("${missing}").`, [w.from, w.to].filter((id) => byId.has(id)));
+      continue;
+    }
     if (w.from === w.to) {
       add("error", "bug", `${name(w.from)} calls itself.`, [w.from]);
       continue;

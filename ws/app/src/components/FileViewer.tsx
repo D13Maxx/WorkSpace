@@ -4,7 +4,7 @@
 import { Component, useEffect, useRef, useState } from "react";
 import type { EditorView } from "codemirror";
 import { emit } from "@tauri-apps/api/event";
-import { api } from "../api";
+import { api, ask } from "../api";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
 
@@ -42,15 +42,17 @@ export function extOf(path: string): string {
 
 /** Unsaved text by file, kept when the user opens another file and comes back. */
 // shortcut: lost when the app closes, upgrade to a warn-on-close if that bites.
-const drafts = new Map<string, string>();
+// `base` is the file as it was on disk under the draft, so saving it later can
+// tell whether someone else changed the file meanwhile.
+const drafts = new Map<string, { doc: string; base: string | null }>();
 
 /** After `from` (a file or folder) in `root` became `to`, keep its drafts. */
 export function moveDrafts(root: string, from: string, to: string | null) {
-  for (const [key, text] of [...drafts]) {
+  for (const [key, draft] of [...drafts]) {
     const [r, path] = key.split("\n");
     if (r !== root || (path !== from && !path.startsWith(`${from}/`))) continue;
     drafts.delete(key);
-    if (to !== null) drafts.set(`${root}\n${to}${path.slice(from.length)}`, text);
+    if (to !== null) drafts.set(`${root}\n${to}${path.slice(from.length)}`, draft);
   }
 }
 
@@ -127,6 +129,8 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
   const viewRef = useRef<EditorView | null>(null);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // The file as it was on disk when last read or saved here.
+  const base = useRef<string | null>(null);
   // Markdown: the preview beside the editor, from the text as typed.
   const md = MARKDOWN.has(ext);
   const [preview, setPreview] = useState(true);
@@ -137,7 +141,8 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     setError(null);
     const draft = drafts.get(key);
     if (draft !== undefined && nonce === 0) {
-      setText(draft);
+      setText(draft.doc);
+      base.current = draft.base;
       setDirty(true);
       return;
     }
@@ -145,7 +150,10 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     setDirty(false);
     api
       .readTextFile(project, path)
-      .then(setText)
+      .then((t) => {
+        base.current = t;
+        setText(t);
+      })
       .catch((e) => setError(String(e)));
   }, [key, project, path, nonce]);
 
@@ -162,7 +170,15 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     if (!view) return false;
     setSaving(true);
     try {
-      await api.writeTextFile(project, path, view.state.sliceDoc());
+      // The agent (or another window) may have written the file while this
+      // edit was open; replacing that needs a yes.
+      const disk = await api.readTextFile(project, path).catch(() => null);
+      if (disk !== null && base.current !== null && disk !== base.current) {
+        if (!(await ask(`${path} changed on disk since you opened it (perhaps the agent edited it). Replace it with your version?`))) return false;
+      }
+      const doc = view.state.sliceDoc();
+      await api.writeTextFile(project, path, doc);
+      base.current = doc;
       // An open blueprint window redraws from the text just saved.
       if (ext === "blueprint") void emit("files-changed");
       drafts.delete(key);
@@ -225,7 +241,7 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
             }}
             onSave={() => void save()}
             onDispose={(doc) => {
-              if (dirtyRef.current) drafts.set(key, doc);
+              if (dirtyRef.current) drafts.set(key, { doc, base: base.current });
             }}
           />
           {md && preview && <MarkdownPreview text={live} />}

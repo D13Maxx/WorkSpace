@@ -125,4 +125,8 @@ assert.equal(readableId("???", []), "part");
 const request = buildPrompt({ ...shop, parts: shop.parts.map((p) => (p.id === "api" ? { ...p, code: "services/api" } : p)) }, "shop.blueprint", "", simulate(shop));
 assert.ok(request.includes("(id `api`;") && request.includes("Its code so far: `services/api`") && request.includes('"code" field'));
 
+// A wire naming a part that is not there (a typo in the text) is a bug.
+const typo = parseBlueprint(JSON.stringify({ version: 1, parts: [{ id: "u", type: "users" }, { id: "api", type: "api" }], wires: [{ from: "u", to: "apii", kind: "http" }] }), "t");
+assert.ok(simulate(typo).findings.some((f) => f.level === "error" && f.text.includes('("apii")') && f.parts.join() === "u"));
+
 console.log("blueprint model: ok");

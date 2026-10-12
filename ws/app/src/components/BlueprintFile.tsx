@@ -562,6 +562,15 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     }
     setSaving(true);
     try {
+      // The agent records each part's code in this file while it builds;
+      // replacing a change made on disk needs a yes.
+      if (file) {
+        const disk = await api.readTextFile(file.root, file.path).catch(() => null);
+        if (disk !== null && written.current !== null && disk !== written.current) {
+          const yes = await ask(`${file.path} changed on disk since this window read it (perhaps the agent recorded where it wrote each part's code). Replace it with this drawing?`);
+          if (!yes) return null;
+        }
+      }
       const text = blueprintText(bp);
       await api.writeTextFile(target.root, target.path, text);
       written.current = text;

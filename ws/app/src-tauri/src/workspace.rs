@@ -190,7 +190,13 @@ fn search(root: &str, within: &str, query: &str) -> Result<String, String> {
                 .is_some_and(|n| matches!(n.to_str(), Some(".git" | "node_modules" | "target")));
             if !skip {
                 if let Ok(entries) = std::fs::read_dir(&path) {
-                    let mut children: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+                    // Links and junctions are skipped: they can lead out of the
+                    // project, or back up into it and round again.
+                    let mut children: Vec<_> = entries
+                        .flatten()
+                        .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                        .map(|e| e.path())
+                        .collect();
                     // Reversed, so the stack visits them in name order.
                     children.sort();
                     children.reverse();
@@ -418,6 +424,41 @@ mod tests {
             "x\r\nz\r\n",
             "CRLF files take the model's LF text"
         );
+    }
+
+    #[test]
+    fn search_does_not_follow_links_out_of_the_project() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(
+            outside.path().join("secret.txt"),
+            "password=hunter2
+",
+        )
+        .unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("a.txt"),
+            "password here too
+",
+        )
+        .unwrap();
+        let link = project.path().join("out");
+        // A junction on Windows: the usual link there, and it needs no admin rights.
+        #[cfg(windows)]
+        let made = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&link)
+            .arg(outside.path())
+            .output()
+            .is_ok_and(|o| o.status.success());
+        #[cfg(not(windows))]
+        let made = std::os::unix::fs::symlink(outside.path(), &link).is_ok();
+        assert!(made, "could not create the link");
+        let root = project.path().display().to_string();
+        let found = search(&root, "", "password").unwrap();
+        assert_eq!(found, "a.txt:1: password here too", "{found}");
     }
 
     #[tokio::test]
