@@ -239,7 +239,8 @@ The simulation is a model (steady-state queueing), not your code running: it
 catches design mistakes before code exists. The file is plain JSON with a copy
 of each custom part it uses, so it works without the inventory and the agent
 can read or change it too. Test the model and the parts builder with
-`node ws/app/scripts/test-blueprint.mjs` and `node ws/app/scripts/test-builder.mjs`.
+`node ws/app/scripts/test-blueprint.mjs` and `node ws/app/scripts/test-builder.mjs`;
+the Markdown preview's sanitizer with `node ws/app/scripts/test-markdown.mjs`.
 
 ## Connect tool servers (Serena)
 
