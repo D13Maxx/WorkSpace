@@ -455,13 +455,8 @@ export default function App() {
           <RunPanel
             task={run.task}
             runKey={run.key}
-            onExit={(task, code) => {
-              // A build leaves new files (a program, a PDF) to show.
-              setFileVersion((v) => v + 1);
-              if (task.kind === "file" && code === 0 && task.path.toLowerCase().endsWith(".tex")) {
-                setOpenFile({ root: task.root, path: task.path.replace(/[.]tex$/i, ".pdf") });
-              }
-            }}
+            // A build leaves new files (a program, a PDF) for the tree to show.
+            onExit={() => setFileVersion((v) => v + 1)}
             onInstall={(pkg) => startTask({ kind: "pip", root: run.task.root, package: pkg })}
             onClose={() => setRun(null)}
           />
@@ -477,7 +472,7 @@ export default function App() {
         tabIndex={0}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          // Frames (PDFs) would otherwise swallow the drag.
+          // No text gets selected while dragging.
           document.body.classList.add("resizing");
         }}
         onPointerMove={(e) => {

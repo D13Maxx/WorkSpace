@@ -27,4 +27,3 @@ ws/app/src-tauri/gen/
 ws/app/src-tauri/ua-pipeline/
 
 # Copied from pdfjs-dist by ws/app/scripts/copy-pdfjs-data.mjs
-ws/app/public/pdfjs/

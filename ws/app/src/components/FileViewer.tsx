@@ -1,21 +1,33 @@
-// The middle pane: one file, edited or viewed by its type.
-//
-// Text and code open in an editor. PDFs open in pdf.js, which can annotate
-// them. Word files open in SuperDoc, a .docx editor that saves back to .docx.
+// The middle pane: one code or Markdown file, in the editor. Other files
+// (PDFs, Word, plain text…) stay in the tree but do not open here.
 
 import { Component, useEffect, useRef, useState } from "react";
-import { SuperDoc } from "superdoc";
-import "superdoc/style.css";
 import type { EditorView } from "codemirror";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
-import { PdfFile } from "./PdfFile";
 
 /** Files the output panel can build and run. */
 export const RUNNABLE = new Set([
   ...["c", "cpp", "cc", "cxx", "py", "rs", "tex"],
   ...["js", "mjs", "cjs", "ts", "mts", "cts"],
 ]);
+
+/** What opens here: code (and config) and Markdown. */
+const EDITABLE = new Set([
+  ...RUNNABLE,
+  ...["h", "hh", "hpp", "hxx", "java", "kt", "kts", "go", "rb", "php", "cs", "swift", "lua", "r", "dart", "scala"],
+  ...["jsx", "tsx", "vue", "svelte", "html", "htm", "css", "scss", "sass", "less"],
+  ...["json", "jsonc", "toml", "yaml", "yml", "xml", "ini", "cfg", "conf", "env", "lock", "gradle", "cmake"],
+  ...["sh", "bash", "zsh", "ps1", "psm1", "bat", "cmd", "sql", "graphql", "proto"],
+  ...["md", "markdown", "mdx"],
+  ...["gitignore", "gitattributes", "editorconfig", "dockerignore", "npmrc"],
+]);
+const EDITABLE_NAMES = new Set(["makefile", "dockerfile", "cmakelists.txt", "procfile"]);
+
+export function opensHere(path: string): boolean {
+  const name = (path.split(/[\\/]/).pop() ?? "").toLowerCase();
+  return EDITABLE_NAMES.has(name) || EDITABLE.has(extOf(path));
+}
 
 export function extOf(path: string): string {
   const m = /\.([^./\\]+)$/.exec(path);
@@ -88,21 +100,15 @@ export function FileViewer(props: Props) {
 }
 
 function FileView(props: Props) {
-  const ext = extOf(props.path);
-  if (ext === "pdf") {
+  if (!opensHere(props.path)) {
     return (
-      <PdfFile
-        {...props}
-        header={(actions) => (
-          <Header path={props.path} onClose={props.onClose}>
-            {actions}
-          </Header>
-        )}
-      />
+      <section className="file-viewer" aria-label={props.path}>
+        <Header path={props.path} onClose={props.onClose} />
+        <p className="muted file-note">FRIDAY opens code and Markdown files. Open this one in another app.</p>
+      </section>
     );
   }
-  if (ext === "docx") return <DocxFile {...props} />;
-  return <TextFile {...props} ext={ext} />;
+  return <TextFile {...props} ext={extOf(props.path)} />;
 }
 
 function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext: string }) {
@@ -201,115 +207,6 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
           }}
         />
       )}
-    </section>
-  );
-}
-
-const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-/** A Word file, edited as Word lays it out (SuperDoc), saved back as .docx. */
-function DocxFile({ project, path, version, onClose }: Props) {
-  const host = useRef<HTMLDivElement>(null);
-  const bar = useRef<HTMLDivElement>(null);
-  const editor = useRef<SuperDoc | null>(null);
-  const [ready, setReady] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-
-  useEffect(() => {
-    let live = true;
-    setReady(false);
-    setDirty(false);
-    setError(null);
-    api
-      .readFileBytes(project, path)
-      .then((bytes) => {
-        if (!live || !host.current || !bar.current) return;
-        editor.current = new SuperDoc({
-          selector: host.current,
-          document: new File([bytes], path.split("/").pop() ?? "document.docx", { type: DOCX_TYPE }),
-          documentMode: "editing",
-          // Sized to the middle pane, not the window, so it never runs under the chat.
-          ui: { toolbar: { container: bar.current, responsiveTo: "container" }, comments: false },
-          // A followed link would navigate FRIDAY's own window away.
-          hyperlinks: false,
-          onReady: () => live && setReady(true),
-          // onReady can be skipped when the editor recovers; the first render counts too.
-          onEditorCreate: () => live && setReady(true),
-          onEditorUpdate: () => live && setDirty(true),
-          onException: (e: unknown) => live && setError(String((e as { error?: unknown })?.error ?? e)),
-        });
-      })
-      .catch((e) => live && setError(String(e)));
-    return () => {
-      live = false;
-      editor.current?.destroy();
-      editor.current = null;
-      host.current?.replaceChildren();
-      bar.current?.replaceChildren();
-    };
-  }, [project, path, nonce]);
-
-  // Pick up the agent's edits, but never over unsaved typing.
-  const seen = useRef(version);
-  useEffect(() => {
-    if (version === seen.current) return;
-    seen.current = version;
-    if (!dirtyRef.current) setNonce((n) => n + 1);
-  }, [version]);
-
-  const save = async () => {
-    const doc = editor.current;
-    if (!doc) return;
-    setSaving(true);
-    try {
-      const blob = await doc.export({ exportType: ["docx"], triggerDownload: false });
-      await api.writeFileBytes(project, path, new Uint8Array(await blob.arrayBuffer()));
-      setDirty(false);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Ctrl+S saves here as in the code editor.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        if (dirtyRef.current) void save();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  return (
-    <section className="file-viewer" aria-label={path}>
-      <Header path={path} onClose={onClose}>
-        {dirty && <span className="muted unsaved">unsaved</span>}
-        <button onClick={() => void save()} disabled={!dirty || saving} title="Ctrl+S">
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button
-          onClick={() => setNonce((n) => n + 1)}
-          title={dirty ? "Throw away your changes and reload from disk" : "Reload from disk"}
-        >
-          {dirty ? "Discard changes" : "Reload"}
-        </button>
-      </Header>
-      {error && <p className="failure">{error}</p>}
-      {!error && !ready && <p className="muted">Loading…</p>}
-      <div className="docx-toolbar" ref={bar} />
-      <div className="docx-area" key={nonce}>
-        <div className="docx-editor" ref={host} />
-      </div>
     </section>
   );
 }

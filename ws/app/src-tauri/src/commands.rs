@@ -940,21 +940,9 @@ pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
     crate::files::read_text(&root, &path)
 }
 
-/// Raw bytes, for the PDF and Word viewers. Sent as binary, not JSON.
-#[tauri::command]
-pub fn read_file_bytes(root: String, path: String) -> CmdResult<tauri::ipc::Response> {
-    crate::files::read_bytes(&root, &path).map(tauri::ipc::Response::new)
-}
-
 #[tauri::command]
 pub fn write_text_file(root: String, path: String, text: String) -> CmdResult<()> {
     crate::files::write_text(&root, &path, &text)
-}
-
-// shortcut: bytes arrive as a JSON array, slow past tens of MiB; switch to a raw-body invoke if PDFs get that big.
-#[tauri::command]
-pub fn write_file_bytes(root: String, path: String, bytes: Vec<u8>) -> CmdResult<()> {
-    crate::files::write_bytes(&root, &path, &bytes)
 }
 
 #[tauri::command]

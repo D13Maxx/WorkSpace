@@ -11,9 +11,6 @@ use std::path::{Component, Path, PathBuf};
 // shortcut: no paging, upgrade if huge files need viewing.
 const MAX_VIEW_BYTES: u64 = 4 * 1024 * 1024;
 
-/// The most a PDF or Word file may be to open in the viewer.
-const MAX_OPEN_BYTES: u64 = 64 * 1024 * 1024;
-
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
@@ -90,19 +87,6 @@ pub fn read_text(root: &str, rel: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| format!("{rel} is not a text file"))
 }
 
-/// A file's bytes, for the PDF and Word viewers.
-pub fn read_bytes(root: &str, rel: &str) -> Result<Vec<u8>, String> {
-    let path = resolve(root, rel)?;
-    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-    if size > MAX_OPEN_BYTES {
-        return Err(format!(
-            "{rel} is {} MiB, too large to open here",
-            size / (1024 * 1024)
-        ));
-    }
-    std::fs::read(&path).map_err(|e| e.to_string())
-}
-
 /// Where `rel` is, or would be once written: like `resolve`, but the file
 /// (and folders on the way to it) need not exist yet.
 pub(crate) fn resolve_for_write(root: &str, rel: &str) -> Result<PathBuf, String> {
@@ -138,11 +122,6 @@ pub(crate) fn resolve_for_write(root: &str, rel: &str) -> Result<PathBuf, String
 /// Save `text` to `rel`, creating it and its folders if needed. Written
 /// beside the file and renamed over it, so a crash never leaves half a file.
 pub fn write_text(root: &str, rel: &str, text: &str) -> Result<(), String> {
-    write_bytes(root, rel, text.as_bytes())
-}
-
-/// `write_text` for any bytes: a PDF saved with its new annotations.
-pub fn write_bytes(root: &str, rel: &str, bytes: &[u8]) -> Result<(), String> {
     let path = resolve_for_write(root, rel)?;
     if path.is_dir() {
         return Err(format!("{rel} is a folder"));
@@ -150,7 +129,7 @@ pub fn write_bytes(root: &str, rel: &str, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    ws_core::edits::restore(&path, Some(bytes)).map_err(|e| e.to_string())
+    ws_core::edits::restore(&path, Some(text.as_bytes())).map_err(|e| e.to_string())
 }
 
 /// Give the file or folder at `rel` a new name in the same folder. Returns
@@ -314,7 +293,6 @@ mod tests {
                 "{escape} must be refused"
             );
         }
-        assert_eq!(read_bytes(&root, "blob.bin").unwrap(), [0xff, 0xfe, 0x00]);
 
         // Renames stay in their folder, and never clobber.
         assert_eq!(

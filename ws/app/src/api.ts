@@ -277,15 +277,10 @@ export const api = {
   readTextFile: (root: string, path: string) =>
     invoke<string>("read_text_file", { root, path }),
 
-  /** Raw bytes, for the PDF and Word viewers. */
-  readFileBytes: (root: string, path: string) =>
-    invoke<ArrayBuffer>("read_file_bytes", { root, path }),
 
   writeTextFile: (root: string, path: string, text: string) =>
     invoke<void>("write_text_file", { root, path, text }),
 
-  writeFileBytes: (root: string, path: string, bytes: Uint8Array) =>
-    invoke<void>("write_file_bytes", { root, path, bytes: Array.from(bytes) }),
 
   createFile: (root: string, path: string) => invoke<void>("create_file", { root, path }),
   createDir: (root: string, path: string) => invoke<void>("create_dir", { root, path }),

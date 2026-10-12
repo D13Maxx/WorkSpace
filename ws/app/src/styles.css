@@ -925,9 +925,6 @@ body.resizing {
   cursor: col-resize;
   user-select: none;
 }
-body.resizing iframe {
-  pointer-events: none;
-}
 
 .chat-bar {
   display: flex;
@@ -1014,48 +1011,6 @@ body.resizing iframe {
 
 
 
-
-.pdf-area {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  background: #525659;
-}
-
-/* pdf.js needs its container absolutely positioned. */
-.pdf-container {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-}
-
-.pdf-tools {
-  display: flex;
-  gap: 2px;
-  margin-right: 6px;
-}
-
-.pdf-tools button.selected {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-
-
-
-
-.pdf-password {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 12px;
-}
-
-.pdf-password label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 /* ---- settings pop-up ---------------------------------------------------- */
 
@@ -1302,63 +1257,6 @@ body.resizing iframe {
 button.danger {
   border-color: var(--danger);
   color: var(--danger);
-}
-
-/* ---- Word editor (SuperDoc) ---------------------------------------------- */
-
-.docx-toolbar {
-  flex-shrink: 0;
-  min-width: 0;
-  max-width: 100%;
-  background: #fff;
-}
-
-.docx-area {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background: #e8eaed;
-}
-
-.docx-editor {
-  min-height: 100%;
-}
-
-/* ---- PDF: edit text -------------------------------------------------------- */
-
-.pdf-container.editing-text .page {
-  cursor: text;
-}
-
-.pdf-edit {
-  position: absolute;
-  z-index: 5;
-  box-sizing: content-box;
-  padding: 0 1px;
-  white-space: pre;
-  line-height: 1;
-  color: #000;
-  background: #fff;
-  pointer-events: none;
-}
-
-.pdf-edit.serif {
-  font-family: "Times New Roman", Times, serif;
-}
-
-.pdf-edit.sans-serif {
-  font-family: Helvetica, Arial, sans-serif;
-}
-
-.pdf-edit.monospace {
-  font-family: "Courier New", Courier, monospace;
-}
-
-.pdf-edit-input {
-  pointer-events: auto;
-  border: 0;
-  border-radius: 0;
-  outline: 2px solid var(--accent);
 }
 
 /* ---- blueprints: parts, connectors, simulation ------------------------------ */
@@ -1855,4 +1753,8 @@ button.danger {
 
 .bp-type-editor {
   width: min(680px, 100%);
+}
+
+.file-note {
+  padding: 24px 16px;
 }

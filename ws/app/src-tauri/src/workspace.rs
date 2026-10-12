@@ -261,7 +261,7 @@ impl ToolHost for Workspace {
             ),
             spec(
                 "read_file",
-                "Read a text file of the open project. PDF and Word files are not text; use run_command with Python (pip install what is missing). Word: python-docx, and edit the text of existing runs so formatting survives. PDF: PyMuPDF (import fitz): to change words, page.add_redact_annot(rect) then page.apply_redactions() removes the old text, then page.insert_text() writes the new; save with doc.save(path, incremental=False) to a temporary name and replace the file. The user sees the result as soon as the file changes.",
+                "Read a text file of the open project.",
                 json!({"path": path}),
                 &["path"],
             ),
@@ -280,9 +280,9 @@ impl ToolHost for Workspace {
             spec(
                 "run_command",
                 if self.bash.is_some() {
-                    "Run a bash command (Git Bash) in the open project's folder and return its output. Use it to compile, run, test, or modify PDF and Word files with Python. No input can be typed into it."
+                    "Run a bash command (Git Bash) in the open project's folder and return its output. Use it to compile, run and test. No input can be typed into it."
                 } else if cfg!(windows) {
-                    "Run a shell command in the open project's folder (cmd.exe) and return its output. Use it to compile, run, test, or modify PDF and Word files with Python. No input can be typed into it."
+                    "Run a shell command in the open project's folder (cmd.exe) and return its output. Use it to compile, run and test. No input can be typed into it."
                 } else {
                     "Run a shell command in the open project's folder and return its output. No input can be typed into it."
                 },

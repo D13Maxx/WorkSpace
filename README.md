@@ -119,7 +119,7 @@ terminal, so programs can ask for input.
 | `.js` / `.ts` | `node` (TypeScript without enums or namespaces) |
 | `.c` / `.cpp` | `gcc` / `g++` (or clang), then the program |
 | `.rs` | `cargo run` inside a Cargo project, otherwise `rustc` then the program |
-| `.tex` | `tectonic`, or `pdflatex` twice; the PDF opens when it builds |
+| `.tex` | `tectonic`, or `pdflatex` twice; the PDF is written beside it |
 
 FRIDAY ships no compilers; it uses whatever is on PATH. For C/C++ and LaTeX:
 
@@ -146,28 +146,17 @@ Hover a file or folder on the left for rename (pencil) and delete (bin).
 Delete asks first and moves it to the Recycle Bin. New file and New folder
 ask where, in the folder picker, then for a name.
 
-## PDFs, Word and text files
+## Code and Markdown files
 
-Everything opens editable in the middle pane, and the agent can change the
-same files (the view reloads when it does, unless you have unsaved changes).
-
-- **Text and code:** the editor; Ctrl+S saves.
-- **Word (.docx):** [SuperDoc](https://www.superdoc.dev), a .docx editor with
-  a Word-style toolbar (fonts, sizes, colours, lists, tables, alignment).
-  Save writes the .docx back with its formatting. SuperDoc is AGPL-3.0:
-  free for personal use; sharing FRIDAY would mean publishing its source.
-- **PDFs:** pdf.js. **Edit text** changes words already on a page: click a
-  line, retype it, Enter, then Save. The old line is covered with white and
-  the new words are written over it, in Times, Helvetica or Courier at the
-  same size; the old text is still in the file underneath, so do not use it
-  to hide anything. **Text**, **Draw** and **Highlight** add annotations.
-  Encrypted PDFs can be annotated but not text-edited.
+Code (and config) files and Markdown open in the editor in the middle pane;
+Ctrl+S saves, and the agent can change the same files (the view reloads when
+it does, unless you have unsaved changes). Other files (PDFs, Word, plain
+text, images…) show in the tree but do not open in FRIDAY.
 
 The agent has its own tools for the open folder: `list_dir`, `search_files`, `read_file`,
 `write_file`, `edit_file`, `run_command`, and `get_open_file` (so "fix this
-file" works). Writes show as diffs with Undo. Commands always ask first, and
-are how it edits PDFs and Word files (with Python's `pypdf` and
-`python-docx`). Changes made by commands cannot be undone from the chat.
+file" works). Writes show as diffs with Undo. Commands always ask first;
+changes made by commands cannot be undone from the chat.
 
 ## Blueprints: draw a system, simulate it, have the agent build it
 
