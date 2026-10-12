@@ -39,6 +39,14 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        // First, so a second launch hands over to this one and exits before
+        // it opens the database.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
         // closing it closes FRIDAY. It asks first about unsaved blueprints.
