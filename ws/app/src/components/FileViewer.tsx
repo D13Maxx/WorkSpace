@@ -3,6 +3,7 @@
 
 import { Component, useEffect, useRef, useState } from "react";
 import type { EditorView } from "codemirror";
+import { emit } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -23,6 +24,8 @@ const EDITABLE = new Set([
   ...["json", "jsonc", "toml", "yaml", "yml", "xml", "ini", "cfg", "conf", "env", "lock", "gradle", "cmake"],
   ...["sh", "bash", "zsh", "ps1", "psm1", "bat", "cmd", "sql", "graphql", "proto"],
   ...["md", "markdown", "mdx"],
+  // A blueprint's text, opened from its window's Source button.
+  "blueprint",
   ...["gitignore", "gitattributes", "editorconfig", "dockerignore", "npmrc"],
 ]);
 const EDITABLE_NAMES = new Set(["makefile", "dockerfile", "cmakelists.txt", "procfile"]);
@@ -160,6 +163,8 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     setSaving(true);
     try {
       await api.writeTextFile(project, path, view.state.sliceDoc());
+      // An open blueprint window redraws from the text just saved.
+      if (ext === "blueprint") void emit("files-changed");
       drafts.delete(key);
       setDirty(false);
       setError(null);

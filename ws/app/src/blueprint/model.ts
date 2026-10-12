@@ -81,6 +81,8 @@ export interface Part {
   set: Partial<Record<Tunable, number>>;
   /** Its settings, by key, over each setting's default. */
   values?: Record<string, string>;
+  /** Where its code is (a file or folder, from the blueprint's folder), once built. */
+  code?: string;
 }
 
 export interface Wire {
@@ -148,13 +150,47 @@ export function emptyBlueprint(name: string): Blueprint {
 }
 
 /** A blueprint read from a file; an empty file is a new blueprint. */
+/** The file keeps positions apart from what the parts are, as LTspice keeps a
+ *  schematic apart from its netlist: moving a box changes only `layout` lines. */
+type Layout = Record<string, { x: number; y: number }>;
+
+/** A blueprint read from a file; an empty file is a new blueprint. The file is
+ *  text people and the agent edit by hand, so what is left out gets a default. */
 export function parseBlueprint(text: string, name: string): Blueprint {
   if (!text.trim()) return emptyBlueprint(name);
-  const raw = JSON.parse(text) as Partial<Blueprint>;
+  const raw = JSON.parse(text) as Partial<Blueprint> & { layout?: Layout };
   if (raw.version !== 1 || !Array.isArray(raw.parts) || !Array.isArray(raw.wires)) {
     throw new Error("This is not a FRIDAY blueprint (version 1).");
   }
-  return { ...emptyBlueprint(name), ...raw } as Blueprint;
+  const { layout = {}, ...rest } = raw;
+  const parts = raw.parts.map((p, i) => {
+    if (typeof p?.id !== "string" || typeof p.type !== "string") throw new Error(`Part ${i + 1} needs an "id" and a "type".`);
+    // Files from before `layout` keep x and y on each part.
+    const at = layout[p.id] ?? { x: p.x ?? 0, y: p.y ?? 0 };
+    return { ...p, label: p.label ?? p.id, notes: p.notes ?? "", set: p.set ?? {}, x: Number(at.x) || 0, y: Number(at.y) || 0 };
+  });
+  const wires = raw.wires.map((w, i) => {
+    if (typeof w?.from !== "string" || typeof w.to !== "string") throw new Error(`Wire ${i + 1} needs a "from" and a "to".`);
+    return { ...w, id: w.id ?? `${w.from}-${w.to}-${i}`, kind: w.kind ?? "http", calls: w.calls ?? 1, notes: w.notes ?? "" };
+  });
+  return { ...emptyBlueprint(name), ...rest, parts, wires } as Blueprint;
+}
+
+/** The file's text: types it uses, parts without positions, then the layout. */
+export function blueprintText(bp: Blueprint): string {
+  const kept = forSave(bp);
+  const layout: Layout = Object.fromEntries(kept.parts.map((p) => [p.id, { x: p.x, y: p.y }]));
+  const parts = kept.parts.map(({ x: _x, y: _y, ...p }) => p);
+  return JSON.stringify({ ...kept, parts, layout }, null, 2) + "\n";
+}
+
+/** A readable id from `name`, not in `taken`: "orders-api", then "orders-api-2". */
+export function readableId(name: string, taken: Iterable<string>): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "part";
+  const used = new Set(taken);
+  let id = base;
+  for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+  return id;
 }
 
 // ---- the inventory: parts and connectors shared by every blueprint ----------
@@ -539,7 +575,8 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
       copies > 1 ? `${copies} copies` : "",
       t.stateful ? "holds data" : "",
     ].filter(Boolean);
-    lines.push(`- **${p.label}** (${facts.join("; ")})${t.description ? ` — ${t.description}` : ""}`);
+    lines.push(`- **${p.label}** (id \`${p.id}\`; ${facts.join("; ")})${t.description ? ` — ${t.description}` : ""}`);
+    if (p.code) lines.push(`  - Its code so far: \`${p.code}\``);
     if (p.notes.trim()) lines.push(`  - What it does: ${p.notes.trim().replace(/\n+/g, " ")}`);
     if (t.ports?.length) {
       const port = (x: Port) => `${x.name} (${x.kind === "*" ? "any connector" : (kinds.get(x.kind)?.name ?? x.kind)})`;
@@ -576,5 +613,6 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
   }
   for (const f of sim.findings) lines.push(`- ${f.level}: ${f.text}`);
   lines.push("", `The full blueprint (every number and note) is the JSON in \`${file}\`; read it if you need more detail.`);
+  lines.push("", `When the code is written, record where each part's code is: in \`${file}\`, give each entry in "parts" a "code" field with the file or folder you wrote for it, relative to the blueprint's folder (for example "code": "services/orders-api"). Change nothing else in that file.`);
   return lines.join("\n");
 }

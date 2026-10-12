@@ -36,6 +36,9 @@ function language(ext: string): Extension {
     case "js":
     case "mjs":
     case "cjs":
+    // JSON is JavaScript's literal syntax, which is all a blueprint's text is.
+    case "json":
+    case "blueprint":
       return javascript();
     case "ts":
     case "mts":

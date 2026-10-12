@@ -1,6 +1,6 @@
 // Checks the blueprint simulator: `node scripts/test-blueprint.mjs`.
 import assert from "node:assert/strict";
-import { buildPrompt, byCategory, emptyBlueprint, forSave, parseLibrary, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
+import { blueprintText, buildPrompt, byCategory, emptyBlueprint, forSave, parseBlueprint, parseLibrary, readableId, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
 
 const part = (id, type, set = {}) => ({ id, type, label: id, x: 0, y: 0, notes: "", set });
 const wire = (from, to, kind, calls = 1) => ({ id: `${from}-${to}`, from, to, kind, calls, notes: "" });
@@ -94,5 +94,35 @@ assert.equal(parseLibrary('{"parts": 3}').parts.length, 0);
 // Categories: unnamed ones are General, which comes first.
 const groups = byCategory([{ category: "Data" }, {}, { category: " AI " }, { category: "" }, { category: "Data" }]);
 assert.deepEqual(groups.map(([c, list]) => [c, list.length]), [["General", 2], ["AI", 1], ["Data", 2]]);
+
+// The file: positions in their own section, read back as they were.
+const placed = { ...shop, parts: shop.parts.map((p, i) => ({ ...p, x: i * 100, y: 7 })) };
+const text = blueprintText(placed);
+const file = JSON.parse(text);
+assert.ok(file.parts.every((p) => !("x" in p) && !("y" in p)));
+assert.deepEqual(file.layout.db, { x: 200, y: 7 });
+assert.deepEqual(Object.keys(file).at(-1), "layout"); // layout last: a move is a small diff at the end
+assert.deepEqual(parseBlueprint(text, "x").parts, placed.parts);
+// Moving a part changes only its layout lines.
+const moved = blueprintText({ ...placed, parts: placed.parts.map((p) => (p.id === "api" ? { ...p, x: 999 } : p)) });
+const changed = text.split("\n").filter((l, i) => l !== moved.split("\n")[i]);
+assert.deepEqual(changed, ['      "x": 100,']);
+// Older files keep x and y on each part.
+const old = JSON.stringify({ version: 1, parts: [{ id: "a", type: "api", x: 5, y: 6 }], wires: [{ from: "a", to: "a" }] });
+const read = parseBlueprint(old, "old");
+assert.deepEqual([read.parts[0].x, read.parts[0].y, read.parts[0].label, read.parts[0].notes], [5, 6, "a", ""]);
+assert.deepEqual(read.parts[0].set, {});
+assert.deepEqual([read.wires[0].kind, read.wires[0].calls], ["http", 1]);
+assert.throws(() => parseBlueprint('{"version":1,"parts":[{"type":"api"}],"wires":[]}', "x"), /Part 1 needs/);
+assert.throws(() => parseBlueprint('{"version":1,"parts":[],"wires":[{"to":"a"}]}', "x"), /Wire 1 needs/);
+
+// Readable ids.
+assert.equal(readableId("Orders API", []), "orders-api");
+assert.equal(readableId("Orders API", ["orders-api", "orders-api-2"]), "orders-api-3");
+assert.equal(readableId("???", []), "part");
+
+// The agent is told each part's id, and to record where its code went.
+const request = buildPrompt({ ...shop, parts: shop.parts.map((p) => (p.id === "api" ? { ...p, code: "services/api" } : p)) }, "shop.blueprint", "", simulate(shop));
+assert.ok(request.includes("(id `api`;") && request.includes("Its code so far: `services/api`") && request.includes('"code" field'));
 
 console.log("blueprint model: ok");

@@ -1836,3 +1836,14 @@ button.danger {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* A part's code: its path, and Open beside it. */
+.bp-code {
+  display: flex;
+  gap: 6px;
+}
+
+.bp-code input {
+  flex: 1;
+  min-width: 0;
+}

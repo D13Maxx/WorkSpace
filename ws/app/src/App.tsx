@@ -110,8 +110,6 @@ export default function App() {
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
-  // Bumped when a blueprint window saves a new file: only the tree rereads.
-  const [treeVersion, setTreeVersion] = useState(0);
   // What the output panel is running: a file, a terminal or a pip install.
   const [run, setRun] = useState<{ task: RunTask; key: number } | null>(null);
   const startTask = (task: RunTask) => setRun((r) => ({ task, key: (r?.key ?? 0) + 1 }));
@@ -134,6 +132,8 @@ export default function App() {
     if (!f.path.toLowerCase().endsWith(".blueprint")) return setOpenFile(f);
     api.openBlueprintWindow(f.root, f.path).catch((e) => setError(String(e)));
   };
+  const openAnyRef = useRef(openAny);
+  openAnyRef.current = openAny;
 
   const addFolder = (f: string) => {
     setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]));
@@ -342,22 +342,47 @@ export default function App() {
     return () => void off.then((f) => f());
   }, []);
 
-  // An untitled blueprint saved for the first time: show it on the left, in
-  // the open folder holding it, or as a folder of its own.
+  // Show `root` on the left: in the open folder holding it, or as a folder of its own.
+  const showFolder = (root: string) => {
+    const at = root.replace(/[\\/]+$/, "").toLowerCase();
+    setFolders((fs) =>
+      fs.some((f) => {
+        const r = f.replace(/[\\/]+$/, "").toLowerCase();
+        return at === r || at.startsWith(r + "\\");
+      })
+        ? fs
+        : [...fs, root],
+    );
+  };
+
+  // Blueprint windows: a saved file (new ones show on the left, and an open
+  // source rereads), a file's source, and a part's code.
   useEffect(() => {
-    const off = listen<{ root: string; path: string }>("blueprint-saved", ({ payload }) => {
-      const at = payload.root.replace(/[\\/]+$/, "").toLowerCase();
-      setFolders((fs) =>
-        fs.some((f) => {
-          const r = f.replace(/[\\/]+$/, "").toLowerCase();
-          return at === r || at.startsWith(r + "\\");
-        })
-          ? fs
-          : [...fs, payload.root],
-      );
-      setTreeVersion((v) => v + 1);
-    });
-    return () => void off.then((f) => f());
+    const offs = [
+      listen<{ root: string; path: string }>("blueprint-saved", ({ payload }) => {
+        showFolder(payload.root);
+        setFileVersion((v) => v + 1);
+      }),
+      listen<{ root: string; path: string }>("blueprint-source", ({ payload }) => {
+        showFolder(payload.root);
+        setOpenFile(payload);
+        void getCurrentWindow().setFocus();
+      }),
+      listen<{ root: string; path: string }>("open-code", ({ payload }) => {
+        void getCurrentWindow().setFocus();
+        // A folder opens on the left; a file opens here.
+        // shortcut: a folder already inside an open one shows again as its own root; expand it in place once the tree can be driven from here.
+        api
+          .listDir(payload.root, payload.path)
+          .then(() => addFolder(`${payload.root.replace(/[\\/]+$/, "")}\\${payload.path.replace(/\//g, "\\")}`))
+          .catch(() => {
+            showFolder(payload.root);
+            openAnyRef.current(payload);
+          });
+      }),
+    ];
+    return () => offs.forEach((off) => void off.then((f) => f()));
+    // Once: the handlers read what changes through state setters and openAnyRef.
   }, []);
 
   // A blueprint window's Build with agent: the chat is here.
@@ -427,7 +452,7 @@ export default function App() {
           }}
           onOpenFile={openAny}
           open={openFile}
-          version={fileVersion + treeVersion}
+          version={fileVersion}
         />
         <button className="settings" onClick={() => setShowSettings(true)}>
           Settings

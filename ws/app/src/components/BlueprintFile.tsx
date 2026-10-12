@@ -47,12 +47,14 @@ import {
   byCategory,
   categoryOf,
   connectorTypes,
+  blueprintText,
   emptyLibrary,
   forSave,
   ms,
   parseBlueprint,
   parseLibrary,
   partTypes,
+  readableId,
   portsOf,
   rate,
   simulate,
@@ -88,8 +90,12 @@ interface Props {
   /** Hand the finished blueprint, saved as `file`, to the agent as this request. */
   onBuild: (prompt: string, file: BlueprintPath) => void;
   onDirty?: (dirty: boolean) => void;
-  /** An untitled blueprint was saved for the first time. */
-  onSaved?: (file: BlueprintPath) => void;
+  /** Saved as `file`; `first` when an untitled blueprint got its file. */
+  onSaved?: (file: BlueprintPath, first: boolean) => void;
+  /** Show the file's text in the main window's editor. */
+  onSource?: (file: BlueprintPath) => void;
+  /** Open a part's code (a path inside `file.root`) in the main window. */
+  onOpenCode?: (root: string, path: string) => void;
 }
 
 /** A file name from the blueprint's own name. */
@@ -190,13 +196,18 @@ export function BlueprintWindow({ root, path, dir }: { root: string | null; path
         dir={dir}
         version={version}
         onDirty={onDirty}
-        onSaved={(f) => {
-          setFile(f);
-          void getCurrentWindow().setTitle(`${f.path.replace(/\.blueprint$/i, "")} — Blueprint — F.R.I.D.A.Y`);
-          // So opening the file again finds this window, and the main window shows it.
-          void api.blueprintSavedAs(f.root, f.path);
+        onSaved={(f, first) => {
+          if (first) {
+            setFile(f);
+            void getCurrentWindow().setTitle(`${f.path.replace(/\.blueprint$/i, "")} — Blueprint — F.R.I.D.A.Y`);
+            // So opening the file again finds this window.
+            void api.blueprintSavedAs(f.root, f.path);
+          }
+          // The main window shows the file, and rereads its text if that is open.
           void emitTo("main", "blueprint-saved", f);
         }}
+        onSource={(f) => void emitTo("main", "blueprint-source", f)}
+        onOpenCode={(root, path) => void emitTo("main", "open-code", { root, path })}
         // The chat lives in the main window, which starts the agent.
         onBuild={(prompt, f) => void emitTo("main", "blueprint-build", { ...f, prompt })}
         header={(actions) => (
@@ -225,11 +236,14 @@ export function BlueprintFile(props: Props) {
 type Selection = { kind: "part" | "wire"; id: string } | null;
 type TypeEdit = { kind: "part"; value: PartType; isNew: boolean } | { kind: "connector"; value: ConnectorType; isNew: boolean };
 
-function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props) {
+function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSource, onOpenCode }: Props) {
   const name = file ? (file.path.split("/").pop() ?? "blueprint").replace(/\.blueprint$/i, "") : "Untitled";
   const fileKey = file ? `${file.root}\n${file.path}` : null;
   // Set when this editor just saved an untitled blueprint, so it does not reread it.
   const saved = useRef<string | null>(null);
+  // The file's text as this editor last read or wrote it: a change on disk to
+  // anything else came from elsewhere (its source edited, the agent).
+  const written = useRef<string | null>(null);
   const [bp, setBp] = useState<Blueprint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -313,8 +327,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
       .readTextFile(file.root, file.path)
       .then((text) => {
         if (!live) return;
-        const next = withLibrary(parseBlueprint(text, name), libRef.current);
-        setBp(next);
+        setBp(withLibrary(parseBlueprint(text, name), libRef.current));
+        written.current = text;
       })
       .catch((e) => live && setError(String(e)));
     return () => {
@@ -323,13 +337,29 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     // `fileKey` stands for `file`, which is a new object on every render.
   }, [fileKey, name, nonce]);
 
-  // Pick up the agent's edits, but never over unsaved work.
+  // Pick up edits made elsewhere (the agent, the file's source in the main
+  // window), never over unsaved work, and in place: the view stays where it is.
   const seen = useRef(version);
   useEffect(() => {
-    if (version === seen.current) return;
+    if (version === seen.current || !file) return;
     seen.current = version;
-    if (!dirtyRef.current) setNonce((n) => n + 1);
-  }, [version]);
+    if (dirtyRef.current) return;
+    let live = true;
+    api
+      .readTextFile(file.root, file.path)
+      .then((text) => {
+        if (!live || dirtyRef.current || text === written.current) return;
+        // Text typed by hand can be half-finished: say so, keep what was drawn.
+        setBp(withLibrary(parseBlueprint(text, name), libRef.current));
+        written.current = text;
+        setError(null);
+      })
+      .catch((e) => live && setError(`The file's text could not be read as a blueprint: ${e}`));
+    return () => {
+      live = false;
+    };
+    // `fileKey` stands for `file`.
+  }, [version, fileKey, name]);
 
   const change = (f: (b: Blueprint) => Blueprint) => {
     setBp((b) => b && f(b));
@@ -460,7 +490,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     const named = [inKind, outKind].find((k) => k && k !== "*" && kinds.has(k));
     const takes = toType ? toType.accepts.filter((k) => kinds.has(k)) : [];
     const kind = pen ?? named ?? takes[0] ?? "http";
-    const id = uid();
+    const id = readableId(`${c.source}-${c.target}`, bp.wires.map((w) => w.id));
     const ends = { fromPort: c.sourceHandle ?? undefined, toPort: c.targetHandle ?? undefined };
     change((b) => ({ ...b, wires: [...b.wires, { id, from: c.source, to: c.target, kind, calls: 1, notes: "", ...ends }] }));
     setSel({ kind: "wire", id });
@@ -479,11 +509,12 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
       while (taken(where.x, where.y)) where = { x: where.x + 60, y: where.y + 60 };
     }
     const same = bp.parts.filter((p) => p.type === typeId).length;
-    const id = uid();
+    const label = same ? `${t.name} ${same + 1}` : t.name;
+    const id = readableId(label, bp.parts.map((q) => q.id));
     const p: Part = {
       id,
       type: typeId,
-      label: same ? `${t.name} ${same + 1}` : t.name,
+      label,
       x: Math.round(where.x - 70),
       y: Math.round(where.y - 25),
       notes: "",
@@ -531,13 +562,13 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     }
     setSaving(true);
     try {
-      await api.writeTextFile(target.root, target.path, JSON.stringify(forSave(bp), null, 2) + "\n");
+      const text = blueprintText(bp);
+      await api.writeTextFile(target.root, target.path, text);
+      written.current = text;
       setDirty(false);
       setError(null);
-      if (!file) {
-        saved.current = `${target.root}\n${target.path}`;
-        onSaved?.(target);
-      }
+      if (!file) saved.current = `${target.root}\n${target.path}`;
+      onSaved?.(target, !file);
       return target;
     } catch (e) {
       setError(String(e));
@@ -575,12 +606,27 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     setBp((b) => b && (kind === "part" ? { ...b, customParts: b.customParts.map(move) } : { ...b, customConnectors: b.customConnectors.map(move) }));
   };
 
+  /** A part's code, from the blueprint's folder, opened in the main window. */
+  const openCode = (p: Part) => {
+    if (!file || !p.code?.trim()) return;
+    const here = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
+    const rel = p.code.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+    onOpenCode?.(file.root, here + rel);
+  };
+
   const selPart = sel?.kind === "part" ? bp?.parts.find((p) => p.id === sel.id) : undefined;
   const selWire = sel?.kind === "wire" ? bp?.wires.find((w) => w.id === sel.id) : undefined;
 
   const actions = (
     <>
       {dirty && <span className="muted unsaved">unsaved</span>}
+      <button
+        onClick={() => file && onSource?.(file)}
+        disabled={!file}
+        title={file ? "The file's text in the main window's editor: edit it there, and saving it updates this canvas" : "Save it first"}
+      >
+        Source
+      </button>
       <button
         className={running ? "primary" : ""}
         onClick={() => {
@@ -649,6 +695,10 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onNodeDoubleClick={(_, n) => {
+                const p = bp.parts.find((x) => x.id === n.id);
+                if (p) openCode(p);
+              }}
               isValidConnection={(c) => c.source !== c.target}
               deleteKeyCode={["Delete", "Backspace"]}
               colorMode="dark"
@@ -701,6 +751,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
                   setSel(null);
                 }}
                 onEditType={setTypeEdit}
+                onOpenCode={file ? openCode : undefined}
                 onClose={() => setSel(null)}
               />
             )}
@@ -936,6 +987,7 @@ function Details({
   onRemovePart,
   onRemoveWire,
   onEditType,
+  onOpenCode,
   onClose,
 }: {
   bp: Blueprint;
@@ -948,6 +1000,8 @@ function Details({
   onRemovePart: (id: string) => void;
   onRemoveWire: (id: string) => void;
   onEditType: (t: TypeEdit) => void;
+  /** Absent until the blueprint is saved: a part's code is found from its file. */
+  onOpenCode?: (p: Part) => void;
   onClose: () => void;
 }) {
   const close = (
@@ -1010,6 +1064,19 @@ function Details({
             Ports: {t.ports.map((x) => `${x.dir === "in" ? "→" : ""}${x.name}${x.dir === "out" ? "→" : ""}`).join("  ")}
           </p>
         ) : null}
+        <label className="bp-field">
+          <span>Its code (file or folder, from the blueprint's folder)</span>
+          <span className="bp-code">
+            <input
+              value={part.code ?? ""}
+              placeholder="set by Build with agent"
+              onChange={(e) => setPart(part.id, (p) => ({ ...p, code: e.target.value || undefined }))}
+            />
+            <button onClick={() => onOpenCode?.(part)} disabled={!part.code?.trim() || !onOpenCode} title="Or double-click the part">
+              Open
+            </button>
+          </span>
+        </label>
         {running && (
           <label className="bp-check">
             <input type="checkbox" checked={down.has(part.id)} onChange={(e) => onDown(part.id, e.target.checked)} />

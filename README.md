@@ -221,6 +221,20 @@ a bit like LTspice or Multisim but for software:
   new chat in the main window that asks the agent to write the whole system into the
   blueprint's folder in one go, with a README, local run config and tests.
 
+**The text behind the canvas.** A `.blueprint` file is readable JSON, like a
+SPICE netlist: what the parts are and how they are wired, then a `layout`
+section with every position, so moving a box changes only its layout lines
+in a diff. New parts and wires get readable ids (`orders-api`,
+`users-orders-api`). **Source** opens the file's text in the main window's
+editor; saving it there redraws the canvas in place, and saving the canvas
+updates the text. A file the canvas cannot read (half-typed JSON) is
+reported and the drawing is kept.
+
+**From a part to its code.** Build with agent records in the blueprint where
+it wrote each part's code (the part's *Its code* field, which you can also
+set). Double-click a part, or **Open** in its details, to open that file in
+the editor or that folder on the left.
+
 The simulation is a model (steady-state queueing), not your code running: it
 catches design mistakes before code exists. The file is plain JSON with a copy
 of each custom part it uses, so it works without the inventory and the agent
