@@ -208,7 +208,7 @@ a bit like LTspice or Multisim but for software:
   not wait for an answer.
 - **Details:** click a part or a wire to set what it should do (the agent
   builds from this), its load, its speed, its error rate and how many copies
-  run. **Describe** sets the system's purpose and the stack you want.
+  run.
 - **Run** simulates steady traffic through the drawing. Each wire shows its
   requests per second and each part its load, latency and how full it is.
   Findings are listed as **Bug** (connectors a part does not take, loops that

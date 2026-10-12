@@ -243,8 +243,6 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
   // The connector new wires use; null picks one the target takes.
   const [pen, setPen] = useState<string | null>(null);
   const [typeEdit, setTypeEdit] = useState<TypeEdit | null>(null);
-  // The blueprint's own details (name, purpose, stack), shown when nothing is selected.
-  const [info, setInfo] = useState(false);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useEffect(() => {
@@ -309,7 +307,6 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
     if (!file) {
       // Untitled: nothing on disk yet.
       setBp(withLibrary(parseBlueprint("", name), libRef.current));
-      setInfo(true);
       return;
     }
     api
@@ -318,8 +315,6 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
         if (!live) return;
         const next = withLibrary(parseBlueprint(text, name), libRef.current);
         setBp(next);
-        // A new blueprint starts by saying what it is for.
-        setInfo(!next.parts.length && !next.description);
       })
       .catch((e) => live && setError(String(e)));
     return () => {
@@ -586,9 +581,6 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
   const actions = (
     <>
       {dirty && <span className="muted unsaved">unsaved</span>}
-      <button onClick={() => (setSel(null), setInfo(!info || !!sel))} disabled={!bp} title="Name, purpose and stack of this blueprint">
-        Describe
-      </button>
       <button
         className={running ? "primary" : ""}
         onClick={() => {
@@ -684,7 +676,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
                 }}
               />
             )}
-            {(selPart || selWire || info) && (
+            {(selPart || selWire) && (
               <Details
                 bp={bp}
                 part={selPart}
@@ -709,7 +701,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved }: Props
                   setSel(null);
                 }}
                 onEditType={setTypeEdit}
-                onClose={() => (setSel(null), setInfo(false))}
+                onClose={() => setSel(null)}
               />
             )}
           </div>
@@ -1079,31 +1071,7 @@ function Details({
       </aside>
     );
   }
-  return (
-    <aside className="bp-details" aria-label="Blueprint details">
-        {close}
-      <h3>Blueprint</h3>
-      <label className="bp-field">
-        <span>Name</span>
-        <input value={bp.name} onChange={(e) => change((b) => ({ ...b, name: e.target.value }))} />
-      </label>
-      <label className="bp-field">
-        <span>What the system is for</span>
-        <textarea rows={5} value={bp.description} onChange={(e) => change((b) => ({ ...b, description: e.target.value }))} />
-      </label>
-      <label className="bp-field">
-        <span>Stack (languages, frameworks, hosting)</span>
-        <input
-          value={bp.stack}
-          placeholder="e.g. TypeScript, Postgres, Docker"
-          onChange={(e) => change((b) => ({ ...b, stack: e.target.value }))}
-        />
-      </label>
-      <p className="muted bp-note">
-        Click a part or a wire to set its details. Delete removes what is selected.
-      </p>
-    </aside>
-  );
+  return null;
 }
 
 function Results({
