@@ -59,6 +59,8 @@ $classes = 'HKEY_CURRENT_USER\Software\Classes'
 [Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint", '', 'Workspace blueprint')
 [Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint\DefaultIcon", '', "`"$installed`",0")
 [Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint\shell\open\command", '', "`"$installed`" `"%1`"")
+# Without this, Windows sees a "new app" for .blueprint and asks on every open.
+[Microsoft.Win32.Registry]::SetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts', 'Workspace.Blueprint_.blueprint', 0)
 
 # The app used to be called F.R.I.D.A.Y: remove that copy of it (the app only;
 # chats, keys and the inventory live in the app data folder, which is unchanged).
@@ -67,8 +69,18 @@ if (Test-Path $old) { Remove-Item $old -Recurse -Force }
 $oldLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'F.R.I.D.A.Y.lnk'
 if (Test-Path $oldLink) { Remove-Item $oldLink -Force }
 [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('Software\Classes\FRIDAY.Blueprint', $false)
-$progids = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Classes\.blueprint\OpenWithProgids', $true)
-if ($progids) { $progids.DeleteValue('FRIDAY.Blueprint', $false); $progids.Close() }
+[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('Software\Classes\Applications\FRIDAY.exe', $false)
+foreach ($k in 'Software\Classes\.blueprint\OpenWithProgids', 'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.blueprint\OpenWithProgids') {
+    $progids = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($k, $true)
+    if ($progids) { $progids.DeleteValue('FRIDAY.Blueprint', $false); $progids.Close() }
+}
+# Picking FRIDAY.exe through "Open with" made Windows its own entry for it,
+# which stays the remembered default: point it here, or every double-click
+# asks which app to use.
+$auto = "$classes\blueprint_auto_file\shell\open\command"
+if ([string][Microsoft.Win32.Registry]::GetValue($auto, '', '') -match 'FRIDAY\.exe') {
+    [Microsoft.Win32.Registry]::SetValue($auto, '', "`"$installed`" `"%1`"")
+}
 
 Write-Host "Installed $installed"
 Write-Host "Shortcut  $link"
