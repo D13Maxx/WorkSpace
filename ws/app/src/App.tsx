@@ -332,12 +332,12 @@ export default function App() {
     }
   };
 
-  // Closing this window closes FRIDAY, blueprint windows too: ask about unsaved ones first.
+  // Closing this window closes Workspace, blueprint windows too: ask about unsaved ones first.
   useEffect(() => {
     const off = getCurrentWindow().onCloseRequested(async (e) => {
       const n = await api.unsavedBlueprints().catch(() => 0);
       const what = n === 1 ? "A blueprint has" : `${n} blueprints have`;
-      if (n && !(await ask(`${what} unsaved changes. Close FRIDAY anyway?`))) e.preventDefault();
+      if (n && !(await ask(`${what} unsaved changes. Close Workspace anyway?`))) e.preventDefault();
     });
     return () => void off.then((f) => f());
   }, []);

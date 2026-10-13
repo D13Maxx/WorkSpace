@@ -76,7 +76,7 @@ pub fn blueprint_dirty(window: WebviewWindow, dirty: bool) -> CmdResult<()> {
 }
 
 /// How many open blueprint windows have unsaved changes, for the main window
-/// to ask about before it closes FRIDAY (and them with it).
+/// to ask about before it closes Workspace (and them with it).
 #[tauri::command]
 pub fn unsaved_blueprints(app: AppHandle) -> CmdResult<usize> {
     let unsaved = UNSAVED.lock().map_err(|e| e.to_string())?;
@@ -123,10 +123,10 @@ pub async fn open_blueprint_window(
     // The page reads which file it is from here; JSON keeps any path safe to embed.
     let file = serde_json::json!({ "root": root, "path": path, "dir": dir });
     WebviewWindowBuilder::new(&app, label, WebviewUrl::App("index.html".into()))
-        .title(format!("{name} — Blueprint — F.R.I.D.A.Y"))
+        .title(format!("{name} — Workshop — Workspace"))
         .inner_size(1280.0, 820.0)
         .min_inner_size(720.0, 480.0)
-        .initialization_script(format!("window.__FRIDAY_BLUEPRINT__ = {file};"))
+        .initialization_script(format!("window.__WORKSPACE_BLUEPRINT__ = {file};"))
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())

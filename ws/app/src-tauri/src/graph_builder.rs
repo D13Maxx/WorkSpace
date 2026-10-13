@@ -1,4 +1,4 @@
-//! FRIDAY's own knowledge graph: free, with no model and no Node.
+//! Workspace's own knowledge graph: free, with no model and no Node.
 //!
 //! Reads the project's source with simple per-language patterns (not a
 //! parser): its files, the functions and types they define, and which files
@@ -20,7 +20,9 @@ const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_SYMBOLS: usize = 40;
 const MAX_LAYERS: usize = 12;
 /// Marks a graph this module wrote, which it may replace without asking.
-const MARKER: &str = "Built by FRIDAY's free graph builder";
+const MARKER: &str = "Built by Workspace's free graph builder";
+/// What MARKER said when the app was called FRIDAY: graphs built then are ours too.
+const OLD_MARKER: &str = "Built by FRIDAY's free graph builder";
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -1006,7 +1008,7 @@ fn build(root: &Path) -> Value {
             "name": root.file_name().map_or_else(|| "project".to_owned(), |n| n.to_string_lossy().into_owned()),
             "languages": languages.iter().map(|(l, _)| *l).collect::<Vec<_>>(),
             "frameworks": frameworks(root),
-            "description": format!("{MARKER} from {} files{capped}: structure only, no AI summaries. Run /understand in FRIDAY's chat for the full AI graph.", infos.len()),
+            "description": format!("{MARKER} from {} files{capped}: structure only, no AI summaries. Run /understand in Workspace's chat for the full AI graph.", infos.len()),
             "analyzedAt": chrono::Utc::now().to_rfc3339(),
             "gitCommitHash": git_head(root),
         },
@@ -1039,7 +1041,7 @@ pub fn write(project: &str, replace: bool) -> Result<Built, String> {
                 .unwrap_or(Value::Null);
         let ours = existing["project"]["description"]
             .as_str()
-            .is_some_and(|d| d.starts_with(MARKER));
+            .is_some_and(|d| d.starts_with(MARKER) || d.starts_with(OLD_MARKER));
         if !ours {
             return Err(
                 "EXISTS: this project already has a knowledge graph, perhaps an AI-built one"

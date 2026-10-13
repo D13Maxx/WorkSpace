@@ -5,7 +5,7 @@
 //! console: C's stdout is not held in a buffer until exit, and `input()` and
 //! `scanf` get what the user types.
 //!
-//! Compilers are found on PATH when the run starts. FRIDAY ships none.
+//! Compilers are found on PATH when the run starts. Workspace ships none.
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
@@ -37,12 +37,12 @@ pub struct Plan {
     pub steps: Vec<Step>,
 }
 
-const NO_C: &str = "No C compiler found. Install one, for example\r\n  winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\r\nthen restart FRIDAY.";
-const NO_CPP: &str = "No C++ compiler found. Install one, for example\r\n  winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\r\nthen restart FRIDAY.";
-const NO_TEX: &str = "No LaTeX found. Install one, for example\r\n  winget install -e --id MiKTeX.MiKTeX\r\nthen restart FRIDAY.";
-const NO_PYTHON: &str = "No Python found. Install it from python.org, then restart FRIDAY.";
-const NO_RUST: &str = "No Rust found. Install it from rustup.rs, then restart FRIDAY.";
-const NO_NODE: &str = "No Node.js found. Install it from nodejs.org, then restart FRIDAY.";
+const NO_C: &str = "No C compiler found. Install one, for example\r\n  winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\r\nthen restart Workspace.";
+const NO_CPP: &str = "No C++ compiler found. Install one, for example\r\n  winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\r\nthen restart Workspace.";
+const NO_TEX: &str = "No LaTeX found. Install one, for example\r\n  winget install -e --id MiKTeX.MiKTeX\r\nthen restart Workspace.";
+const NO_PYTHON: &str = "No Python found. Install it from python.org, then restart Workspace.";
+const NO_RUST: &str = "No Rust found. Install it from rustup.rs, then restart Workspace.";
+const NO_NODE: &str = "No Node.js found. Install it from nodejs.org, then restart Workspace.";
 
 /// The first of `names` on PATH.
 pub(crate) fn find(names: &[&str]) -> Option<PathBuf> {
@@ -171,7 +171,7 @@ fn plan_with(
         }
         _ => {
             return Err(format!(
-                "FRIDAY can run .c, .cpp, .py, .rs, .js, .ts and .tex files, not .{ext} files."
+                "Workspace can run .c, .cpp, .py, .rs, .js, .ts and .tex files, not .{ext} files."
             ));
         }
     };

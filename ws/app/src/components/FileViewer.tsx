@@ -112,7 +112,7 @@ function FileView(props: Props) {
     return (
       <section className="file-viewer" aria-label={props.path}>
         <Header path={props.path} onClose={props.onClose} />
-        <p className="muted file-note">FRIDAY opens code and Markdown files. Open this one in another app.</p>
+        <p className="muted file-note">Workspace opens code and Markdown files. Open this one in another app.</p>
       </section>
     );
   }

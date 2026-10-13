@@ -88,7 +88,7 @@ export function GraphDialog({ folder, onClose, onStartAi, onOpenSettings, onAddF
         {state === "replace" ? (
           <div className="failure graph-replace">
             <p>
-              The graph here was not built by FRIDAY, perhaps by the AI pipeline. Replacing it with
+              The graph here was not built by Workspace, perhaps by the AI pipeline. Replacing it with
               a free one cannot be undone.
             </p>
             <div className="row">
@@ -101,7 +101,7 @@ export function GraphDialog({ folder, onClose, onStartAi, onOpenSettings, onAddF
             <div className="graph-choice">
               <h3>Free graph</h3>
               <p className="muted">
-                FRIDAY reads the code itself, in seconds. No AI, no cost, no API key. Files, what
+                Workspace reads the code itself, in seconds. No AI, no cost, no API key. Files, what
                 they define, what imports what, one layer per folder. Summaries come from each
                 file&apos;s comments.
               </p>

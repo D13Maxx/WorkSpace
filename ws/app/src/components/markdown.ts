@@ -1,5 +1,5 @@
 // Markdown to safe HTML for the preview. The file is untrusted input and the
-// page showing it can call FRIDAY's backend, so the HTML is sanitized: no
+// page showing it can call Workspace's backend, so the HTML is sanitized: no
 // scripts, event handlers, frames, forms or inline styles survive.
 // Tested by scripts/test-markdown.mjs.
 

@@ -1,4 +1,4 @@
-//! The agent's own tools for the folder open in FRIDAY: read, write and edit
+//! The agent's own tools for the folder open in Workspace: read, write and edit
 //! files, and run commands. They work with no tool server installed.
 //!
 //! Writes go through `file_for`, so every one is snapshotted and shown as a
@@ -62,7 +62,7 @@ impl Workspace {
             .ok()
             .and_then(|o| o.0.clone())
             .ok_or_else(|| {
-                ToolOutput::error("No folder is open in FRIDAY. Ask the user to open one.")
+                ToolOutput::error("No folder is open in Workspace. Ask the user to open one.")
             })
     }
 }
@@ -249,7 +249,7 @@ impl ToolHost for Workspace {
         vec![
             spec(
                 "get_open_file",
-                "The folder open in FRIDAY and the file the user is looking at. Call this first when the user says \"this file\" or \"this document\".",
+                "The folder open in Workspace and the file the user is looking at. Call this first when the user says \"this file\" or \"this document\".",
                 json!({}),
                 &[],
             ),

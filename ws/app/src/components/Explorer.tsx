@@ -412,7 +412,7 @@ export function Explorer({
         <button
           className="icon-button"
           onClick={onNewBlueprint}
-          title="New blueprint: draw a system, simulate it, have the agent build it (saved only when you save it)"
+          title="New blueprint: draw a system in the Workshop, simulate it, have the agent build it (saved only when you save it)"
           aria-label="New blueprint"
         >
           <Icon d={BLUEPRINT} />

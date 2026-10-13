@@ -160,7 +160,7 @@ export function parseBlueprint(text: string, name: string): Blueprint {
   if (!text.trim()) return emptyBlueprint(name);
   const raw = JSON.parse(text) as Partial<Blueprint> & { layout?: Layout };
   if (raw.version !== 1 || !Array.isArray(raw.parts) || !Array.isArray(raw.wires)) {
-    throw new Error("This is not a FRIDAY blueprint (version 1).");
+    throw new Error("This is not a Workspace blueprint (version 1).");
   }
   const { layout = {}, ...rest } = raw;
   const parts = raw.parts.map((p, i) => {

@@ -1,4 +1,4 @@
-# F.R.I.D.A.Y
+# Workspace
 
 A desktop AI workspace with its own inference engine.
 
@@ -35,8 +35,8 @@ cache that cannot be partially rewound.
 powershell -ExecutionPolicy Bypass -File ws/app/scripts/install.ps1
 ```
 
-Builds a release copy into `%LOCALAPPDATA%\Programs\F.R.I.D.A.Y` and puts an
-F.R.I.D.A.Y shortcut on the desktop. Run it again after changing the app to
+Builds a release copy into `%LOCALAPPDATA%\Programs\Workspace` and puts an
+Workspace shortcut on the desktop. Run it again after changing the app to
 update what the shortcut opens (close the app first).
 
 ## Requirements
@@ -121,14 +121,14 @@ terminal, so programs can ask for input.
 | `.rs` | `cargo run` inside a Cargo project, otherwise `rustc` then the program |
 | `.tex` | `tectonic`, or `pdflatex` twice; the PDF is written beside it |
 
-FRIDAY ships no compilers; it uses whatever is on PATH. For C/C++ and LaTeX:
+Workspace ships no compilers; it uses whatever is on PATH. For C/C++ and LaTeX:
 
 ```powershell
 winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT
 winget install -e --id MiKTeX.MiKTeX
 ```
 
-then restart FRIDAY so it sees the new PATH.
+then restart Workspace so it sees the new PATH.
 
 ### Packages (numpy and friends)
 
@@ -151,7 +151,7 @@ ask where, in the folder picker, then for a name.
 Code (and config) files and Markdown open in the editor in the middle pane;
 Ctrl+S saves, and the agent can change the same files (the view reloads when
 it does, unless you have unsaved changes). Other files (PDFs, Word, plain
-text, images…) show in the tree but do not open in FRIDAY.
+text, images…) show in the tree but do not open in Workspace.
 
 Markdown is highlighted, and **Preview** (on by default) shows it rendered
 beside the editor as you type. The preview is sanitized, since a Markdown
@@ -164,17 +164,21 @@ The agent has its own tools for the open folder: `list_dir`, `search_files`, `re
 file" works). Writes show as diffs with Undo. Commands always ask first;
 changes made by commands cannot be undone from the chat.
 
-## Blueprints: draw a system, simulate it, have the agent build it
+## Workshop: draw a system, simulate it, have the agent build it
 
-The **New blueprint** button on the left (two boxes joined by a wire) opens
-an untitled blueprint in its own window, the way Simulink opens beside
-MATLAB. Nothing is written until you press **Save as…** (or Ctrl+S), which
+The Workshop is where blueprints (`.blueprint` files) are drawn. The **New
+blueprint** button on the left (two boxes joined by a wire) opens an untitled
+one in its own Workshop window, the way Simulink opens beside MATLAB. Nothing is written until you press **Save as…** (or Ctrl+S), which
 asks where; the file then shows on the left. Opening a `.blueprint` file
-from the left opens it in its own window too, and opening it again brings
-that window forward. Closing the main window closes FRIDAY with its
+from the left, or double-clicking one in Explorer (`install.ps1` registers
+the file type), opens it in its own window too, and opening it again brings
+that window forward. Closing the main window closes Workspace with its
 blueprint windows, after asking if any has unsaved changes. The canvas is
 a bit like LTspice or Multisim but for software:
 
+- **Moving around:** the mouse wheel or two fingers on a touchpad scroll the
+  canvas (Shift+wheel sideways), as do the arrow keys and dragging empty
+  space. Ctrl+wheel or a pinch zooms; so do the + and − buttons.
 - **Parts:** drag them from the left onto the canvas, or click one to add it:
   users, web front end, API service, worker, queue, database, cache, LLM, AI
   agent, vector database, third-party API, and more.
@@ -203,10 +207,11 @@ a bit like LTspice or Multisim but for software:
   is told every port, setting and which ports each wire joins.
 - **Connectors:** drag from a part's right dot to another part's left dot.
   HTTP, function call, SQL, cache, LLM request, queue message, event, or your
-  own. The connector picked on the left is used for
-  new wires; **Automatic** picks one the target takes. Dashed connectors do
+  own. Click a connector on the left to use it for new wires (and the
+  selected wire), or drag it onto a wire to change that one; **Automatic**
+  picks one the target takes. Dashed connectors do
   not wait for an answer.
-- **Details:** click a part or a wire to set what it should do (the agent
+- **Details:** right-click a part or a wire to set what it should do (the agent
   builds from this), its load, its speed, its error rate and how many copies
   run.
 - **Run** simulates steady traffic through the drawing. Each wire shows its
@@ -273,7 +278,7 @@ today; the other adapters still flatten tool history to text.
 ## Skills
 
 Skills are `SKILL.md` folders in the Claude Code format. Two sets are built
-into FRIDAY, with nothing to install:
+into Workspace, with nothing to install:
 
 - [Ponytail](https://github.com/DietrichGebert/ponytail): `/ponytail`,
   `/ponytail-audit`, `/ponytail-debt`, `/ponytail-gain`, `/ponytail-help`,
@@ -301,12 +306,12 @@ then offers the choices below, and **Open it** when the folder already has a
 graph.
 
 - **Explore a graph:** UA's dashboard (v2.9.0, prebuilt, in
-  `ws/app/public/ua`) is served by FRIDAY itself on 127.0.0.1 behind a
+  `ws/app/public/ua`) is served by Workspace itself on 127.0.0.1 behind a
   one-time token, as UA's own viewer does. No Node, no download, no model.
 - **Ask about it:** `/understand-chat`, `/understand-explain`,
   `/understand-diff`, `/understand-onboard`. The agent reads the graph with
   its built-in `search_files` and `read_file` tools.
-- **Free graph:** FRIDAY reads the code itself (Rust, no model, no Node): files, the functions
+- **Free graph:** Workspace reads the code itself (Rust, no model, no Node): files, the functions
   and types they define, what imports what, one layer per folder, a short
   tour. Summaries come from each file's leading comment. It will not replace
   an AI-built graph unless you confirm.
@@ -320,7 +325,7 @@ graph.
 The pipeline lives in `ws/app/src-tauri/ua-pipeline` (gitignored, 38 MB). It
 is built by `node ws/app/scripts/build-ua-pipeline.mjs`, which clones UA
 v2.9.0, installs with scripts disabled, and bundles each script with esbuild;
-`install.ps1` builds it when missing and copies it next to `FRIDAY.exe`.
+`install.ps1` builds it when missing and copies it next to `Workspace.exe`.
 
 ## Add a provider
 

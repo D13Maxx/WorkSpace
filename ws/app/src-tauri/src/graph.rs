@@ -1,13 +1,13 @@
-//! The Understand-Anything dashboard, served by FRIDAY itself.
+//! The Understand-Anything dashboard, served by Workspace itself.
 //!
-//! The dashboard is UA's prebuilt web app, shipped inside FRIDAY (`public/ua`,
+//! The dashboard is UA's prebuilt web app, shipped inside Workspace (`public/ua`,
 //! MIT). It reads the graph from a few JSON endpoints, which this module
 //! answers the way UA's own viewer (`bin/viewer.mjs`) does: on 127.0.0.1 only,
 //! behind a one-time token, with source previews limited to files the graph
 //! lists. Nothing is downloaded and Node is not needed.
 //!
 //! The window shows a loopback http address, which Tauri treats as remote, so
-//! the dashboard's code gets no access to FRIDAY's commands.
+//! the dashboard's code gets no access to Workspace's commands.
 
 use serde_json::{Value, json};
 use std::collections::HashSet;

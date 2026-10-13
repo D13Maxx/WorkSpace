@@ -63,7 +63,7 @@ const MAX_AGENT_ROUNDS: usize = 50;
 const MAX_PARALLEL_AGENTS: usize = 5;
 
 /// Appended to every helper's instructions.
-const AGENT_NOTE: &str = "You are a helper agent dispatched by FRIDAY. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
+const AGENT_NOTE: &str = "You are a helper agent dispatched by Workspace. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
 
 /// A file edit, ready to show: the diff, and whether it has been undone.
 #[derive(Debug, Clone, PartialEq, Eq)]

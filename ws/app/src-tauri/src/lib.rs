@@ -50,7 +50,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
-        // closing it closes FRIDAY. It asks first about unsaved blueprints.
+        // closing it closes Workspace. It asks first about unsaved blueprints.
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 window.app_handle().exit(0);

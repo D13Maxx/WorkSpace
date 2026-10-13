@@ -24,7 +24,7 @@ pub const LOCAL: &str = LOCAL_BACKEND_ID;
 /// The built-in backends, in the order the model picker should group them.
 pub const BUILT_IN: [&str; 3] = [ANTHROPIC, OPENAI, GEMINI];
 
-/// Skills shipped inside FRIDAY, so they work with nothing installed: all of
+/// Skills shipped inside Workspace, so they work with nothing installed: all of
 /// Ponytail, and the Understand-Anything skills that read an existing graph.
 /// Both MIT; their licences sit beside them in `src-tauri/skills`.
 /// shortcut: /understand itself (building a graph) is left out; it needs subagents and UA's Node packages.

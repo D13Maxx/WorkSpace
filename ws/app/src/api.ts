@@ -11,7 +11,7 @@ import { confirm, open } from "@tauri-apps/plugin-dialog";
  *  `window.confirm` for an async one, so a plain `if (confirm(...))` is always
  *  true; this waits for the answer. */
 export function ask(message: string): Promise<boolean> {
-  return confirm(message, { title: "F.R.I.D.A.Y", kind: "warning" });
+  return confirm(message, { title: "Workspace", kind: "warning" });
 }
 
 /** Windows' own folder picker. `null` if cancelled. */
@@ -330,7 +330,7 @@ export const api = {
   /** Open the Understand-Anything dashboard for a project. Returns its URL. */
   openGraph: (project: string) => invoke<string>("open_graph", { project }),
   hasGraph: (project: string) => invoke<boolean>("has_graph", { project }),
-  /** FRIDAY's free graph. Fails with "EXISTS: ..." if another graph is there. */
+  /** Workspace's free graph. Fails with "EXISTS: ..." if another graph is there. */
   buildGraph: (project: string, replace: boolean) =>
     invoke<GraphBuilt>("build_graph", { project, replace }),
 

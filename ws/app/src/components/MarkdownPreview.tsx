@@ -10,7 +10,7 @@ export function MarkdownPreview({ text }: { text: string }) {
   return (
     <div
       className="md-preview"
-      // A followed link would navigate FRIDAY's own window away.
+      // A followed link would navigate Workspace's own window away.
       onClick={(e) => {
         if ((e.target as Element).closest("a")) e.preventDefault();
       }}

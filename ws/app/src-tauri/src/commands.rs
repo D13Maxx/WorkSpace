@@ -896,7 +896,7 @@ pub fn has_graph(project: String) -> bool {
     crate::graph::exists(&project)
 }
 
-/// Build FRIDAY's free, model-free graph of a project. `replace` overwrites a
+/// Build Workspace's free, model-free graph of a project. `replace` overwrites a
 /// graph built some other way (an error starting `EXISTS:` asks for it).
 #[tauri::command]
 pub async fn build_graph(project: String, replace: bool) -> CmdResult<crate::graph_builder::Built> {

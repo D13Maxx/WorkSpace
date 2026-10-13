@@ -103,6 +103,9 @@ const fileName = (name: string) => (name.trim().replace(/[\\/:*?"<>|]+/g, "-") |
 
 const uid = () => crypto.randomUUID().slice(0, 8);
 
+/** How far each arrow key scrolls the canvas, in screen pixels. */
+const ARROWS: Record<string, [number, number] | undefined> = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80] };
+
 type PartData = { part: Part; type: PartType; stats?: PartStats; down: boolean; level?: Finding["level"] };
 type PartNodeT = Node<PartData, "part">;
 
@@ -186,7 +189,7 @@ export function BlueprintWindow({ root, path, dir }: { root: string | null; path
   }, []);
   const onDirty = useCallback((d: boolean) => {
     dirty.current = d;
-    // The main window asks about these before closing FRIDAY.
+    // The main window asks about these before closing Workspace.
     void api.blueprintDirty(d);
   }, []);
   return (
@@ -199,7 +202,7 @@ export function BlueprintWindow({ root, path, dir }: { root: string | null; path
         onSaved={(f, first) => {
           if (first) {
             setFile(f);
-            void getCurrentWindow().setTitle(`${f.path.replace(/\.blueprint$/i, "")} — Blueprint — F.R.I.D.A.Y`);
+            void getCurrentWindow().setTitle(`${f.path.replace(/\.blueprint$/i, "")} — Workshop — Workspace`);
             // So opening the file again finds this window.
             void api.blueprintSavedAs(f.root, f.path);
           }
@@ -250,6 +253,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
   const [saving, setSaving] = useState(false);
   const [nonce, setNonce] = useState(0);
   const [sel, setSel] = useState<Selection>(null);
+  // The part or wire whose details are open (right-click), apart from what is selected.
+  const [open, setOpen] = useState<Selection>(null);
   // Run: the simulation drawn over the parts, at `scale` times the load, with `down` failed.
   const [running, setRunning] = useState(false);
   const [scale, setScale] = useState(1);
@@ -524,16 +529,31 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     setSel({ kind: "part", id });
   };
 
-  // Parts are dragged from the palette with pointer events: the webview's own
-  // file drop takes over HTML drag and drop.
-  const [ghost, setGhost] = useState<{ type: PartType; x: number; y: number; moved: boolean } | null>(null);
+  const setKind = (wire: string, kind: string) => change((b) => ({ ...b, wires: b.wires.map((w) => (w.id === wire ? { ...w, kind } : w)) }));
+  /** A connector clicked: new wires use it, and so does the selected wire. */
+  const pickConnector = (id: string | null) => {
+    setPen(id);
+    if (id && sel?.kind === "wire") setKind(sel.id, id);
+  };
+
+  // Parts and connectors are dragged from the palette with pointer events: the
+  // webview's own file drop takes over HTML drag and drop. A part dropped on the
+  // canvas lands there; a connector dropped on a wire becomes that wire's.
+  const [ghost, setGhost] = useState<{ type: PartType | ConnectorType; conn: boolean; x: number; y: number; moved: boolean } | null>(null);
   useEffect(() => {
     if (!ghost) return;
     const move = (e: PointerEvent) =>
       setGhost((g) => g && { ...g, x: e.clientX, y: e.clientY, moved: g.moved || Math.hypot(e.clientX - g.x, e.clientY - g.y) > 4 });
     const up = (e: PointerEvent) => {
       const over = document.elementFromPoint(e.clientX, e.clientY);
-      if (!ghost.moved) addPart(ghost.type.id);
+      const wire = over?.closest(".react-flow__edge")?.getAttribute("data-id");
+      if (ghost.conn) {
+        if (!ghost.moved) pickConnector(ghost.type.id);
+        else if (wire) {
+          setKind(wire, ghost.type.id);
+          setSel({ kind: "wire", id: wire });
+        }
+      } else if (!ghost.moved) addPart(ghost.type.id);
       else if (over && canvas.current?.contains(over)) addPart(ghost.type.id, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
       setGhost(null);
     };
@@ -593,6 +613,13 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
         e.preventDefault();
         if (dirtyRef.current || !file) void save();
       }
+      // Arrows scroll the canvas, except in a field or on a focused part (they move it).
+      const step = ARROWS[e.key];
+      const at = e.target;
+      if (!step || typeEdit || !(at instanceof Element) || at.closest("input, textarea, select, [contenteditable], .react-flow__node")) return;
+      e.preventDefault();
+      const v = flow.getViewport();
+      void flow.setViewport({ ...v, x: v.x + step[0], y: v.y + step[1] });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -623,8 +650,13 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     onOpenCode?.(file.root, here + rel);
   };
 
-  const selPart = sel?.kind === "part" ? bp?.parts.find((p) => p.id === sel.id) : undefined;
-  const selWire = sel?.kind === "wire" ? bp?.wires.find((w) => w.id === sel.id) : undefined;
+  const selPart = open?.kind === "part" ? bp?.parts.find((p) => p.id === open.id) : undefined;
+  const selWire = open?.kind === "wire" ? bp?.wires.find((w) => w.id === open.id) : undefined;
+  const inspect = (e: React.MouseEvent, kind: "part" | "wire", id: string) => {
+    e.preventDefault();
+    setSel({ kind, id });
+    setOpen({ kind, id });
+  };
 
   const actions = (
     <>
@@ -682,10 +714,10 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
           <Palette
             bp={bp}
             pen={pen}
-            onPen={setPen}
-            onGrab={(type, e) => {
+            onPen={pickConnector}
+            onGrab={(type, conn, e) => {
               e.preventDefault();
-              setGhost({ type, x: e.clientX, y: e.clientY, moved: false });
+              setGhost({ type, conn, x: e.clientX, y: e.clientY, moved: false });
             }}
             lib={lib}
             onEdit={setTypeEdit}
@@ -704,6 +736,12 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onNodeContextMenu={(e, n) => inspect(e, "part", n.id)}
+              onEdgeContextMenu={(e, w) => inspect(e, "wire", w.id)}
+              onPaneContextMenu={(e) => e.preventDefault()}
+              // The wheel and two fingers scroll; Ctrl+wheel and a pinch zoom.
+              panOnScroll
+              minZoom={0.2}
               onNodeDoubleClick={(_, n) => {
                 const p = bp.parts.find((x) => x.id === n.id);
                 if (p) openCode(p);
@@ -720,7 +758,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
             {!bp.parts.length && (
               <p className="bp-hint muted">
                 Drag parts here from the left (or click one). Then drag from a part&apos;s right dot to
-                another part&apos;s left dot to connect them, and press Run.
+                another part&apos;s left dot to connect them, and press Run. Right-click a part or wire
+                for its details. Scroll with the wheel, arrows or two fingers; zoom with Ctrl+wheel or a pinch.
               </p>
             )}
             {running && live && (
@@ -731,6 +770,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
                 onScale={setScale}
                 onPick={(id) => {
                   setSel({ kind: "part", id });
+                  setOpen({ kind: "part", id });
                   void flow.fitView({ nodes: [{ id }], duration: 300, maxZoom: 1.2 });
                 }}
               />
@@ -754,14 +794,16 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
                 onRemovePart={(id) => {
                   removeParts([id]);
                   setSel(null);
+                  setOpen(null);
                 }}
                 onRemoveWire={(id) => {
                   removeWires([id]);
                   setSel(null);
+                  setOpen(null);
                 }}
                 onEditType={setTypeEdit}
                 onOpenCode={file ? openCode : undefined}
-                onClose={() => setSel(null)}
+                onClose={() => setOpen(null)}
               />
             )}
           </div>
@@ -808,7 +850,7 @@ function Palette({
   lib: Library;
   pen: string | null;
   onPen: (id: string | null) => void;
-  onGrab: (t: PartType, e: React.PointerEvent) => void;
+  onGrab: (t: PartType | ConnectorType, conn: boolean, e: React.PointerEvent) => void;
   onEdit: (t: TypeEdit) => void;
   onStore: (t: TypeEdit) => void;
   onRemove: (t: TypeEdit) => void;
@@ -890,7 +932,7 @@ function Palette({
       <button
         className="bp-item-grab"
         style={{ "--part": t.color } as CSSProperties}
-        onPointerDown={(e) => onGrab(t, e)}
+        onPointerDown={(e) => onGrab(t, false, e)}
         title={`${t.description || t.name} — drag onto the canvas, or click to add`}
       >
         <span className="bp-swatch" />
@@ -901,7 +943,13 @@ function Palette({
   );
   const conn = (c: ConnectorType, custom: boolean) => (
     <div key={c.id} className="bp-item">
-      <button className={`bp-conn ${pen === c.id ? "picked" : ""}`} onClick={() => onPen(c.id)} title={c.description}>
+      <button
+        className={`bp-conn ${pen === c.id ? "picked" : ""}`}
+        onPointerDown={(e) => onGrab(c, true, e)}
+        // A key press (no pointer, so detail is 0) picks it too.
+        onClick={(e) => e.detail === 0 && onPen(c.id)}
+        title={`${c.description || c.name} — click to use it for new wires (and the selected one), or drag it onto a wire`}
+      >
         <span className="bp-line" style={{ borderColor: c.color, borderTopStyle: c.sync ? "solid" : "dashed" }} />
         {c.name}
       </button>
@@ -928,7 +976,7 @@ function Palette({
         + New part
       </button>
       <h3>Connectors</h3>
-      <p className="muted bp-note">The one picked is used for new wires.</p>
+      <p className="muted bp-note">The one picked is used for new wires. Drag one onto a wire to change it.</p>
       <button className={`bp-conn ${pen === null ? "picked" : ""}`} onClick={() => onPen(null)}>
         <span className="bp-line" style={{ borderColor: "var(--muted)" }} />
         Automatic

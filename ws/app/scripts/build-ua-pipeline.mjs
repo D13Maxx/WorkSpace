@@ -1,9 +1,9 @@
-// Build the Understand-Anything /understand pipeline that ships with FRIDAY.
+// Build the Understand-Anything /understand pipeline that ships with Workspace.
 //
 //   node ws/app/scripts/build-ua-pipeline.mjs [existing-UA-checkout]
 //
 // Output: ws/app/src-tauri/ua-pipeline (gitignored; install.ps1 copies it
-// next to FRIDAY.exe). It holds UA's /understand skill, its agents, and its
+// next to Workspace.exe). It holds UA's /understand skill, its agents, and its
 // scripts, each bundled by esbuild into one file with UA's core library
 // inside, plus the tree-sitter grammars as .wasm. Running it needs Node and
 // Python only; nothing is installed on the user's machine.
@@ -62,7 +62,7 @@ fs.copyFileSync(path.join(plugin, "pnpm-workspace.yaml"), path.join(out, "pnpm-w
 fs.mkdirSync(path.join(out, "packages/core/dist"), { recursive: true });
 fs.writeFileSync(
   path.join(out, "packages/core/dist/index.js"),
-  "// Bundled into skills/understand/*.mjs by FRIDAY's build-ua-pipeline.mjs.\nexport {};\n",
+  "// Bundled into skills/understand/*.mjs by Workspace's build-ua-pipeline.mjs.\nexport {};\n",
 );
 
 // 3. Each script, bundled. The scripts load core with a computed dynamic
