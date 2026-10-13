@@ -31,6 +31,13 @@ if (-not (Test-Path $built)) { throw "the build finished but $built is missing" 
 New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item $built $installed -Force
 
+# Windows caches icons by file path, so a new icon inside the same exe never
+# shows. The shortcut and .blueprint files use a copy named by its contents.
+Get-ChildItem $dest -Filter 'icon-*.ico' | Remove-Item -Force
+$ico = Join-Path $app 'src-tauri\icons\icon.ico'
+$iconFile = Join-Path $dest ("icon-{0}.ico" -f (Get-FileHash $ico -Algorithm SHA256).Hash.Substring(0, 8))
+Copy-Item $ico $iconFile
+
 # Understand-Anything's /understand pipeline, which the app finds beside it.
 $pipeline = Join-Path $app 'src-tauri\ua-pipeline'
 if (-not (Test-Path (Join-Path $pipeline 'agents'))) {
@@ -47,7 +54,7 @@ $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($link)
 $shortcut.TargetPath = $installed
 $shortcut.WorkingDirectory = $dest
-$shortcut.IconLocation = "$installed,0"
+$shortcut.IconLocation = "$iconFile,0"
 $shortcut.Description = 'Workspace'
 $shortcut.Save()
 
@@ -57,7 +64,7 @@ $classes = 'HKEY_CURRENT_USER\Software\Classes'
 [Microsoft.Win32.Registry]::SetValue("$classes\.blueprint", '', 'Workspace.Blueprint')
 [Microsoft.Win32.Registry]::SetValue("$classes\.blueprint\OpenWithProgids", 'Workspace.Blueprint', '')
 [Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint", '', 'Workspace blueprint')
-[Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint\DefaultIcon", '', "`"$installed`",0")
+[Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint\DefaultIcon", '', "`"$iconFile`",0")
 [Microsoft.Win32.Registry]::SetValue("$classes\Workspace.Blueprint\shell\open\command", '', "`"$installed`" `"%1`"")
 # Without this, Windows sees a "new app" for .blueprint and asks on every open.
 [Microsoft.Win32.Registry]::SetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts', 'Workspace.Blueprint_.blueprint', 0)
@@ -81,6 +88,10 @@ $auto = "$classes\blueprint_auto_file\shell\open\command"
 if ([string][Microsoft.Win32.Registry]::GetValue($auto, '', '') -match 'FRIDAY\.exe') {
     [Microsoft.Win32.Registry]::SetValue($auto, '', "`"$installed`" `"%1`"")
 }
+
+# Tell Explorer file types and icons changed, so it redraws them now.
+Add-Type -Namespace Win -Name Shell -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, uint f, IntPtr a, IntPtr b);'
+[Win.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 
 Write-Host "Installed $installed"
 Write-Host "Shortcut  $link"
