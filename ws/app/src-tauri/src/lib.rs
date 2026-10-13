@@ -41,11 +41,12 @@ pub fn run() {
     tauri::Builder::default()
         // First, so a second launch hands over to this one and exits before
         // it opens the database.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
             }
+            blueprint::open_from_args(app, &argv, &cwd);
         }))
         .plugin(tauri_plugin_dialog::init())
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
@@ -58,6 +59,9 @@ pub fn run() {
         .setup(|app| {
             let state = AppState::initialise(app)?;
             app.manage(state);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let args: Vec<String> = std::env::args().collect();
+            blueprint::open_from_args(app.handle(), &args, &cwd.to_string_lossy());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

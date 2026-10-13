@@ -132,6 +132,34 @@ pub async fn open_blueprint_window(
         .map_err(|e| e.to_string())
 }
 
+/// Open each `.blueprint` in a command line (`cwd` resolves relative ones):
+/// how Explorer's double-click, and a second launch handed over, reach here.
+pub fn open_from_args(app: &AppHandle, args: &[String], cwd: &str) {
+    for arg in args.iter().skip(1) {
+        let file = std::path::Path::new(cwd).join(arg);
+        if !file
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("blueprint"))
+        {
+            continue;
+        }
+        let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else {
+            continue;
+        };
+        let (app, dir, name) = (
+            app.clone(),
+            dir.to_string_lossy().into_owned(),
+            name.to_string_lossy().into_owned(),
+        );
+        // Off the main thread, as the command runs, or the window stays blank.
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = open_blueprint_window(app, Some(dir), Some(name), None).await {
+                tracing::error!(error = %e, "could not open the blueprint");
+            }
+        });
+    }
+}
+
 /// An untitled blueprint was saved as `path` in `root`: note which window has it.
 #[tauri::command]
 pub fn blueprint_saved_as(window: WebviewWindow, root: String, path: String) -> CmdResult<()> {

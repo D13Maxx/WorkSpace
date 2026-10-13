@@ -51,5 +51,14 @@ $shortcut.IconLocation = "$installed,0"
 $shortcut.Description = 'F.R.I.D.A.Y'
 $shortcut.Save()
 
+# Double-clicking a .blueprint opens it in FRIDAY (this user only; the .NET
+# calls add or update values and never remove what Windows keeps there).
+$classes = 'HKEY_CURRENT_USER\Software\Classes'
+[Microsoft.Win32.Registry]::SetValue("$classes\.blueprint", '', 'FRIDAY.Blueprint')
+[Microsoft.Win32.Registry]::SetValue("$classes\.blueprint\OpenWithProgids", 'FRIDAY.Blueprint', '')
+[Microsoft.Win32.Registry]::SetValue("$classes\FRIDAY.Blueprint", '', 'F.R.I.D.A.Y blueprint')
+[Microsoft.Win32.Registry]::SetValue("$classes\FRIDAY.Blueprint\DefaultIcon", '', "`"$installed`",0")
+[Microsoft.Win32.Registry]::SetValue("$classes\FRIDAY.Blueprint\shell\open\command", '', "`"$installed`" `"%1`"")
+
 Write-Host "Installed $installed"
 Write-Host "Shortcut  $link"
