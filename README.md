@@ -179,10 +179,15 @@ a bit like LTspice or Multisim but for software:
 - **Moving around:** the mouse wheel or two fingers on a touchpad scroll the
   canvas (Shift+wheel sideways), as do the arrow keys and dragging empty
   space. Ctrl+wheel or a pinch zooms; so do the + and − buttons.
+- **The left side** shows the parts and connectors you use most (the usual
+  ones until you have used some). **View full inventory** opens all of them
+  over the canvas, with a search (name, description or category), your own
+  parts and connectors, and **+ New part** / **+ New connector**. Drag or click
+  from there too; Esc closes it.
 - **Parts:** drag them from the left onto the canvas, or click one to add it:
   users, web front end, API service, worker, queue, database, cache, LLM, AI
   agent, vector database, third-party API, and more.
-- **Inventory:** **+ New part** and **+ New connector** make your own, and
+- **Inventory:** **+ New part** and **+ New connector** (in the full inventory) make your own, and
   they are kept in the inventory for every blueprint (in the app data folder,
   `parts-library.json`). ✎ edits one everywhere it is used; 🗑 removes it from
   the inventory, and blueprints that use it keep their own copy. A custom part

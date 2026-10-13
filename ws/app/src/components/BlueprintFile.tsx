@@ -50,6 +50,8 @@ import {
   blueprintText,
   emptyLibrary,
   forSave,
+  matches,
+  mostUsed,
   ms,
   parseBlueprint,
   parseLibrary,
@@ -102,6 +104,28 @@ interface Props {
 const fileName = (name: string) => (name.trim().replace(/[\\/:*?"<>|]+/g, "-") || "Untitled") + ".blueprint";
 
 const uid = () => crypto.randomUUID().slice(0, 8);
+
+/** How often each part and connector was used, so the palette leads with the
+ * common ones. Per viewer; the Workshop works the same without it. */
+const USES = "workshop-uses";
+function readUses(): Record<string, number> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(USES) ?? "{}");
+    return v && typeof v === "object" ? (v as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+function countUse(id: string): Record<string, number> {
+  const uses = readUses();
+  uses[id] = (uses[id] ?? 0) + 1;
+  try {
+    localStorage.setItem(USES, JSON.stringify(uses));
+  } catch {
+    // Not remembered, which is fine.
+  }
+  return uses;
+}
 
 /** How far each arrow key scrolls the canvas, in screen pixels. */
 const ARROWS: Record<string, [number, number] | undefined> = { ArrowLeft: [80, 0], ArrowRight: [-80, 0], ArrowUp: [0, 80], ArrowDown: [0, -80] };
@@ -262,6 +286,10 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
   // The connector new wires use; null picks one the target takes.
   const [pen, setPen] = useState<string | null>(null);
   const [typeEdit, setTypeEdit] = useState<TypeEdit | null>(null);
+  // The full inventory (search, every part and connector) over the canvas.
+  const [inventory, setInventory] = useState(false);
+  const [uses, setUses] = useState(readUses);
+  const used = (id: string) => setUses(countUse(id));
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useEffect(() => {
@@ -495,6 +523,7 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     const named = [inKind, outKind].find((k) => k && k !== "*" && kinds.has(k));
     const takes = toType ? toType.accepts.filter((k) => kinds.has(k)) : [];
     const kind = pen ?? named ?? takes[0] ?? "http";
+    used(kind);
     const id = readableId(`${c.source}-${c.target}`, bp.wires.map((w) => w.id));
     const ends = { fromPort: c.sourceHandle ?? undefined, toPort: c.targetHandle ?? undefined };
     change((b) => ({ ...b, wires: [...b.wires, { id, from: c.source, to: c.target, kind, calls: 1, notes: "", ...ends }] }));
@@ -526,10 +555,14 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
       set: {},
     };
     change((b) => ({ ...b, parts: [...b.parts, p] }));
+    used(typeId);
     setSel({ kind: "part", id });
   };
 
-  const setKind = (wire: string, kind: string) => change((b) => ({ ...b, wires: b.wires.map((w) => (w.id === wire ? { ...w, kind } : w)) }));
+  const setKind = (wire: string, kind: string) => {
+    change((b) => ({ ...b, wires: b.wires.map((w) => (w.id === wire ? { ...w, kind } : w)) }));
+    used(kind);
+  };
   /** A connector clicked: new wires use it, and so does the selected wire. */
   const pickConnector = (id: string | null) => {
     setPen(id);
@@ -554,7 +587,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
           setSel({ kind: "wire", id: wire });
         }
       } else if (!ghost.moved) addPart(ghost.type.id);
-      else if (over && canvas.current?.contains(over)) addPart(ghost.type.id, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+      else if (over && canvas.current?.contains(over) && !over.closest(".bp-inventory"))
+        addPart(ghost.type.id, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
       setGhost(null);
     };
     window.addEventListener("pointermove", move);
@@ -658,6 +692,23 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     setOpen({ kind, id });
   };
 
+  const palette = {
+    pen,
+    uses,
+    onPen: pickConnector,
+    onGrab: (type: PartType | ConnectorType, conn: boolean, e: React.PointerEvent) => {
+      e.preventDefault();
+      setGhost({ type, conn, x: e.clientX, y: e.clientY, moved: false });
+    },
+    lib,
+    onEdit: setTypeEdit,
+    onStore: keep,
+    onRenameCategory: renameCategory,
+    onRemove: async (t: TypeEdit) => {
+      if (await ask(`Remove ${t.value.name} from the inventory? Blueprints that use it keep their own copy.`)) removeFromLib(t);
+    },
+  };
+
   const actions = (
     <>
       {dirty && <span className="muted unsaved">unsaved</span>}
@@ -711,23 +762,9 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
       {!bp && !error && <p className="muted">Loading…</p>}
       {bp && (
         <div className="bp">
-          <Palette
-            bp={bp}
-            pen={pen}
-            onPen={pickConnector}
-            onGrab={(type, conn, e) => {
-              e.preventDefault();
-              setGhost({ type, conn, x: e.clientX, y: e.clientY, moved: false });
-            }}
-            lib={lib}
-            onEdit={setTypeEdit}
-            onStore={keep}
-            onRenameCategory={renameCategory}
-            onRemove={async (t) => {
-              if (await ask(`Remove ${t.value.name} from the inventory? Blueprints that use it keep their own copy.`)) removeFromLib(t);
-            }}
-          />
+          <Palette {...palette} bp={bp} onOpenInventory={() => setInventory(true)} />
           <div className="bp-canvas" ref={canvas}>
+            {inventory && <Palette {...palette} bp={bp} full onClose={() => setInventory(false)} />}
             <ReactFlow
               key={nonce}
               nodes={nodes}
@@ -835,10 +872,15 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
   );
 }
 
+/** The common parts and connectors at the left, or (`full`) the whole inventory with search. */
 function Palette({
   bp,
   lib,
   pen,
+  uses,
+  full,
+  onClose,
+  onOpenInventory,
   onPen,
   onGrab,
   onEdit,
@@ -849,6 +891,10 @@ function Palette({
   bp: Blueprint;
   lib: Library;
   pen: string | null;
+  uses: Record<string, number>;
+  full?: boolean;
+  onClose?: () => void;
+  onOpenInventory?: () => void;
   onPen: (id: string | null) => void;
   onGrab: (t: PartType | ConnectorType, conn: boolean, e: React.PointerEvent) => void;
   onEdit: (t: TypeEdit) => void;
@@ -859,10 +905,14 @@ function Palette({
   // Collapsed categories, and the one being renamed, as "part:Data" or "connector:Data".
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const searching = q.trim() !== "";
+  const hit = <T extends PartType | ConnectorType>(list: T[]) => (searching ? list.filter((t) => matches(t, q)) : list);
   const grouped = <T extends PartType | ConnectorType>(kind: TypeEdit["kind"], items: T[], render: (t: T) => ReactNode) =>
     byCategory(items).map(([cat, list]) => {
       const k = `${kind}:${cat}`;
-      const open = !closed.has(k);
+      // A search shows its matches, collapsed category or not.
+      const open = searching || !closed.has(k);
       return (
         <div key={k} className="bp-group">
           {renaming === k ? (
@@ -880,7 +930,12 @@ function Palette({
                 defaultValue={cat}
                 onFocus={(e) => e.currentTarget.select()}
                 onBlur={() => setRenaming(null)}
-                onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Escape") return;
+                  // Ends the rename, not the inventory.
+                  e.stopPropagation();
+                  setRenaming(null);
+                }}
                 aria-label={`New name for the ${cat} category`}
               />
             </form>
@@ -956,41 +1011,84 @@ function Palette({
       {custom && tools({ kind: "connector", value: c, isNew: false })}
     </div>
   );
+  const automatic = (
+    <button className={`bp-conn ${pen === null ? "picked" : ""}`} onClick={() => onPen(null)}>
+      <span className="bp-line" style={{ borderColor: "var(--muted)" }} />
+      Automatic
+    </button>
+  );
+  const connNote = <p className="muted bp-note">The one picked is used for new wires. Drag one onto a wire to change it.</p>;
+  if (!full) {
+    const parts = mostUsed(partTypes(bp), uses, 8);
+    const conns = mostUsed(connectorTypes(bp), uses, 5);
+    // The connector in use stays in sight, common or not.
+    const picked = connectorTypes(bp).find((c) => c.id === pen);
+    if (picked && !conns.includes(picked)) conns.push(picked);
+    return (
+      <aside className="bp-palette" aria-label="Common parts and connectors">
+        <h3 title="The ones you use most">Parts</h3>
+        {parts.map((t) => item(t, false))}
+        <h3 title="The ones you use most">Connectors</h3>
+        {connNote}
+        {automatic}
+        {conns.map((c) => conn(c, false))}
+        <button className="bp-new bp-open-inventory" onClick={onOpenInventory} title="Every part and connector, with search, and making your own">
+          View full inventory
+        </button>
+      </aside>
+    );
+  }
+  const none = searching && ![...PARTS, ...bp.customParts, ...CONNECTORS, ...bp.customConnectors].some((t) => matches(t, q));
   return (
-    <aside className="bp-palette" aria-label="Parts and connectors">
-      <h3>Parts</h3>
-      {PARTS.map((t) => item(t, false))}
-      <h3 title="Your own parts and connectors, kept for every blueprint">Inventory</h3>
-      {bp.customParts.length === 0 && <p className="muted bp-note">Parts you make are kept here for every blueprint.</p>}
-      {grouped("part", bp.customParts, (t) => item(t, true))}
-      <button
-        className="bp-new"
-        onClick={() =>
-          onEdit({
-            kind: "part",
-            isNew: true,
-            value: { id: `custom-${uid()}`, name: "", color: "#d9822b", description: "", capacity: 100, latency: 20, errorRate: 0, replicas: 1, stateful: false, source: 0, accepts: ["*"] },
-          })
-        }
-      >
-        + New part
-      </button>
-      <h3>Connectors</h3>
-      <p className="muted bp-note">The one picked is used for new wires. Drag one onto a wire to change it.</p>
-      <button className={`bp-conn ${pen === null ? "picked" : ""}`} onClick={() => onPen(null)}>
-        <span className="bp-line" style={{ borderColor: "var(--muted)" }} />
-        Automatic
-      </button>
-      {CONNECTORS.map((c) => conn(c, false))}
-      {grouped("connector", bp.customConnectors, (c) => conn(c, true))}
-      <button
-        className="bp-new"
-        onClick={() =>
-          onEdit({ kind: "connector", isNew: true, value: { id: `custom-${uid()}`, name: "", color: "#d9822b", sync: true, latency: 5, description: "" } })
-        }
-      >
-        + New connector
-      </button>
+    <aside className="bp-inventory" aria-label="Full inventory" onKeyDown={(e) => e.key === "Escape" && onClose?.()}>
+      <div className="bp-inventory-head">
+        <h3>Inventory</h3>
+        <button className="icon-button" onClick={onClose} aria-label="Close the inventory" title="Close (Esc)">
+          ✕
+        </button>
+      </div>
+      <input
+        type="search"
+        className="bp-search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search parts and connectors"
+        aria-label="Search the inventory"
+        autoFocus
+      />
+      <div className="bp-inventory-list">
+        {none && <p className="muted bp-note">Nothing matches &ldquo;{q.trim()}&rdquo;.</p>}
+        <h3>Parts</h3>
+        {hit(PARTS).map((t) => item(t, false))}
+        <h3 title="Your own parts and connectors, kept for every blueprint">Your parts</h3>
+        {bp.customParts.length === 0 && <p className="muted bp-note">Parts you make are kept here for every blueprint.</p>}
+        {grouped("part", hit(bp.customParts), (t) => item(t, true))}
+        <button
+          className="bp-new"
+          onClick={() =>
+            onEdit({
+              kind: "part",
+              isNew: true,
+              value: { id: `custom-${uid()}`, name: "", color: "#d9822b", description: "", capacity: 100, latency: 20, errorRate: 0, replicas: 1, stateful: false, source: 0, accepts: ["*"] },
+            })
+          }
+        >
+          + New part
+        </button>
+        <h3>Connectors</h3>
+        {connNote}
+        {!searching && automatic}
+        {hit(CONNECTORS).map((c) => conn(c, false))}
+        {grouped("connector", hit(bp.customConnectors), (c) => conn(c, true))}
+        <button
+          className="bp-new"
+          onClick={() =>
+            onEdit({ kind: "connector", isNew: true, value: { id: `custom-${uid()}`, name: "", color: "#d9822b", sync: true, latency: 5, description: "" } })
+          }
+        >
+          + New connector
+        </button>
+      </div>
     </aside>
   );
 }

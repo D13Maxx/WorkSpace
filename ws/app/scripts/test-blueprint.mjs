@@ -1,6 +1,6 @@
 // Checks the blueprint simulator: `node scripts/test-blueprint.mjs`.
 import assert from "node:assert/strict";
-import { blueprintText, buildPrompt, byCategory, emptyBlueprint, forSave, parseBlueprint, parseLibrary, readableId, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
+import { blueprintText, buildPrompt, byCategory, emptyBlueprint, forSave, matches, mostUsed, parseBlueprint, parseLibrary, readableId, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
 
 const part = (id, type, set = {}) => ({ id, type, label: id, x: 0, y: 0, notes: "", set });
 const wire = (from, to, kind, calls = 1) => ({ id: `${from}-${to}`, from, to, kind, calls, notes: "" });
@@ -128,5 +128,12 @@ assert.ok(request.includes("(id `api`;") && request.includes("Its code so far: `
 // A wire naming a part that is not there (a typo in the text) is a bug.
 const typo = parseBlueprint(JSON.stringify({ version: 1, parts: [{ id: "u", type: "users" }, { id: "api", type: "api" }], wires: [{ from: "u", to: "apii", kind: "http" }] }), "t");
 assert.ok(simulate(typo).findings.some((f) => f.level === "error" && f.text.includes('("apii")') && f.parts.join() === "u"));
+
+// The palette's common parts: most used first, the rest in their usual order.
+const kinds = ["a", "b", "c", "d"].map((id) => ({ id }));
+assert.deepEqual(mostUsed(kinds, { c: 3, d: 1 }, 3).map((t) => t.id), ["c", "d", "a"]);
+assert.deepEqual(mostUsed(kinds, {}, 2).map((t) => t.id), ["a", "b"]);
+assert.ok(matches({ name: "Vector database", category: "AI" }, " ai "));
+assert.ok(!matches({ name: "Cache", description: "Redis" }, "postgres"));
 
 console.log("blueprint model: ok");

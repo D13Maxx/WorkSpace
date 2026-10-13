@@ -212,6 +212,19 @@ export function parseLibrary(text: string): Library {
 /** The inventory heading a custom part or connector sits under. */
 export const categoryOf = (t: { category?: string }) => t.category?.trim() || "General";
 
+/** The `n` most used of `items` (by `uses`, counts per id); ties keep their order. */
+export function mostUsed<T extends { id: string }>(items: T[], uses: Record<string, number>, n: number): T[] {
+  return items
+    .map((t, i) => ({ t, i, c: uses[t.id] ?? 0 }))
+    .sort((a, b) => b.c - a.c || a.i - b.i)
+    .slice(0, n)
+    .map((x) => x.t);
+}
+
+/** Does a part or connector type match a search (name, description or category)? */
+export const matches = (t: { name: string; description?: string; category?: string }, q: string) =>
+  `${t.name} ${t.description ?? ""} ${categoryOf(t)}`.toLowerCase().includes(q.trim().toLowerCase());
+
 /** `items` by category: General first, then the rest A to Z. */
 export function byCategory<T extends { category?: string }>(items: T[]): [string, T[]][] {
   const groups = new Map<string, T[]>();
