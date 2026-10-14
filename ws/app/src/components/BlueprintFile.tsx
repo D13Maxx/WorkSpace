@@ -29,7 +29,7 @@ import "@xyflow/react/dist/style.css";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { api, ask, type ModelOption } from "../api";
+import { api, ask, type ModelOption, type SandboxReport } from "../api";
 import {
   buildConnectorFree,
   buildPartFree,
@@ -45,6 +45,10 @@ import {
   accepts,
   buildPrompt,
   byCategory,
+  calibrate,
+  contractOf,
+  emptyContract,
+  fieldsOf,
   categoryOf,
   connectorTypes,
   blueprintText,
@@ -65,6 +69,7 @@ import {
   withLibrary,
   type Blueprint,
   type ConnectorType,
+  type Contract,
   type Finding,
   type Library,
   type Part,
@@ -286,6 +291,8 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
   // The connector new wires use; null picks one the target takes.
   const [pen, setPen] = useState<string | null>(null);
   const [typeEdit, setTypeEdit] = useState<TypeEdit | null>(null);
+  // The sandbox: the built system run and measured.
+  const [sandbox, setSandbox] = useState<{ running: boolean; status: string; report?: SandboxReport; error?: string } | null>(null);
   // The full inventory (search, every part and connector) over the canvas.
   const [inventory, setInventory] = useState(false);
   const [uses, setUses] = useState(readUses);
@@ -667,6 +674,27 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
     onBuild(buildPrompt(forSave(bp), target.path, sub, base), target);
   };
 
+  /** Run what the agent built and measure each part, after showing what will run. */
+  const runSandbox = async () => {
+    const sb = bp?.sandbox;
+    if (!sb || !file) return;
+    const here = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
+    const where = [here, sb.dir].filter(Boolean).join("/") || "the blueprint's folder";
+    const yes = await ask(
+      `Start the built system and measure it? This runs, in ${where}:\n\n${sb.start}\n\n` +
+        (sb.stop ? `and to stop it:\n\n${sb.stop}\n\n` : "") +
+        "Test requests go to this computer only, and the system is stopped afterwards.",
+    );
+    if (!yes) return;
+    setSandbox({ running: true, status: "Starting…" });
+    try {
+      const report = await api.sandboxRun(file.root, here, sb, 5, 8, (status) => setSandbox((x) => x && { ...x, status }));
+      setSandbox({ running: false, status: "Measured", report });
+    } catch (e) {
+      setSandbox({ running: false, status: "Failed", error: String(e) });
+    }
+  };
+
   /** Rename a category: the inventory's parts or connectors under it, and copies only in this blueprint. */
   const renameCategory = (kind: TypeEdit["kind"], from: string, to: string) => {
     const name = to.trim();
@@ -729,6 +757,17 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
         title="Simulate traffic through the blueprint to find bugs, bottlenecks and deployment risks"
       >
         {running ? "■ Stop" : "▶ Run"}
+      </button>
+      <button
+        onClick={() => void runSandbox()}
+        disabled={!file || !bp?.sandbox || !!sandbox?.running}
+        title={
+          bp?.sandbox
+            ? "Run what the agent built and measure each part: real speeds and failures to set against the drawing"
+            : "Build with agent first: it records how to run what it builds"
+        }
+      >
+        Sandbox
       </button>
       <button
         onClick={() => void save()}
@@ -810,6 +849,21 @@ function Editor({ file, dir, version, header, onBuild, onDirty, onSaved, onSourc
                   setOpen({ kind: "part", id });
                   void flow.fitView({ nodes: [{ id }], duration: 300, maxZoom: 1.2 });
                 }}
+              />
+            )}
+            {sandbox && base && (
+              <SandboxPanel
+                bp={bp}
+                sim={base}
+                state={sandbox}
+                onStop={() => void api.sandboxStop()}
+                onClose={() => setSandbox(null)}
+                onApply={(numbers) =>
+                  change((b) => ({
+                    ...b,
+                    parts: b.parts.map((p) => (numbers[p.id] ? { ...p, set: { ...p.set, ...numbers[p.id] } } : p)),
+                  }))
+                }
               />
             )}
             {(selPart || selWire) && (
@@ -1181,6 +1235,12 @@ function Details({
           <span>What it should do (for the agent)</span>
           <textarea rows={4} value={part.notes} onChange={(e) => setPart(part.id, (p) => ({ ...p, notes: e.target.value }))} />
         </label>
+        <ContractEditor
+          key={part.id}
+          legend={part.contract || !t.contract ? "Contract: what it does" : "Contract (from its type; changing it changes only this one)"}
+          contract={contractOf(bp, part)}
+          onChange={(contract) => setPart(part.id, (p) => ({ ...p, contract }))}
+        />
         {FIELDS.map(([key, label, percent]) => (
           <NumberField
             key={key}
@@ -1271,6 +1331,37 @@ function Details({
             ))}
           </select>
         </label>
+        {(() => {
+          const ops = to ? (contractOf(bp, to)?.operations ?? []) : [];
+          const op = ops.find((o) => o.name === wire.op);
+          if (!ops.length && !wire.op) return null;
+          return (
+            <>
+              <label className="bp-field">
+                <span>Calls ({to?.label}&apos;s operation)</span>
+                <select value={wire.op ?? ""} onChange={(e) => setWire((w) => ({ ...w, op: e.target.value || undefined }))}>
+                  <option value="">(not said)</option>
+                  {wire.op && !op && <option value={wire.op}>{wire.op} (not in its contract)</option>}
+                  {ops.map((o) => (
+                    <option key={o.name} value={o.name}>
+                      {o.name}({o.takes})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {wire.op && (
+                <label className="bp-field">
+                  <span>Sends (comma separated; Run checks it against what {wire.op} takes)</span>
+                  <input
+                    value={wire.sends ?? ""}
+                    placeholder={op?.takes ? fieldsOf(op.takes).join(", ") : ""}
+                    onChange={(e) => setWire((w) => ({ ...w, sends: e.target.value || undefined }))}
+                  />
+                </label>
+              )}
+            </>
+          );
+        })()}
         <label className="bp-field">
           <span>Calls per request</span>
           <input
@@ -1352,6 +1443,147 @@ function Results({
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+/** Lines of text, one item each: kept as typed until it is used, so Enter works. */
+function LinesField({ label, value, placeholder, onChange }: { label: string; value: string[]; placeholder: string; onChange: (lines: string[]) => void }) {
+  const [raw, setRaw] = useState(value.join("\n"));
+  return (
+    <label className="bp-field">
+      <span>{label}</span>
+      <textarea
+        rows={2}
+        value={raw}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setRaw(e.target.value);
+          onChange(e.target.value.split("\n").map((l) => l.trim()).filter(Boolean));
+        }}
+      />
+    </label>
+  );
+}
+
+/** What a part does: the operations others call, the data it keeps, its rules. */
+function ContractEditor({ legend, contract, onChange }: { legend: string; contract?: Contract; onChange: (c: Contract) => void }) {
+  const c = contract ?? emptyContract();
+  const editOp = (i: number, patch: Partial<Contract["operations"][number]>) =>
+    onChange({ ...c, operations: c.operations.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
+  return (
+    <fieldset className="bp-list bp-contract">
+      <legend>{legend}</legend>
+      {c.operations.map((o, i) => (
+        <div key={i} className="bp-op">
+          <input value={o.name} onChange={(e) => editOp(i, { name: e.target.value })} placeholder="createOrder" aria-label="Operation name" />
+          <button type="button" className="icon-button" onClick={() => onChange({ ...c, operations: c.operations.filter((_, j) => j !== i) })} aria-label={`Remove ${o.name || "this operation"}`}>
+            ✕
+          </button>
+          <input value={o.takes} onChange={(e) => editOp(i, { takes: e.target.value })} placeholder="takes: items, customerId" aria-label="What it takes" />
+          <input value={o.returns} onChange={(e) => editOp(i, { returns: e.target.value })} placeholder="returns: orderId" aria-label="What it returns" />
+        </div>
+      ))}
+      <button type="button" className="bp-new" onClick={() => onChange({ ...c, operations: [...c.operations, { name: "", takes: "", returns: "" }] })}>
+        + Add operation
+      </button>
+      <LinesField label="Data it keeps (one per line)" value={c.data} placeholder="orders(id, items, total, status)" onChange={(data) => onChange({ ...c, data })} />
+      <LinesField label="Rules (one per line)" value={c.rules} placeholder="Reject an order if an item is out of stock" onChange={(rules) => onChange({ ...c, rules })} />
+    </fieldset>
+  );
+}
+
+/** The sandbox's progress, then each part as measured against the drawing. */
+function SandboxPanel({
+  bp,
+  sim,
+  state,
+  onStop,
+  onClose,
+  onApply,
+}: {
+  bp: Blueprint;
+  sim: NonNullable<ReturnType<typeof simulate>>;
+  state: { running: boolean; status: string; report?: SandboxReport; error?: string };
+  onStop: () => void;
+  onClose: () => void;
+  onApply: (numbers: Record<string, { latency: number; errorRate: number }>) => void;
+}) {
+  const label = (id: string) => bp.parts.find((p) => p.id === id)?.label ?? id;
+  const measured = Object.fromEntries((state.report?.parts ?? []).map((m) => [m.part, m]));
+  const [applied, setApplied] = useState(false);
+  return (
+    <section className="bp-results bp-sandbox" aria-label="Sandbox">
+      <div className="bp-results-bar">
+        <strong>Sandbox</strong>
+        <span className="muted">{state.status}</span>
+        {state.running ? (
+          <button onClick={onStop}>Stop</button>
+        ) : (
+          <button onClick={onClose} aria-label="Close the sandbox results">
+            Close
+          </button>
+        )}
+      </div>
+      {state.error && <pre className="failure bp-sandbox-error">{state.error}</pre>}
+      {state.report && (
+        <>
+          <table className="bp-sandbox-table">
+            <thead>
+              <tr>
+                <th>Part</th>
+                <th>Drawing expects</th>
+                <th>Measured (typical / slow)</th>
+                <th>Failed</th>
+                <th>Answered</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.report.parts.map((m) => {
+                const s = sim.parts[m.part];
+                const failed = m.requests ? m.failures / m.requests : 0;
+                // 8 callers at once is a floor on what it handles, not its limit.
+                const short = s && s.load > 0 && m.throughput < s.load;
+                return (
+                  <tr key={m.part} title={m.error ?? undefined}>
+                    <td>{label(m.part)}</td>
+                    <td>{s ? ms(s.total) : "—"}</td>
+                    <td>
+                      {ms(m.p50)} / {ms(m.p95)}
+                    </td>
+                    <td className={failed > 0.01 ? "failure" : ""}>
+                      {(failed * 100).toFixed(1)}%{m.error && failed > 0 ? ` (${m.error})` : ""}
+                    </td>
+                    <td className={short ? "failure" : ""}>
+                      {rate(m.throughput)}/s{short ? ` (needs ${rate(s.load)}/s)` : ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="row">
+            <button
+              className="primary"
+              disabled={applied || !state.report.parts.length}
+              onClick={() => {
+                onApply(calibrate(bp, measured));
+                setApplied(true);
+              }}
+              title="Each measured part's own time and failure rate go into the drawing (what it waits on is taken off), so Run works from real numbers"
+            >
+              {applied ? "Measured numbers in use" : "Use measured numbers"}
+            </button>
+            <span className="muted bp-note">Answered is with 8 requests at a time: a floor on what it handles, not its limit.</span>
+          </div>
+          {state.report.output.trim() && (
+            <details>
+              <summary className="muted">What the system printed</summary>
+              <pre className="bp-sandbox-output">{state.report.output}</pre>
+            </details>
+          )}
+        </>
       )}
     </section>
   );
@@ -1632,6 +1864,11 @@ function TypeEditor({
             </label>
             <PortsEditor bp={bp} ports={t.value.ports ?? []} onChange={(ports) => set({ ports })} />
             <SettingsEditor settings={t.value.settings ?? []} onChange={(settings) => set({ settings })} />
+            <ContractEditor
+              legend="Contract: what every part of this kind does (a placed one can change its own)"
+              contract={t.value.contract}
+              onChange={(contract) => set({ contract })}
+            />
           </>
         ) : (
           <>

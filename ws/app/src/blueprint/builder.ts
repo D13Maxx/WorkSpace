@@ -8,7 +8,7 @@
 // Both go through `normalisePart`/`normaliseConnector`, so whatever comes back,
 // above all from a model, is checked before it can reach the inventory.
 
-import { CONNECTORS, acceptsOf, type ConnectorType, type PartType, type Port, type Setting } from "./model.ts";
+import { CONNECTORS, acceptsOf, normaliseContract, type ConnectorType, type PartType, type Port, type Setting } from "./model.ts";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -272,8 +272,11 @@ Reply with ONLY one JSON object, no prose, in this shape:
  "latency": number (ms one request takes inside it), "errorRate": number (0..1),
  "replicas": integer >= 1, "stateful": boolean (holds data), "source": number (requests per second it starts by itself; 0 unless it is users or a schedule),
  "ports": [{"name": string, "dir": "in" | "out", "kind": connector id or "*"}],
- "settings": [{"key": string, "label": string, "type": "text" | "number" | "choice", "default": string, "options": [string] (for choice)}]}
-"in" ports are how others call it; "out" ports are what it calls. Use realistic numbers.
+ "settings": [{"key": string, "label": string, "type": "text" | "number" | "choice", "default": string, "options": [string] (for choice)}],
+ "contract": {"operations": [{"name": string (e.g. createOrder), "takes": string (comma separated inputs), "returns": string}],
+              "data": [string] (what it stores, e.g. "orders(id, items, total)"), "rules": [string] (how it must behave)}}
+"in" ports are how others call it; "out" ports are what it calls. The contract says what it does: list the operations others can call on it,
+the data it keeps and its rules; leave a list empty when it has none. Use realistic numbers.
 Connector ids you may use for port kinds:
 ${list}`;
 }
@@ -348,6 +351,7 @@ export function normalisePart(raw: Record<string, unknown> | PartType, connector
         ...(type === "choice" && options?.length ? { options } : {}),
       } as Setting;
     });
+  const contract = normaliseContract(r.contract);
   return {
     id: str(r.id, 60) || `custom-${uid()}`,
     name: str(r.name, 60) || "New part",
@@ -364,6 +368,7 @@ export function normalisePart(raw: Record<string, unknown> | PartType, connector
     accepts: ports.length ? acceptsOf(ports) : ["*"],
     ...(ports.length ? { ports } : {}),
     ...(settings.length ? { settings } : {}),
+    ...(contract ? { contract } : {}),
   };
 }
 

@@ -6694,6 +6694,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "portable-pty",
+ "reqwest",
  "serde",
  "serde_json",
  "tauri",

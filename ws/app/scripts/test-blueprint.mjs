@@ -1,6 +1,6 @@
 // Checks the blueprint simulator: `node scripts/test-blueprint.mjs`.
 import assert from "node:assert/strict";
-import { blueprintText, buildPrompt, byCategory, emptyBlueprint, forSave, matches, mostUsed, parseBlueprint, parseLibrary, readableId, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
+import { blueprintText, buildPrompt, byCategory, calibrate, emptyBlueprint, forSave, matches, mostUsed, normaliseSandbox, parseBlueprint, parseLibrary, readableId, simulate, upsert, withLibrary } from "../src/blueprint/model.ts";
 
 const part = (id, type, set = {}) => ({ id, type, label: id, x: 0, y: 0, notes: "", set });
 const wire = (from, to, kind, calls = 1) => ({ id: `${from}-${to}`, from, to, kind, calls, notes: "" });
@@ -135,5 +135,31 @@ assert.deepEqual(mostUsed(kinds, { c: 3, d: 1 }, 3).map((t) => t.id), ["c", "d",
 assert.deepEqual(mostUsed(kinds, {}, 2).map((t) => t.id), ["a", "b"]);
 assert.ok(matches({ name: "Vector database", category: "AI" }, " ai "));
 assert.ok(!matches({ name: "Cache", description: "Redis" }, "postgres"));
+
+// Contracts: what a wire calls is checked against what the target offers.
+const orders = { operations: [{ name: "createOrder", takes: "items, customerId: string", returns: "orderId" }, { name: "cancel", takes: "orderId", returns: "" }], data: [], rules: ["reject if out of stock"] };
+const shopC = (w) => ({ ...emptyBlueprint("c"), parts: [part("users", "users"), { ...part("api", "api"), contract: orders }], wires: [{ ...wire("users", "api", "http"), ...w }] });
+const bugs = (bp) => simulate(bp).findings.filter((f) => f.area === "bug" && f.level !== "info").map((f) => f.text);
+assert.ok(bugs(shopC({ op: "createOrder", sends: "items, customerId" })).length === 0);
+assert.ok(bugs(shopC({ op: "createOrder", sends: "items" })).some((t) => t.includes("without customerId")));
+assert.ok(bugs(shopC({ op: "refund" })).some((t) => t.includes("no such operation")));
+assert.ok(bugs(shopC({})).some((t) => t.includes("Which of")));
+// A part with nothing written about what it does is flagged; one with a contract is not.
+assert.ok(simulate(shop).findings.some((f) => f.level === "info" && f.text.startsWith("api has no function written")));
+assert.ok(!simulate(shopC({ op: "cancel" })).findings.some((f) => f.text.startsWith("api has no function")));
+// The agent is told the operations, rules and what each wire calls.
+const brief = buildPrompt(shopC({ op: "createOrder", sends: "items, customerId" }), "c.blueprint", "", simulate(shopC({})));
+assert.ok(brief.includes("createOrder(items, customerId: string) → orderId") && brief.includes("Rules: reject if out of stock") && brief.includes("calls createOrder with items, customerId"));
+assert.ok(brief.includes('"sandbox"'));
+// A contract or sandbox in a file is cleaned on the way in: junk dropped, an object body kept as text.
+const cleaned = parseBlueprint(JSON.stringify({ version: 1, parts: [{ id: "a", type: "api", contract: { operations: [{ name: "" }, { name: "get", takes: 3 }], rules: [5, "ok"] } }], wires: [], sandbox: { start: "npm start", probes: { a: { url: "http://localhost:3000/x", body: { q: 1 } }, b: { method: "GET" } } } }), "r");
+assert.deepEqual(cleaned.parts[0].contract, { operations: [{ name: "get", takes: "", returns: "" }], data: [], rules: ["ok"] });
+assert.deepEqual(cleaned.sandbox, { start: "npm start", probes: { a: { method: "GET", url: "http://localhost:3000/x", body: '{"q":1}' } } });
+assert.equal(normaliseSandbox({ probes: {} }), undefined);
+
+// Calibration: the API's probe took 40 ms, 10 of them its two DB calls (5 ms each, measured).
+const cal = calibrate(shop, { api: { requests: 100, failures: 2, p50: 40 }, db: { requests: 100, failures: 0, p50: 5 } });
+assert.deepEqual(cal.api, { latency: 30, errorRate: 0.02 });
+assert.deepEqual(cal.db, { latency: 5, errorRate: 0 });
 
 console.log("blueprint model: ok");

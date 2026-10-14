@@ -80,6 +80,10 @@ assert.deepEqual(t.accepts, ["*"]);
 assert.equal(setting(t, "mode").default, "x");
 assert.equal(new Set(t.settings.map((s) => s.key)).size, t.settings.length);
 assert.equal(t.settings[2].type, "text"); // a choice with no options is plain text
+// Its contract is kept, cleaned like the rest.
+t = parseAiPart('{"name": "Orders", "contract": {"operations": [{"name": "createOrder", "takes": "items"}, {"takes": "x"}], "rules": "not a list"}}', "d", CONNECTORS);
+assert.deepEqual(t.contract, { operations: [{ name: "createOrder", takes: "items", returns: "" }], data: [], rules: [] });
+assert.equal(parseAiPart('{"name": "Plain"}', "d", CONNECTORS).contract, undefined);
 assert.throws(() => parseAiPart("I can't help with that.", "d", CONNECTORS), /did not answer/);
 c = parseAiConnector('{"name": "gRPC", "sync": false, "latency": "fast"}', "d");
 assert.deepEqual([c.name, c.sync, c.latency], ["gRPC", false, 5]);

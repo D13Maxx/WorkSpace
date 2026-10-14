@@ -102,19 +102,9 @@ fn replace_once(text: &str, old: &str, new: &str) -> Result<String, String> {
     Err("old_text was not found in the file; read it again and copy the text exactly".to_owned())
 }
 
-async fn run_command(
-    root: &str,
-    command: &str,
-    bash: Option<&std::path::Path>,
-    plugin_root: Option<&std::path::Path>,
-) -> ToolOutput {
-    let mut cmd = if let Some(bash) = bash {
-        let mut c = tokio::process::Command::new(bash);
-        c.arg("-c").arg(command);
-        #[cfg(windows)]
-        c.creation_flags(0x0800_0000);
-        c
-    } else if cfg!(windows) {
+/// `command` for the system shell: cmd on Windows, sh elsewhere.
+pub(crate) fn shell(command: &str) -> tokio::process::Command {
+    if cfg!(windows) {
         let mut c = tokio::process::Command::new("cmd");
         c.arg("/C");
         #[cfg(windows)]
@@ -129,6 +119,23 @@ async fn run_command(
         let mut c = tokio::process::Command::new("sh");
         c.arg("-c").arg(command);
         c
+    }
+}
+
+async fn run_command(
+    root: &str,
+    command: &str,
+    bash: Option<&std::path::Path>,
+    plugin_root: Option<&std::path::Path>,
+) -> ToolOutput {
+    let mut cmd = if let Some(bash) = bash {
+        let mut c = tokio::process::Command::new(bash);
+        c.arg("-c").arg(command);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000);
+        c
+    } else {
+        shell(command)
     };
     cmd.current_dir(root)
         .stdin(std::process::Stdio::null())

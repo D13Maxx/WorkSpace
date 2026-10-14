@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
+import type { Sandbox } from "./blueprint/model";
 
 /** Ask before something that cannot be taken back. The dialog plugin swaps
  *  `window.confirm` for an async one, so a plain `if (confirm(...))` is always
@@ -189,6 +190,25 @@ export interface LoadedModel {
   ignored_rope_scaling: string | null;
 }
 
+/** One part of the built system, as the sandbox measured it. */
+export interface SandboxMeasured {
+  part: string;
+  requests: number;
+  failures: number;
+  /** Typical and slow (95th percentile) time per request, ms. */
+  p50: number;
+  p95: number;
+  /** Requests answered per second. */
+  throughput: number;
+  error: string | null;
+}
+
+export interface SandboxReport {
+  parts: SandboxMeasured[];
+  /** The end of what the system printed. */
+  output: string;
+}
+
 export const api = {
   listConversations: () => invoke<ConversationSummary[]>("list_conversations"),
 
@@ -300,6 +320,14 @@ export const api = {
   /** One question to a model, outside any chat; nothing is stored. */
   askModel: (backend: string, modelId: string, system: string, prompt: string) =>
     invoke<string>("ask_model", { backend, modelId, system, prompt }),
+  /** Start what the agent built, measure each part through its probe, stop it.
+   *  `dir` is the blueprint's folder inside `root`. */
+  sandboxRun: (root: string, dir: string, spec: Sandbox, seconds: number, concurrency: number, onProgress: (status: string) => void) => {
+    const channel = new Channel<string>();
+    channel.onmessage = onProgress;
+    return invoke<SandboxReport>("sandbox_run", { root, dir, spec, seconds, concurrency, onProgress: channel });
+  },
+  sandboxStop: () => invoke<void>("sandbox_stop"),
   /** The inventory of parts and connectors every blueprint shares, as JSON. */
   readPartsLibrary: () => invoke<string>("read_parts_library"),
   writePartsLibrary: (text: string) => invoke<void>("write_parts_library", { text }),

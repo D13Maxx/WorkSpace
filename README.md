@@ -219,6 +219,15 @@ a bit like LTspice or Multisim but for software:
 - **Details:** right-click a part or a wire to set what it should do (the agent
   builds from this), its load, its speed, its error rate and how many copies
   run.
+- **Contracts** say what a part does, not just how it looks: its
+  **operations** (`createOrder` takes `items, customerId`, returns `orderId`),
+  the **data it keeps** and its **rules**, one per line. Set them in a part's
+  details (right-click), or as defaults on a part type that each placed part
+  can change; Build with AI fills them in too. On a wire, pick which of the
+  target's operations it **calls** and what it **sends**: Run reports a call to
+  an operation the target does not have, or one missing what the operation
+  takes, and flags parts with no function written (the agent would guess).
+  The agent is told every operation, data line and rule, and builds them.
 - **Run** simulates steady traffic through the drawing. Each wire shows its
   requests per second and each part its load, latency and how full it is.
   Findings are listed as **Bug** (connectors a part does not take, loops that
@@ -230,6 +239,21 @@ a bit like LTspice or Multisim but for software:
 - **Build with agent** (enabled once Run finds no bugs) saves, then opens a
   new chat in the main window that asks the agent to write the whole system into the
   blueprint's folder in one go, with a README, local run config and tests.
+
+**The sandbox: run what was built.** Build with agent also writes a
+`sandbox` section into the blueprint: the command that starts every part
+(for example `docker compose up --build`), one that stops it, a URL that
+answers once it is up, and a test request (probe) for each part.
+**Sandbox** shows those commands and asks first, starts the system, waits
+for it, sends each part's probe for 5 s with 8 requests at a time, then stops
+it all (the start command's whole process tree too). Each part's measured
+typical and slow time, failures and requests answered per second appear next
+to what the drawing expects; a part answering fewer per second than the
+drawing sends it is flagged. **Use measured numbers** puts each part's own
+time and failure rate into the drawing (the time of what it waits on is
+taken off), so the next Run works from real numbers. Requests only ever go
+to this computer (localhost), and redirects are not followed. The answered
+rate is a floor on what a part handles, not its limit.
 
 **The text behind the canvas.** A `.blueprint` file is readable JSON, like a
 SPICE netlist: what the parts are and how they are wired, then a `layout`

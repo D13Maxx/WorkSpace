@@ -38,6 +38,45 @@ export interface Setting {
   options?: string[];
 }
 
+/** One thing a part does that others can ask for: `createOrder(items, customerId) → orderId`. */
+export interface Operation {
+  name: string;
+  /** What it takes, comma separated: "items, customerId". */
+  takes: string;
+  /** What it gives back. */
+  returns: string;
+}
+
+/** What a part does, for the agent that builds it and for Run's checks. */
+export interface Contract {
+  operations: Operation[];
+  /** What it keeps, one line each: "orders(id, items, total, status)". */
+  data: string[];
+  /** How it must behave, one line each: "reject an order if an item is out of stock". */
+  rules: string[];
+}
+
+/** A request that exercises one part of the built system. */
+export interface Probe {
+  method: string;
+  url: string;
+  body?: string;
+}
+
+/** How to start what the agent built and reach each part, so the sandbox can
+ *  run it and measure it. Build with agent writes it into the blueprint. */
+export interface Sandbox {
+  /** Starts every part, run in the blueprint's folder (or `dir` inside it). */
+  start: string;
+  /** Stops it, when ending `start` is not enough ("docker compose down"). */
+  stop?: string;
+  dir?: string;
+  /** Answers once everything is up. */
+  ready?: string;
+  /** By part id. */
+  probes: Record<string, Probe>;
+}
+
 export interface PartType {
   id: string;
   name: string;
@@ -64,6 +103,8 @@ export interface PartType {
   /** Named ways in and out; without them, one "in" (taking `accepts`) and one "out". */
   ports?: Port[];
   settings?: Setting[];
+  /** What every part of this kind does, until a placed one has its own. */
+  contract?: Contract;
 }
 
 export const TUNABLES = ["capacity", "latency", "errorRate", "replicas", "source"] as const;
@@ -83,6 +124,8 @@ export interface Part {
   values?: Record<string, string>;
   /** Where its code is (a file or folder, from the blueprint's folder), once built. */
   code?: string;
+  /** What this one does, over its type's. */
+  contract?: Contract;
 }
 
 export interface Wire {
@@ -96,6 +139,10 @@ export interface Wire {
   /** The ports it joins; absent on wires drawn before parts had ports. */
   fromPort?: string;
   toPort?: string;
+  /** The target's operation it calls. */
+  op?: string;
+  /** What it sends, comma separated, checked against what that operation takes. */
+  sends?: string;
 }
 
 export interface Blueprint {
@@ -108,6 +155,8 @@ export interface Blueprint {
   wires: Wire[];
   customParts: PartType[];
   customConnectors: ConnectorType[];
+  /** How to run what the agent built, to measure it. */
+  sandbox?: Sandbox;
 }
 
 export const CONNECTORS: ConnectorType[] = [
@@ -167,14 +216,67 @@ export function parseBlueprint(text: string, name: string): Blueprint {
     if (typeof p?.id !== "string" || typeof p.type !== "string") throw new Error(`Part ${i + 1} needs an "id" and a "type".`);
     // Files from before `layout` keep x and y on each part.
     const at = layout[p.id] ?? { x: p.x ?? 0, y: p.y ?? 0 };
-    return { ...p, label: p.label ?? p.id, notes: p.notes ?? "", set: p.set ?? {}, x: Number(at.x) || 0, y: Number(at.y) || 0 };
+    const { contract, ...q } = p;
+    return { ...q, label: p.label ?? p.id, notes: p.notes ?? "", set: p.set ?? {}, x: Number(at.x) || 0, y: Number(at.y) || 0, ...only("contract", normaliseContract(contract)) };
   });
   const wires = raw.wires.map((w, i) => {
     if (typeof w?.from !== "string" || typeof w.to !== "string") throw new Error(`Wire ${i + 1} needs a "from" and a "to".`);
-    return { ...w, id: w.id ?? `${w.from}-${w.to}-${i}`, kind: w.kind ?? "http", calls: w.calls ?? 1, notes: w.notes ?? "" };
+    const { op, sends, ...v } = w;
+    const word = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : undefined);
+    return { ...v, id: w.id ?? `${w.from}-${w.to}-${i}`, kind: w.kind ?? "http", calls: w.calls ?? 1, notes: w.notes ?? "", ...only("op", word(op)), ...only("sends", word(sends)) };
   });
-  return { ...emptyBlueprint(name), ...rest, parts, wires } as Blueprint;
+  const customParts = (Array.isArray(raw.customParts) ? raw.customParts : []).map(({ contract, ...t }) => ({ ...t, ...only("contract", normaliseContract(contract)) }));
+  const { sandbox, ...base } = rest;
+  return { ...emptyBlueprint(name), ...base, parts, wires, customParts, ...only("sandbox", normaliseSandbox(sandbox)) } as Blueprint;
 }
+
+/** `{ [key]: v }`, or nothing when `v` is: a file read back keeps no empty keys. */
+const only = <V>(key: string, v: V | undefined) => (v === undefined ? {} : { [key]: v });
+
+const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+/** A contract fit to keep, whatever `v` was (a file, a model's reply); none if it says nothing. */
+export function normaliseContract(v: unknown): Contract | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const r = v as Record<string, unknown>;
+  const lines = (x: unknown) => (Array.isArray(x) ? x.map((l) => text(l, 300)).filter(Boolean).slice(0, 50) : []);
+  const operations = (Array.isArray(r.operations) ? r.operations : [])
+    .filter((o): o is Record<string, unknown> => typeof o === "object" && o !== null)
+    .map((o) => ({ name: text(o.name, 80), takes: text(o.takes, 300), returns: text(o.returns, 300) }))
+    .filter((o) => o.name)
+    .slice(0, 50);
+  const c = { operations, data: lines(r.data), rules: lines(r.rules) };
+  return operations.length || c.data.length || c.rules.length ? c : undefined;
+}
+
+/** The sandbox section, whatever the file says; none without a start command. */
+export function normaliseSandbox(v: unknown): Sandbox | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const r = v as Record<string, unknown>;
+  const start = text(r.start, 2000);
+  if (!start) return undefined;
+  const probes: Record<string, Probe> = {};
+  for (const [id, p] of Object.entries(typeof r.probes === "object" && r.probes ? r.probes : {})) {
+    if (typeof p !== "object" || p === null) continue;
+    const q = p as Record<string, unknown>;
+    const url = text(q.url, 2000);
+    if (!url) continue;
+    // The agent may write a body as JSON rather than as text.
+    const body = typeof q.body === "object" && q.body !== null ? JSON.stringify(q.body) : text(q.body, 20000);
+    probes[id] = { method: (text(q.method, 10) || "GET").toUpperCase(), url, ...(body ? { body } : {}) };
+  }
+  const opt = (key: string) => (text(r[key], 2000) ? { [key]: text(r[key], 2000) } : {});
+  return { start, ...opt("stop"), ...opt("dir"), ...opt("ready"), probes };
+}
+
+/** The field names in "items, customerId: string, total". */
+export const fieldsOf = (s: string | undefined) =>
+  (s ?? "")
+    .split(",")
+    .map((f) => f.trim().split(/[\s:]/)[0])
+    .filter(Boolean);
+
+export const emptyContract = (): Contract => ({ operations: [], data: [], rules: [] });
 
 /** The file's text: types it uses, parts without positions, then the layout. */
 export function blueprintText(bp: Blueprint): string {
@@ -259,6 +361,8 @@ export function forSave(bp: Blueprint): Blueprint {
 
 export const partTypes = (bp: Blueprint) => [...PARTS, ...bp.customParts];
 export const connectorTypes = (bp: Blueprint) => [...CONNECTORS, ...bp.customConnectors];
+/** What a placed part does: its own contract, else its type's. */
+export const contractOf = (bp: Blueprint, p: Part): Contract | undefined => p.contract ?? typeOf(bp, p).contract;
 
 /** The type of `p`; a type deleted from the file reads as a plain part. */
 export function typeOf(bp: Blueprint, p: Part): PartType {
@@ -415,6 +519,39 @@ function flow(bp: Blueprint, scale: number, down: Set<string>) {
   return { stats, wireLoad, entries, wires, out, kinds, byId };
 }
 
+/** What the sandbox measured for one part, through its probe. */
+export interface Measured {
+  requests: number;
+  failures: number;
+  /** Typical time per request, ms. */
+  p50: number;
+}
+
+/** Each measured part's own numbers. A probe's time includes the parts it
+ *  waits on, so theirs come off: measured where they were, else predicted. */
+export function calibrate(bp: Blueprint, measured: Record<string, Measured>): Record<string, { latency: number; errorRate: number }> {
+  const { stats, out, kinds, byId } = flow(bp, 1, new Set());
+  const result: Record<string, { latency: number; errorRate: number }> = {};
+  for (const [id, m] of Object.entries(measured)) {
+    if (!byId.has(id) || m.requests <= 0) continue;
+    let below = 0;
+    let okBelow = 1;
+    for (const w of out.get(id) ?? []) {
+      const c = kinds.get(w.kind);
+      if (!c?.sync) continue;
+      const child = measured[w.to];
+      // Measured children ran on this machine: their time already holds the network's.
+      const seen = child && child.requests > 0;
+      below += w.calls * (seen ? child.p50 : c.latency + stats[w.to].total);
+      okBelow *= (seen ? 1 - child.failures / child.requests : stats[w.to].ok) ** w.calls;
+    }
+    const ok = 1 - m.failures / m.requests;
+    const errorRate = okBelow > 0 ? Math.min(1, Math.max(0, 1 - ok / okBelow)) : 0;
+    result[id] = { latency: Math.max(0, Math.round(m.p50 - below)), errorRate: Math.round(errorRate * 10000) / 10000 };
+  }
+  return result;
+}
+
 /** Run the blueprint at `scale` times its load, with the `down` parts failed. */
 export function simulate(bp: Blueprint, scale = 1, down: Set<string> = new Set()): SimResult {
   const { stats, wireLoad, entries, wires, out, kinds, byId } = flow(bp, scale, down);
@@ -454,6 +591,24 @@ export function simulate(bp: Blueprint, scale = 1, down: Set<string> = new Set()
       add("error", "bug", `${name(w.from)} talks to ${name(w.to)} over ${c.name}, but a ${t.name} ${list ? `only takes ${list}` : "takes no incoming calls"}.`, [w.from, w.to]);
     } else if (outPort && outPort.kind !== "*" && outPort.kind !== w.kind) {
       add("error", "bug", `${name(w.from)}'s "${outPort.name}" sends ${kinds.get(outPort.kind)?.name ?? outPort.kind}, not ${c.name}.`, [w.from, w.to]);
+    }
+    // The operation it calls, and what it sends, against the target's contract.
+    const ops = contractOf(bp, byId.get(w.to)!)?.operations ?? [];
+    const names = ops.map((o) => o.name).join(", ");
+    const op = w.op?.trim();
+    const found = op && ops.find((o) => o.name === op);
+    if (op && !ops.length) {
+      add("warning", "bug", `${name(w.from)} calls ${op} on ${name(w.to)}, whose contract lists no operations.`, [w.from, w.to]);
+    } else if (op && !found) {
+      add("error", "bug", `${name(w.from)} calls ${op} on ${name(w.to)}, which has no such operation (it has ${names}).`, [w.from, w.to]);
+    } else if (found && w.sends?.trim()) {
+      const sent = new Set(fieldsOf(w.sends));
+      const missing = fieldsOf(found.takes).filter((f) => !sent.has(f));
+      if (missing.length) {
+        add("error", "bug", `${name(w.from)} calls ${name(w.to)}.${op} without ${missing.join(", ")}: it sends ${[...sent].join(", ")}, and ${op} takes ${found.takes}.`, [w.from, w.to]);
+      }
+    } else if (!op && ops.length > 1) {
+      add("warning", "bug", `Which of ${name(w.to)}'s operations does ${name(w.from)} call (${names})? Pick one on the wire.`, [w.from, w.to]);
     }
   }
 
@@ -497,6 +652,11 @@ export function simulate(bp: Blueprint, scale = 1, down: Set<string> = new Set()
   for (const p of bp.parts) {
     const linked = wires.some((w) => w.from === p.id || w.to === p.id);
     if (!linked) add("warning", "bug", `${name(p.id)} is not connected to anything.`, [p.id]);
+    const contract = contractOf(bp, p);
+    const written = p.notes.trim() || contract?.operations.length || contract?.data.length || contract?.rules.length;
+    if (!written && value(bp, p, "source") === 0) {
+      add("info", "bug", `${name(p.id)} has no function written (What it should do, or its contract): the agent will guess what it does.`, [p.id]);
+    }
     else if (entries.length && stats[p.id].load === 0 && value(bp, p, "source") === 0 && !down.has(p.id)) {
       add("warning", "bug", `${name(p.id)} never receives a request.`, [p.id]);
     }
@@ -603,6 +763,12 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
     }
     const settings = (t.settings ?? []).map((x) => `${x.label} = ${p.values?.[x.key] ?? x.default}`).filter((x) => !x.endsWith("= "));
     if (settings.length) lines.push(`  - Settings: ${settings.join("; ")}`);
+    const contract = contractOf(bp, p);
+    if (contract?.operations.length) {
+      lines.push(`  - Operations: ${contract.operations.map((o) => `${o.name}(${o.takes})${o.returns ? ` → ${o.returns}` : ""}`).join("; ")}`);
+    }
+    if (contract?.data.length) lines.push(`  - Keeps: ${contract.data.join("; ")}`);
+    if (contract?.rules.length) lines.push(`  - Rules: ${contract.rules.join("; ")}`);
   }
   lines.push("", "## Connections");
   if (!bp.wires.length) lines.push("- (none)");
@@ -620,7 +786,8 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
     const to = end(w.to, w.toPort);
     const c = kinds.get(w.kind);
     const how = c ? `${c.name}, ${c.sync ? "waits for the answer" : "does not wait"}` : w.kind;
-    lines.push(`- ${from} → ${to}: ${how}${w.calls !== 1 ? `, ${w.calls} calls per request` : ""}${w.notes.trim() ? ` — ${w.notes.trim()}` : ""}`);
+    const calls = w.op ? `, calls ${w.op}${w.sends ? ` with ${w.sends}` : ""}` : "";
+    lines.push(`- ${from} → ${to}: ${how}${calls}${w.calls !== 1 ? `, ${w.calls} calls per request` : ""}${w.notes.trim() ? ` — ${w.notes.trim()}` : ""}`);
   }
   const custom = [...bp.customParts.map((t) => `- Part "${t.name}": ${t.description || "(no description)"}`), ...bp.customConnectors.map((c) => `- Connector "${c.name}": ${c.description || "(no description)"}`)];
   if (custom.length) lines.push("", "## Custom parts and connectors the user defined", ...custom);
@@ -630,6 +797,9 @@ export function buildPrompt(bp: Blueprint, file: string, dir: string, sim: SimRe
   }
   for (const f of sim.findings) lines.push(`- ${f.level}: ${f.text}`);
   lines.push("", `The full blueprint (every number and note) is the JSON in \`${file}\`; read it if you need more detail.`);
-  lines.push("", `When the code is written, record where each part's code is: in \`${file}\`, give each entry in "parts" a "code" field with the file or folder you wrote for it, relative to the blueprint's folder (for example "code": "services/orders-api"). Change nothing else in that file.`);
+  lines.push("", `Build every operation each part lists, with the names, inputs and outputs given, and follow its rules.`);
+  lines.push("", `When the code is written, update \`${file}\` in two ways and change nothing else in it:`);
+  lines.push(`1. Give each entry in "parts" a "code" field with the file or folder you wrote for it, relative to the blueprint's folder (for example "code": "services/orders-api").`);
+  lines.push(`2. Add a top-level "sandbox" object, so Workspace can start the system and measure each part: {"start": the one command that starts every part locally (for example "docker compose up --build"), "stop": a command that stops it when ending start is not enough (for example "docker compose down"; leave it out otherwise), "dir": the folder to run them in, relative to the blueprint's folder (leave it out for that folder), "ready": a localhost URL that answers once everything is up, "probes": {"<part id>": {"method": "GET" or "POST", "url": a localhost URL that exercises that part, through one of its operations where it has them, "body": the JSON request body, if it needs one}}}. Give a probe to every part that answers requests directly; leave out the ones only reached through another part (a database, a queue).`);
   return lines.join("\n");
 }

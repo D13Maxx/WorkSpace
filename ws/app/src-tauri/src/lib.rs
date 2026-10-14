@@ -13,6 +13,7 @@ mod files;
 mod graph;
 mod graph_builder;
 mod run;
+mod sandbox;
 mod state;
 mod workspace;
 
@@ -119,6 +120,8 @@ pub fn run() {
             blueprint::blueprint_saved_as,
             blueprint::blueprint_dirty,
             blueprint::unsaved_blueprints,
+            sandbox::sandbox_run,
+            sandbox::sandbox_stop,
         ])
         .run(tauri::generate_context!())
         .expect("the Tauri application failed to start");
