@@ -455,9 +455,14 @@ pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOptio
 
     // Profiled models are offered even when every provider is unreachable, so
     // an offline user still sees their own configuration.
+    // Not from a provider with no key, though: those can only fail.
+    let secrets = SecretStore::new();
+    let usable = |backend: &ws_context::BackendId| {
+        backend.as_str() == crate::state::LOCAL || secrets.has_key(backend.as_str()).unwrap_or(false)
+    };
     if let Ok(guard) = state.store.lock() {
         if let Ok(rows) = guard.list_model_profiles() {
-            for row in rows {
+            for row in rows.into_iter().filter(|r| usable(&r.model.backend)) {
                 if seen.insert(row.model.clone()) {
                     options.push(ModelOption {
                         backend: row.model.backend.to_string(),

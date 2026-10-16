@@ -282,9 +282,11 @@ export default function App() {
   const onSend = useCallback(
     async (text: string) => {
       if (!active) return;
+      // The model a chat is used with is the one new work should start with.
+      if (thread) rememberModel(thread.backend, thread.model_id);
       await consume(active, (onEvent) => api.sendMessage(active, text, onEvent));
     },
-    [active, consume],
+    [active, consume, thread],
   );
 
   const onRegenerate = useCallback(
