@@ -378,7 +378,8 @@ under the id you gave it. A gateway that says what each model supports (as
 OpenRouter does) has the models that cannot call tools left out of the picker,
 since every request carries the agent's tools and they would fail; the rest
 get the context window it reports, and a reply allowance of what it reports,
-up to a quarter of that window. A profile you edit yourself wins.
+up to a quarter of that window and 32k tokens (gateways charge credit up front
+for the largest reply allowed). A profile you edit yourself wins.
 
 Model ids are never hardcoded. Anything the provider does not report a context
 window for is marked *unprofiled* and uses conservative defaults until you set

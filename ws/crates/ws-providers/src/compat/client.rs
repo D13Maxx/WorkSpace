@@ -170,6 +170,9 @@ impl ChatBackend for CompatBackend {
     }
 }
 
+/// The largest reply allowance taken from a gateway's list.
+const MAX_REPLY: u32 = 32_768;
+
 /// The limits a gateway reports for a model (OpenRouter's `context_length`
 /// and `top_provider.max_completion_tokens`), when it reports any.
 fn reported_limits(item: &serde_json::Value, tools: bool) -> Option<ModelCapabilities> {
@@ -185,12 +188,14 @@ fn reported_limits(item: &serde_json::Value, tools: bool) -> Option<ModelCapabil
         .is_some_and(|m| m.iter().any(|v| v.as_str() == Some("image")));
     Some(ModelCapabilities {
         context_window,
-        // The reply's room is taken from the window before the chat gets any,
-        // so a model allowed 128k out of 200k would keep little for the chat:
-        // at most a quarter of the window.
+        // At most a quarter of the window, since the reply's room comes out of
+        // it before the chat gets any; and at most 32k, since gateways charge
+        // credit up front for the largest reply allowed (OpenRouter refused a
+        // 262k allowance on a 1M-window model), and few replies need more.
         max_output_tokens: reported
             .unwrap_or(u32::MAX)
             .min(context_window / 4)
+            .min(MAX_REPLY)
             .max(256),
         vision,
         tools,
@@ -323,7 +328,7 @@ mod tests {
                 glm.tools,
                 glm.vision
             ),
-            (202_752, 50_688, true, false)
+            (202_752, 32_768, true, false)
         );
         let small = models[1].known_capabilities.as_ref().unwrap();
         assert_eq!((small.max_output_tokens, small.vision), (2000, true));
