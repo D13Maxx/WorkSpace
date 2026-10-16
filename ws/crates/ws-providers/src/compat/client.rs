@@ -170,6 +170,34 @@ impl ChatBackend for CompatBackend {
     }
 }
 
+/// The limits a gateway reports for a model (OpenRouter's `context_length`
+/// and `top_provider.max_completion_tokens`), when it reports any.
+fn reported_limits(item: &serde_json::Value, tools: bool) -> Option<ModelCapabilities> {
+    let number = |v: Option<&serde_json::Value>| {
+        v.and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+    };
+    let context_window = number(item.get("context_length")).filter(|&n| n > 0)?;
+    let reported = number(item.pointer("/top_provider/max_completion_tokens"));
+    let vision = item
+        .pointer("/architecture/input_modalities")
+        .and_then(|v| v.as_array())
+        .is_some_and(|m| m.iter().any(|v| v.as_str() == Some("image")));
+    Some(ModelCapabilities {
+        context_window,
+        // The reply's room is taken from the window before the chat gets any,
+        // so a model allowed 128k out of 200k would keep little for the chat:
+        // at most a quarter of the window.
+        max_output_tokens: reported
+            .unwrap_or(u32::MAX)
+            .min(context_window / 4)
+            .max(256),
+        vision,
+        tools,
+        ..ModelCapabilities::default()
+    })
+}
+
 fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelInfo> {
     body.get("data")
         .and_then(|d| d.as_array())
@@ -178,10 +206,18 @@ fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelI
                 .iter()
                 .filter_map(|item| {
                     let id = item.get("id").and_then(|v| v.as_str())?;
+                    // Gateways that list what each model takes (OpenRouter does):
+                    // one that cannot call tools fails every request, since the
+                    // agent's tools go with each one. Plain servers list nothing.
+                    let params = item.get("supported_parameters").and_then(|v| v.as_array());
+                    let tools = params.map(|p| p.iter().any(|v| v.as_str() == Some("tools")));
+                    if tools == Some(false) {
+                        return None;
+                    }
                     Some(ModelInfo {
                         model: ModelRef::new(backend.clone(), id),
                         display_name: id.to_owned(),
-                        known_capabilities: None,
+                        known_capabilities: reported_limits(item, tools.unwrap_or(false)),
                     })
                 })
                 .collect()
@@ -263,6 +299,36 @@ mod tests {
         let models = parse_model_list(&backend, &body);
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].model.model_id, "llama-3-8b");
+    }
+
+    #[test]
+    fn a_gateway_list_drops_models_without_tools_and_reports_limits() {
+        let backend = BackendId::new("openrouter");
+        let body = serde_json::json!({"data": [
+            {"id": "z-ai/glm-4.6", "context_length": 202_752, "supported_parameters": ["tools", "temperature"],
+             "top_provider": {"max_completion_tokens": 131_072}, "architecture": {"input_modalities": ["text"]}},
+            {"id": "translator", "context_length": 8192, "supported_parameters": ["temperature"]},
+            {"id": "vision-small", "context_length": 32_000, "supported_parameters": ["tools"],
+             "top_provider": {"max_completion_tokens": 2000}, "architecture": {"input_modalities": ["text", "image"]}},
+            {"id": "plain"}
+        ]});
+        let models = parse_model_list(&backend, &body);
+        let ids: Vec<_> = models.iter().map(|m| m.model.model_id.as_str()).collect();
+        assert_eq!(ids, ["z-ai/glm-4.6", "vision-small", "plain"]);
+        let glm = models[0].known_capabilities.as_ref().unwrap();
+        assert_eq!(
+            (
+                glm.context_window,
+                glm.max_output_tokens,
+                glm.tools,
+                glm.vision
+            ),
+            (202_752, 50_688, true, false)
+        );
+        let small = models[1].known_capabilities.as_ref().unwrap();
+        assert_eq!((small.max_output_tokens, small.vision), (2000, true));
+        // A plain server says nothing, so the model keeps its profile's numbers.
+        assert!(models[2].known_capabilities.is_none());
     }
 
     #[test]
