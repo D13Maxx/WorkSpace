@@ -372,6 +372,9 @@ To add an OpenAI-compatible endpoint (a local llama.cpp, vLLM, a gateway), use
 name and a base URL. It is wired up on the next launch. Reasoning from such a
 server is shown but never replayed -- the protocol has nothing signed to send
 back.
+The agent's tools (reading and writing files, running commands) work through
+these endpoints too, so Build with agent can use a model on OpenRouter or Groq;
+the OpenAI (Responses) and Gemini connections still only chat.
 
 For OpenRouter, the base URL is `https://openrouter.ai/api/v1`; for Groq,
 `https://api.groq.com/openai/v1`. Each key goes under the id you gave it. A gateway that says what each model supports (as

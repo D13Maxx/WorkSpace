@@ -146,6 +146,13 @@ impl ChatBackend for CompatBackend {
         }
     }
 
+    /// Chat Completions takes `tools`; a server or model that cannot use
+    /// them answers with an error (OpenRouter's tool-less models are left out
+    /// of the list for that reason).
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
     async fn stream(
         &self,
         request: BackendRequest,

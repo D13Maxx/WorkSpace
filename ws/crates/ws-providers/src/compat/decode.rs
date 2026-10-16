@@ -17,6 +17,15 @@ use crate::sse::SseEvent;
 /// none is replayable; they exist only so the user can see the thinking.
 const REASONING_FIELDS: [&str; 3] = ["reasoning_content", "reasoning", "thinking"];
 
+/// A tool call as it streams in: Chat Completions sends the id and name once,
+/// then the arguments in pieces, all keyed by the call's `index`.
+#[derive(Debug)]
+struct Call {
+    id: String,
+    name: String,
+    args: String,
+}
+
 #[derive(Debug)]
 pub struct CompatDecoder {
     backend: ws_context::BackendId,
@@ -26,6 +35,7 @@ pub struct CompatDecoder {
     input_tokens: u32,
     output_tokens: u32,
     stop_reason: Option<StopReason>,
+    calls: std::collections::BTreeMap<u64, Call>,
     started: bool,
     done: bool,
 }
@@ -41,6 +51,7 @@ impl CompatDecoder {
             input_tokens: 0,
             output_tokens: 0,
             stop_reason: None,
+            calls: std::collections::BTreeMap::new(),
             started: false,
             done: false,
         }
@@ -61,9 +72,16 @@ impl CompatDecoder {
             "model": self.model_id,
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": self.text},
+                "message": {
+                    "role": "assistant",
+                    "content": self.text,
+                    "tool_calls": self.calls.values().map(|c| json!({
+                        "id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.args},
+                    })).collect::<Vec<_>>(),
+                },
                 "finish_reason": match self.stop_reason {
                     Some(StopReason::MaxTokens) => "length",
+                    Some(StopReason::ToolUse) => "tool_calls",
                     _ => "stop",
                 },
             }],
@@ -83,6 +101,11 @@ impl CompatDecoder {
 
     fn finish_now(&mut self) -> Vec<BackendEvent> {
         self.done = true;
+        // Some servers end a reply that made tool calls with "stop"; the turn
+        // only runs tools on ToolUse, so the calls themselves decide.
+        if !self.calls.is_empty() && !matches!(self.stop_reason, Some(StopReason::MaxTokens)) {
+            self.stop_reason = Some(StopReason::ToolUse);
+        }
         let mut out = Vec::new();
         if self.input_tokens > 0 || self.output_tokens > 0 {
             out.push(BackendEvent::Usage {
@@ -146,6 +169,50 @@ impl CompatDecoder {
                     self.started = true;
                     out.push(BackendEvent::TextDelta(t.to_owned()));
                 }
+            }
+            for (n, tc) in delta
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let index = tc.get("index").and_then(Value::as_u64).unwrap_or(n as u64);
+                let call = self.calls.entry(index).or_insert_with(|| Call {
+                    id: format!("call_{index}"),
+                    name: String::new(),
+                    args: String::new(),
+                });
+                // The id comes with the first piece; a server that sends none keeps the made-up one.
+                if let Some(id) = tc
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    if call.name.is_empty() && call.args.is_empty() {
+                        call.id = id.to_owned();
+                    }
+                }
+                let name = tc
+                    .pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty());
+                if let Some(name) = name {
+                    call.name = name.to_owned();
+                }
+                // Arguments are a JSON string by the protocol; some servers send the object itself.
+                let args = match tc.pointer("/function/arguments") {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(v) if !v.is_null() => v.to_string(),
+                    _ => String::new(),
+                };
+                call.args.push_str(&args);
+                self.started = true;
+                out.push(BackendEvent::ToolCallDelta {
+                    call_id: call.id.clone(),
+                    name: name.map(str::to_owned),
+                    args_delta: args,
+                });
             }
         }
 
@@ -216,5 +283,89 @@ impl crate::stream::StreamDecoder for CompatDecoder {
 
     fn finish(&mut self) -> Vec<BackendEvent> {
         self.finish_inner()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn feed(d: &mut CompatDecoder, data: &str) -> Vec<BackendEvent> {
+        d.decode(&SseEvent {
+            event: None,
+            data: data.to_owned(),
+        })
+    }
+
+    #[test]
+    fn a_streamed_tool_call_is_reassembled_and_ends_the_turn_for_tools() {
+        let mut d = CompatDecoder::new(ws_context::BackendId::new("groq"), "m");
+        let mut events = Vec::new();
+        events.extend(feed(&mut d, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"write_file","arguments":""}}]}}]}"#));
+        events.extend(feed(&mut d, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":"}}]}}]}"#));
+        events.extend(feed(&mut d, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a.txt\"}"}}]}}]}"#));
+        // This server says "stop" even though it called a tool.
+        events.extend(feed(
+            &mut d,
+            r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+        ));
+        events.extend(feed(&mut d, "[DONE]"));
+        let mut args = String::new();
+        for e in &events {
+            if let BackendEvent::ToolCallDelta {
+                call_id,
+                args_delta,
+                ..
+            } = e
+            {
+                assert_eq!(call_id, "call_ab");
+                args.push_str(args_delta);
+            }
+        }
+        assert_eq!(args, r#"{"path":"a.txt"}"#);
+        assert!(events.iter().any(
+            |e| matches!(e, BackendEvent::ToolCallDelta { name: Some(n), .. } if n == "write_file")
+        ));
+        assert!(events.contains(&BackendEvent::Done {
+            stop_reason: StopReason::ToolUse
+        }));
+    }
+
+    #[test]
+    fn calls_without_ids_or_with_object_arguments_still_work() {
+        let mut d = CompatDecoder::new(ws_context::BackendId::new("local"), "m");
+        let events = feed(
+            &mut d,
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"name":"a","arguments":{"x":1}}},{"function":{"name":"b","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#,
+        );
+        let calls: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                BackendEvent::ToolCallDelta {
+                    call_id,
+                    args_delta,
+                    ..
+                } => Some((call_id.as_str(), args_delta.as_str())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls, [("call_0", r#"{"x":1}"#), ("call_1", "{}")]);
+    }
+
+    #[test]
+    fn plain_text_replies_are_unchanged() {
+        let mut d = CompatDecoder::new(ws_context::BackendId::new("x"), "m");
+        let mut events = feed(
+            &mut d,
+            r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#,
+        );
+        events.extend(feed(&mut d, "[DONE]"));
+        assert!(events.contains(&BackendEvent::TextDelta("hi".to_owned())));
+        assert!(events.contains(&BackendEvent::Done {
+            stop_reason: StopReason::EndTurn
+        }));
     }
 }

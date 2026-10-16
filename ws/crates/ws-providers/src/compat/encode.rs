@@ -2,7 +2,8 @@
 //!
 //! The plainest of the four shapes: a flat `messages` array with a leading
 //! `system` message. Nothing provider-native is ever sent back, because this
-//! protocol has nothing signed to send.
+//! protocol has nothing signed to send. Tools go as `functions`; a call goes
+//! back as the assistant's `tool_calls`, its result as a `tool` message.
 
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -24,7 +25,72 @@ fn needs_array_content(msg: &RenderedMessage) -> bool {
     msg.parts.iter().any(|p| matches!(p, Part::Image { .. }))
 }
 
-fn encode_message(msg: &RenderedMessage, req: &BackendRequest) -> Option<Value> {
+/// A tool result as Chat Completions takes it: plain text, an error marked.
+fn result_text(content: &[Part], is_error: bool) -> String {
+    let body = content
+        .iter()
+        .filter_map(Part::as_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if is_error {
+        format!("Error: {body}")
+    } else {
+        body
+    }
+}
+
+/// One stored message as Chat Completions messages: its tool results first
+/// (each its own `tool` message, tied to its call by id), then its content
+/// with any tool calls it made.
+fn encode_message(msg: &RenderedMessage, req: &BackendRequest) -> Vec<Value> {
+    let mut out: Vec<Value> = msg
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::ToolResult {
+                call_id,
+                content,
+                is_error,
+            } => Some(json!({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": result_text(content, *is_error),
+            })),
+            _ => None,
+        })
+        .collect();
+    let calls: Vec<Value> = msg
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::ToolCall {
+                call_id,
+                name,
+                args_json,
+            } => Some(json!({
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": args_json},
+            })),
+            _ => None,
+        })
+        .collect();
+    match encode_content(msg, req) {
+        Some(mut m) => {
+            if !calls.is_empty() {
+                m["tool_calls"] = Value::Array(calls);
+            }
+            out.push(m);
+        }
+        None if !calls.is_empty() => {
+            out.push(json!({"role": "assistant", "content": Value::Null, "tool_calls": calls}))
+        }
+        None => {}
+    }
+    out
+}
+
+fn encode_content(msg: &RenderedMessage, req: &BackendRequest) -> Option<Value> {
     if needs_array_content(msg) {
         let mut content = Vec::new();
         for part in &msg.parts {
@@ -94,10 +160,10 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
         req.view
             .messages
             .iter()
-            .filter_map(|m| encode_message(m, req)),
+            .flat_map(|m| encode_message(m, req)),
     );
 
-    json!({
+    let mut body = json!({
         "model": req.model.model_id,
         "messages": messages,
         "max_tokens": req.max_output_tokens,
@@ -105,7 +171,15 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
         // Ask for usage on the final chunk. Servers that do not understand
         // this generally ignore it.
         "stream_options": {"include_usage": true},
-    })
+    });
+    if !req.tools.is_empty() {
+        body["tools"] = req
+            .tools
+            .iter()
+            .map(|t| json!({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}}))
+            .collect();
+    }
+    body
 }
 
 #[cfg(test)]
@@ -242,6 +316,61 @@ mod tests {
             None,
         );
         assert_eq!(build_body(&req, true)["messages"][0]["content"], "visible");
+    }
+
+    #[test]
+    fn tools_calls_and_results_go_in_the_chat_completions_shape() {
+        let mut req = request(
+            vec![
+                user("read a.txt"),
+                RenderedMessage {
+                    source_id: MsgId::new(),
+                    role: Role::Assistant,
+                    parts: vec![Part::ToolCall {
+                        call_id: "call_1".to_owned(),
+                        name: "read_file".to_owned(),
+                        args_json: r#"{"path":"a.txt"}"#.to_owned(),
+                    }],
+                },
+                RenderedMessage {
+                    source_id: MsgId::new(),
+                    role: Role::Tool,
+                    parts: vec![Part::ToolResult {
+                        call_id: "call_1".to_owned(),
+                        content: vec![Part::text("no such file")],
+                        is_error: true,
+                    }],
+                },
+            ],
+            None,
+        );
+        req.tools.push(ws_context::ToolSpec {
+            name: "read_file".to_owned(),
+            description: "Read a file".to_owned(),
+            input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+        });
+        let body = build_body(&req, true);
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["function"]["name"], "read_file");
+        assert_eq!(body["tools"][0]["function"]["parameters"]["type"], "object");
+        let m = &body["messages"];
+        assert_eq!(m[1]["role"], "assistant");
+        assert!(m[1]["content"].is_null());
+        assert_eq!(m[1]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(
+            m[1]["tool_calls"][0]["function"]["arguments"],
+            r#"{"path":"a.txt"}"#
+        );
+        assert_eq!(
+            m[2],
+            json!({"role": "tool", "tool_call_id": "call_1", "content": "Error: no such file"})
+        );
+        // Without tools offered, the body has no tools key at all.
+        assert!(
+            build_body(&request(vec![user("hi")], None), true)
+                .get("tools")
+                .is_none()
+        );
     }
 
     #[test]
