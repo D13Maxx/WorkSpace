@@ -373,11 +373,11 @@ name and a base URL. It is wired up on the next launch. Reasoning from such a
 server is shown but never replayed -- the protocol has nothing signed to send
 back.
 
-For OpenRouter, the base URL is `https://openrouter.ai/api/v1`, with its key
-under the id you gave it. A gateway that says what each model supports (as
+For OpenRouter, the base URL is `https://openrouter.ai/api/v1`; for Groq,
+`https://api.groq.com/openai/v1`. Each key goes under the id you gave it. A gateway that says what each model supports (as
 OpenRouter does) has the models that cannot call tools left out of the picker,
 since every request carries the agent's tools and they would fail; the rest
-get the context window it reports, and a reply allowance of what it reports,
+get the context window it reports (OpenRouter and Groq both report one), and a reply allowance of what it reports,
 up to a quarter of that window and 32k tokens (gateways charge credit up front
 for the largest reply allowed). A profile you edit yourself wins.
 

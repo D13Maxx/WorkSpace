@@ -173,15 +173,19 @@ impl ChatBackend for CompatBackend {
 /// The largest reply allowance taken from a gateway's list.
 const MAX_REPLY: u32 = 32_768;
 
-/// The limits a gateway reports for a model (OpenRouter's `context_length`
-/// and `top_provider.max_completion_tokens`), when it reports any.
+/// The limits a gateway reports for a model, when it reports any: OpenRouter
+/// says `context_length` and `top_provider.max_completion_tokens`, Groq
+/// `context_window` and `max_completion_tokens`.
 fn reported_limits(item: &serde_json::Value, tools: bool) -> Option<ModelCapabilities> {
     let number = |v: Option<&serde_json::Value>| {
         v.and_then(serde_json::Value::as_u64)
             .and_then(|n| u32::try_from(n).ok())
     };
-    let context_window = number(item.get("context_length")).filter(|&n| n > 0)?;
-    let reported = number(item.pointer("/top_provider/max_completion_tokens"));
+    let context_window = number(item.get("context_length"))
+        .or_else(|| number(item.get("context_window")))
+        .filter(|&n| n > 0)?;
+    let reported = number(item.pointer("/top_provider/max_completion_tokens"))
+        .or_else(|| number(item.get("max_completion_tokens")));
     let vision = item
         .pointer("/architecture/input_modalities")
         .and_then(|v| v.as_array())
@@ -334,6 +338,29 @@ mod tests {
         assert_eq!((small.max_output_tokens, small.vision), (2000, true));
         // A plain server says nothing, so the model keeps its profile's numbers.
         assert!(models[2].known_capabilities.is_none());
+    }
+
+    #[test]
+    fn groq_names_its_limits_differently() {
+        let backend = BackendId::new("groq");
+        let body = serde_json::json!({"data": [
+            {"id": "llama-3.3-70b-versatile", "context_window": 131_072, "max_completion_tokens": 32_768}
+        ]});
+        let caps = parse_model_list(&backend, &body)[0]
+            .known_capabilities
+            .clone()
+            .unwrap();
+        // The reported 32k, a quarter of the window and the 32k cap all agree here.
+        assert_eq!(
+            (caps.context_window, caps.max_output_tokens),
+            (131_072, 32_768)
+        );
+        let body = serde_json::json!({"data": [{"id": "small", "context_window": 8192, "max_completion_tokens": 1024}]});
+        let caps = parse_model_list(&backend, &body)[0]
+            .known_capabilities
+            .clone()
+            .unwrap();
+        assert_eq!((caps.context_window, caps.max_output_tokens), (8192, 1024));
     }
 
     #[test]
