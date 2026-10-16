@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, ask, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
+import { api, ask, claudeFirst, preferredModel, rememberModel, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
@@ -300,7 +300,7 @@ export default function App() {
   }, [active]);
 
   const onNewConversation = useCallback(async () => {
-    const model = models[0];
+    const model = preferredModel(models, (m) => m[0]);
     const id = await api.createConversation(
       "New conversation",
       model?.backend ?? ANTHROPIC,
@@ -310,11 +310,10 @@ export default function App() {
     setActive(id);
   }, [models, refreshConversations]);
 
-  /** Send `message` to the agent in a new chat working in `folder`, with a
-   *  Claude model when there is one. */
-  const startAgent = async (folder: string, file: string | null, title: string, message: string) => {
-    const claude = models.filter((m) => m.backend === ANTHROPIC);
-    const model = claude.find((m) => m.model_id.includes("sonnet")) ?? claude[0] ?? models[0];
+  /** Send `message` to the agent in a new chat working in `folder`, with the
+   *  model last picked (or a Claude when `claude`, which /understand needs). */
+  const startAgent = async (folder: string, file: string | null, title: string, message: string, claude = false) => {
+    const model = claude ? claudeFirst(models) : preferredModel(models, claudeFirst);
     try {
       const id = await api.createConversation(
         title,
@@ -402,7 +401,7 @@ export default function App() {
     setGraphFor(null);
     addFolder(folder);
     setOpenFile(null);
-    void startAgent(folder, null, `Knowledge graph: ${baseName(folder)}`, "/understand");
+    void startAgent(folder, null, `Knowledge graph: ${baseName(folder)}`, "/understand", true);
   };
 
   const onSelectBranch = useCallback(
@@ -418,6 +417,7 @@ export default function App() {
     async (backend: string, modelId: string) => {
       if (!active) return;
       await api.switchModel(active, backend, modelId);
+      rememberModel(backend, modelId);
       await refreshThread(active);
     },
     [active, refreshThread],

@@ -29,7 +29,7 @@ import "@xyflow/react/dist/style.css";
 import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { api, ask, type ModelOption, type SandboxReport } from "../api";
+import { api, ask, claudeFirst, preferredModel, type ModelOption, type SandboxReport } from "../api";
 import {
   buildConnectorFree,
   buildPartFree,
@@ -1614,10 +1614,6 @@ function SettingField({ setting, value, onChange }: { setting: Setting; value?: 
   );
 }
 
-/** The model the AI builder asks: a Claude Sonnet if there is one, else any. */
-const pickModel = (models: ModelOption[]) =>
-  models.find((m) => m.backend === "anthropic" && m.model_id.includes("sonnet")) ?? models.find((m) => m.backend === "anthropic") ?? models[0];
-
 /** The parts builder: a description in, the form below filled in. */
 function Builder({ bp, kind, onBuilt }: { bp: Blueprint; kind: TypeEdit["kind"]; onBuilt: (v: PartType | ConnectorType) => void }) {
   const [desc, setDesc] = useState("");
@@ -1630,7 +1626,8 @@ function Builder({ bp, kind, onBuilt }: { bp: Blueprint; kind: TypeEdit["kind"];
       .then(setModels)
       .catch(() => setModels([]));
   }, []);
-  const model = pickModel(models);
+  // The model last picked in a chat, else a Claude.
+  const model = preferredModel(models, claudeFirst);
   const connectors = connectorTypes(bp);
   const free = () => {
     setError(null);

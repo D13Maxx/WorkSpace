@@ -237,7 +237,8 @@ a bit like LTspice or Multisim but for software:
   The load slider runs it at 0.1× to 50×, and **Simulate this part failing**
   takes one part down.
 - **Build with agent** (enabled once Run finds no bugs) saves, then opens a
-  new chat in the main window that asks the agent to write the whole system into the
+  new chat in the main window (with the model you last picked in a chat, as
+  new chats and Build with AI use too) that asks the agent to write the whole system into the
   blueprint's folder in one go, with a README, local run config and tests.
 
 **The sandbox: run what was built.** Build with agent also writes a

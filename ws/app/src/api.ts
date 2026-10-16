@@ -102,6 +102,33 @@ export interface ModelOption {
   unprofiled: boolean;
 }
 
+/** The model last picked in a chat. Work that starts without one (a new
+ *  chat, Build with agent, the parts builder) uses it. Per viewer. */
+const LAST_MODEL = "ws.lastModel";
+export function rememberModel(backend: string, modelId: string) {
+  try {
+    localStorage.setItem(LAST_MODEL, JSON.stringify({ backend, modelId }));
+  } catch {
+    // Not remembered: the fallback picks instead.
+  }
+}
+
+/** A Claude Sonnet if there is one, else any Claude, else the first model. */
+export const claudeFirst = (models: ModelOption[]) =>
+  models.find((m) => m.backend === "anthropic" && m.model_id.includes("sonnet")) ?? models.find((m) => m.backend === "anthropic") ?? models[0];
+
+/** The model last picked, if it is still on offer; else `fallback`'s choice. */
+export function preferredModel(models: ModelOption[], fallback: (models: ModelOption[]) => ModelOption | undefined) {
+  try {
+    const last = JSON.parse(localStorage.getItem(LAST_MODEL) ?? "null") as { backend?: string; modelId?: string } | null;
+    const hit = last && models.find((m) => m.backend === last.backend && m.model_id === last.modelId);
+    if (hit) return hit;
+  } catch {
+    // Unreadable: the fallback picks.
+  }
+  return fallback(models);
+}
+
 export interface BackendInfo {
   id: string;
   built_in: boolean;
