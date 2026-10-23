@@ -438,6 +438,9 @@ pub fn sandbox_stop() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::{Probe, local_url, measure, percentile};
     use std::time::Duration;
     use tokio_util::sync::CancellationToken;
@@ -501,11 +504,19 @@ mod tests {
     /// The whole run: start a real server, wait for it, measure it, end it.
     #[tokio::test]
     async fn starts_measures_and_stops_the_system() {
-        if std::process::Command::new("node").arg("--version").output().is_err() {
+        if std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             eprintln!("skipped: no Node.js");
             return;
         }
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("server.js"),
@@ -521,12 +532,21 @@ mod tests {
         .unwrap();
         let progress = tauri::ipc::Channel::new(|_| Ok(()));
         let root = dir.path().display().to_string();
-        let report = super::sandbox_run(root, String::new(), spec, 1, 2, progress).await.unwrap();
+        let report = super::sandbox_run(root, String::new(), spec, 1, 2, progress)
+            .await
+            .unwrap();
         assert_eq!(report.parts.len(), 1);
-        assert!(report.parts[0].requests > 0 && report.parts[0].failures == 0, "{:?}", report.parts);
+        assert!(
+            report.parts[0].requests > 0 && report.parts[0].failures == 0,
+            "{:?}",
+            report.parts
+        );
         // Ended with its whole process tree: the port is free again.
         tokio::time::sleep(Duration::from_millis(500)).await;
-        assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(), "the server is still running");
+        assert!(
+            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+            "the server is still running"
+        );
     }
 
     #[tokio::test]
@@ -537,8 +557,14 @@ mod tests {
         }))
         .unwrap();
         let progress = tauri::ipc::Channel::new(|_| Ok(()));
-        let err = super::sandbox_run(".".into(), String::new(), spec, 1, 1, progress).await.err().unwrap();
-        assert!(err.contains("only sends requests to this computer"), "{err}");
+        let err = super::sandbox_run(".".into(), String::new(), spec, 1, 1, progress)
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            err.contains("only sends requests to this computer"),
+            "{err}"
+        );
     }
 
     #[tokio::test]

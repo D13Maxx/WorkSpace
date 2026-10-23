@@ -6690,7 +6690,6 @@ dependencies = [
 name = "ws-app"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "portable-pty",
@@ -6748,8 +6747,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "ws-context",
- "ws-providers",
- "ws-secrets",
  "ws-store",
 ]
 
@@ -6759,14 +6756,12 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "candle-core",
- "candle-nn",
  "candle-transformers",
  "futures-util",
  "hex",
  "minijinja",
  "rayon",
  "serde",
- "serde_json",
  "sha2 0.11.0",
  "sysinfo",
  "tempfile",
@@ -6800,7 +6795,6 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
  "tokio",
  "tracing",
  "ws-context",
@@ -6817,9 +6811,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "reqwest",
- "serde",
  "serde_json",
- "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "tracing",
@@ -6843,13 +6835,11 @@ dependencies = [
  "chrono",
  "hex",
  "rusqlite",
- "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
- "ulid",
  "ws-context",
 ]
 

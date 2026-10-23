@@ -206,8 +206,7 @@ fn reported_limits(item: &serde_json::Value, tools: bool) -> Option<ModelCapabil
         max_output_tokens: reported
             .unwrap_or(u32::MAX)
             .min(context_window / 4)
-            .min(MAX_REPLY)
-            .max(256),
+            .clamp(256, MAX_REPLY),
         vision,
         tools,
         ..ModelCapabilities::default()

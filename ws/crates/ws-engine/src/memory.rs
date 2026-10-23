@@ -58,16 +58,6 @@ impl MemoryEstimate {
     pub fn total_mib(&self) -> u64 {
         self.total_bytes / MIB
     }
-
-    #[must_use]
-    pub fn kv_cache_mib(&self) -> u64 {
-        self.kv_cache_bytes / MIB
-    }
-
-    #[must_use]
-    pub fn weights_mib(&self) -> u64 {
-        self.weights_bytes / MIB
-    }
 }
 
 /// Bytes the KV cache occupies at a given context length.

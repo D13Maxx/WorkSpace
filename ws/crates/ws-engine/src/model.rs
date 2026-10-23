@@ -278,11 +278,6 @@ impl LoadedModel {
         // forward pass of its own. Kept as a named no-op so the invariant is
         // stated where a reader looks for it.
     }
-
-    pub fn reset_cache(&mut self) {
-        self.weights.clear_kv_cache();
-        self.cached.clear();
-    }
 }
 
 /// What the loaded model's cache can do (master spec s8.5).

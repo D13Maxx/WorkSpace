@@ -17,25 +17,6 @@
   color-scheme: dark;
 }
 
-/* Only if the viewer explicitly prefers light. The app is dark-first. */
-@media (prefers-color-scheme: light) {
-  :root.respect-light {
-    --bg: #ffffff;
-    --panel: #f6f7f9;
-    --raised: #ffffff;
-    --border: #dfe3e8;
-    --border-strong: #c8cfd8;
-    --text: #16191d;
-    --muted: #667085;
-    --accent: #2563eb;
-    --accent-ink: #ffffff;
-    --danger: #b42318;
-    --danger-dim: #fee4e2;
-    --ok: #067647;
-    color-scheme: light;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -457,13 +438,6 @@ select:focus {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-.warn {
-  color: var(--danger);
-  font-size: 11px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  padding: 0 5px;
 }
 .muted {
   color: var(--muted);

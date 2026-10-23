@@ -137,19 +137,6 @@ impl SecretStore {
             Err(e) => Err(map_err(e)),
         }
     }
-
-    /// Remove keys for every listed account. Part of "Delete all data"
-    /// (master spec s10); callers pass the backend ids they know about,
-    /// because the OS store cannot be enumerated portably.
-    ///
-    /// # Errors
-    /// Fails on the first account that cannot be deleted.
-    pub fn delete_all(&self, accounts: &[String]) -> Result<()> {
-        for account in accounts {
-            self.delete_key(account)?;
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

@@ -165,12 +165,6 @@ pub fn decode_body<D: StreamDecoder>(
     events
 }
 
-/// Convenience for a decoder that borrows nothing: decode the whole body at
-/// once and also hand back the decoder for inspection.
-pub fn decode_all<D: StreamDecoder>(body: &str, decoder: &mut D) -> Vec<BackendEvent> {
-    decode_body(body, decoder, usize::MAX)
-}
-
 /// Zero or more events plus the SSE event that produced them, for tests that
 /// need to assert ordering across a whole fixture.
 pub type Decoded = Vec<(SseEvent, Vec<BackendEvent>)>;

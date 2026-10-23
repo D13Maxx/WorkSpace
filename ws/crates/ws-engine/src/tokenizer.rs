@@ -126,17 +126,6 @@ impl EngineTokenizer {
     }
 
     #[must_use]
-    pub fn bos_id(&self) -> Option<u32> {
-        self.bos
-    }
-
-    /// Token ids that end generation.
-    #[must_use]
-    pub fn stop_tokens(&self) -> &BTreeSet<u32> {
-        &self.stops
-    }
-
-    #[must_use]
     pub fn is_stop(&self, id: u32) -> bool {
         self.stops.contains(&id)
     }

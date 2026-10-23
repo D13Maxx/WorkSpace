@@ -50,7 +50,6 @@ bytes = "1"
 # to be hand-written, so it is staged to be replaced behind the same trait.
 candle-core = "0.11.0"
 candle-transformers = "0.11.0"
-candle-nn = "0.11.0"
 # Must match the version candle-core resolves to (0.22.x). Two copies of
 # tokenizers in one build are two different `Tokenizer` types, and candle's
 # `TokenizerFromGguf` would not apply to ours.
