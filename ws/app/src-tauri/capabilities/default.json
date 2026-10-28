@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Master spec s11.2: grant only what the app itself needs. No shell plugin, no filesystem plugin -- all file access goes through backend commands. The dialog plugin may only open the native picker, which returns a path and reads nothing, and show yes/no questions.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "core:window:allow-destroy",
+    "dialog:allow-open",
+    "dialog:allow-message"
+  ]
+}

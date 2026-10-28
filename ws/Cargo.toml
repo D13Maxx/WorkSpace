@@ -1,0 +1,104 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ws-context",
+    "crates/ws-store",
+    "crates/ws-secrets",
+    "crates/ws-providers",
+    "crates/ws-engine",
+    "crates/ws-engine-cli",
+    "crates/ws-core",
+    "crates/ws-mcp",
+    "app/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Debargha Das"]
+
+# Shared dependency versions. Pinned from crates.io at scaffold time (2026-09-12).
+# Per master spec s0.3: never invent APIs; verify against docs.rs for these exact versions.
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+ulid = { version = "3.0.0", features = ["serde"] }
+async-trait = "0.1.92"
+futures-util = "0.3.34"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7.19"
+tokio-stream = "0.1.17"
+rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
+keyring = "4.2.0"
+# reqwest 0.13 renamed the rustls feature from "rustls-tls" to "rustls".
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "stream", "http2", "charset"] }
+
+sha2 = "0.11.0"
+hex = "0.4.3"
+base64 = "0.23.1"
+bytes = "1"
+
+# Local inference (master spec s8). candle-transformers is the reference
+# implementation of the Llama forward pass; s2 requires the shipped model code
+# to be hand-written, so it is staged to be replaced behind the same trait.
+candle-core = "0.11.0"
+candle-transformers = "0.11.0"
+# Must match the version candle-core resolves to (0.22.x). Two copies of
+# tokenizers in one build are two different `Tokenizer` types, and candle's
+# `TokenizerFromGguf` would not apply to ours.
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
+# No "loader": that feature is filesystem template loading, which is exactly
+# what a sandboxed chat template must not have (master spec s8.8). "fuel"
+# gates the instruction limit; "json" provides the tojson filter that
+# tool-calling templates reference.
+minijinja = { version = "2.24.0", default-features = true, features = ["fuel", "json"] }
+sysinfo = "0.39.6"
+# Only to size the worker pool. candle dispatches CPU work through rayon, so
+# this is the one lever on thread count that does not require mutating the
+# environment -- which edition 2024 makes unsafe, and the workspace forbids.
+rayon = "1.12.0"
+# Line diffs for agent edits, shown before an edit is kept or undone.
+similar = "3.2.0"
+
+# MCP client, for tool servers such as Serena. The official Rust SDK; default
+# features pull in the server side, which this app does not need.
+rmcp = { version = "3.5.1", default-features = false, features = ["client", "transport-child-process"] }
+
+# dev
+tempfile = "3.27.0"
+
+# Internal crates
+ws-context = { path = "crates/ws-context" }
+ws-store = { path = "crates/ws-store" }
+ws-secrets = { path = "crates/ws-secrets" }
+ws-providers = { path = "crates/ws-providers" }
+ws-engine = { path = "crates/ws-engine" }
+ws-core = { path = "crates/ws-core" }
+ws-mcp = { path = "crates/ws-mcp" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+todo = "warn"
+
+# Master spec s8.10: never ship target-cpu=native.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+# Parity and engine tests are unusably slow in debug; optimise deps under test.
+[profile.test.package."*"]
+opt-level = 2

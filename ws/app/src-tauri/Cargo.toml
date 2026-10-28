@@ -1,0 +1,51 @@
+[package]
+name = "ws-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Workspace: a desktop AI workspace with its own inference engine"
+
+[lints]
+workspace = true
+
+[lib]
+name = "ws_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+ws-context.workspace = true
+ws-core.workspace = true
+ws-store.workspace = true
+ws-secrets.workspace = true
+ws-providers.workspace = true
+ws-engine.workspace = true
+ws-mcp.workspace = true
+async-trait.workspace = true
+tauri = { version = "2.11", features = [] }
+# The native open-file/folder picker. Only its open command is granted.
+tauri-plugin-dialog = "2.8.2"
+# One Workspace at a time: two would share ws.db and the parts inventory.
+tauri-plugin-single-instance = "=2.5.0"
+# The Workshop sandbox measures the built system over HTTP (localhost only).
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "net"] }
+ulid.workspace = true
+tokio-util.workspace = true
+# A real console (ConPTY on Windows) for compiled programs, so prompts and
+# input work as they do in a terminal.
+portable-pty = "0.9.0"
+# Delete in the explorer moves to the Recycle Bin, so a slip is recoverable.
+trash = "5.2.9"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

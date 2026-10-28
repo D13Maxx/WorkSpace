@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Source for every icon size: regenerate with `npx tauri icon src-tauri/icons/app-icon.svg`, then touch
+       src-tauri/build.rs: cargo does not notice a changed icon on its own.
+       The W (Workspace) is drawn with a line, not text, so it renders without any font installed. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c202a"/>
+      <stop offset="1" stop-color="#0f1115"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#ground)"/>
+  <circle cx="512" cy="512" r="330" fill="none" stroke="#6b9bff" stroke-opacity="0.22" stroke-width="30"/>
+  <path d="M 512 182 A 330 330 0 0 1 842 512" fill="none" stroke="#6b9bff" stroke-width="30" stroke-linecap="round"/>
+  <path d="M 182 512 A 330 330 0 0 1 270 288" fill="none" stroke="#6b9bff" stroke-width="30" stroke-linecap="round" stroke-opacity="0.7"/>
+  <polyline points="342,352 427,672 512,452 597,672 682,352" fill="none" stroke="#e6e9ef"
+            stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

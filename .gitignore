@@ -1,0 +1,28 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Local model files are registered by path, never committed (master spec s10)
+*.gguf
+*.safetensors
+
+# Local env / secrets. Keys live in the OS credential store only (master spec s12).
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Tauri generated
+ws/app/src-tauri/gen/
+
+# Built by ws/app/scripts/build-ua-pipeline.mjs (38 MB of bundles and grammars)
+ws/app/src-tauri/ua-pipeline/
+

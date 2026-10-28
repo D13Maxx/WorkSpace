@@ -1,0 +1,4 @@
+Understand-Anything dashboard v2.9.0, prebuilt, from
+https://github.com/Egonex-AI/Understand-Anything/releases/download/v2.9.0/understand-anything-viewer.tgz
+(dist/ minus the demo knowledge-graph.json). MIT, see LICENSE.txt.
+Served by ws/app/src-tauri/src/graph.rs.

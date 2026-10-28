@@ -1,0 +1,23 @@
+[package]
+name = "ws-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+ulid.workspace = true
+thiserror.workspace = true
+# Needed only by the `backend` module, for the ChatBackend trait signature.
+# The crate still performs no I/O: these supply the stream and cancellation
+# vocabulary, not an implementation.
+async-trait.workspace = true
+futures-util.workspace = true
+tokio-util.workspace = true
