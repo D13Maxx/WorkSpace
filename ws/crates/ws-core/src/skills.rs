@@ -121,13 +121,22 @@ impl Skill {
     /// The body in a tagged envelope, so the model can tell instructions from
     /// the request, and the UI can collapse them.
     fn wrapped(&self, args: &str) -> String {
-        format!(
-            "<skill name=\"{}\" dir=\"{}\">\n{}\n</skill>",
-            self.name,
-            self.dir.display(),
-            self.body.replace("$ARGUMENTS", args.trim()).trim()
+        envelope(
+            &self.name,
+            &self.dir.display().to_string(),
+            &self.body.replace("$ARGUMENTS", args.trim()),
         )
     }
+}
+
+/// Instructions in the tagged envelope a skill's travel in, so the chat shows
+/// them folded under `/name`.
+#[must_use]
+pub fn envelope(name: &str, dir: &str, body: &str) -> String {
+    format!(
+        "<skill name=\"{name}\" dir=\"{dir}\">\n{}\n</skill>",
+        body.trim()
+    )
 }
 
 /// Split a message's first part back into (skill name, instructions), if it

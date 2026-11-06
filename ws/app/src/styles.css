@@ -356,6 +356,24 @@ select:focus {
 .composer button {
   flex: 0 0 auto;
 }
+.composer-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.coordinate-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.coordinate-toggle:has(input:checked) {
+  color: var(--text);
+}
 
 .empty {
   margin: auto;
@@ -663,6 +681,67 @@ select:focus {
   overflow: auto;
   font-size: 0.8rem;
   white-space: pre-wrap;
+}
+
+.helper-panel {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+}
+.helper-panel > summary {
+  cursor: pointer;
+}
+.helper-panel[open] > summary {
+  margin-bottom: 0.4rem;
+}
+.helper-panel pre {
+  margin: 0.2rem 0 0;
+  max-height: 14rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.helper-brief,
+.helper-note,
+.helper-text,
+.helper-call {
+  margin: 0.35rem 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+}
+.helper-text {
+  white-space: pre-wrap;
+}
+.helper-note.sent,
+.helper-note.received {
+  border-left-color: var(--accent);
+}
+.helper-note.switched {
+  border-left-color: var(--danger);
+}
+.fallback-list {
+  margin: 0.4rem 0;
+  padding-left: 1.4rem;
+}
+.fallback-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.2rem 0;
+}
+.fallback-list li span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.helper-call summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.helper-call.failure {
+  border-left-color: var(--danger, #e06c75);
 }
 
 .skill-row {
@@ -1883,4 +1962,224 @@ button.danger {
 .bp-code input {
   flex: 1;
   min-width: 0;
+}
+
+/* ---- tabs, search and changes ------------------------------------------- */
+
+.tab-bar {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 220px;
+  border-right: 1px solid var(--border);
+}
+.tab.selected {
+  background: var(--bg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tab button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+}
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-close {
+  color: var(--muted);
+  padding-left: 2px;
+}
+.tab-dot {
+  color: var(--accent);
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  margin: 0 10px;
+  min-height: 0;
+}
+.side-tabs {
+  display: flex;
+  gap: 6px;
+}
+.side-tabs button {
+  flex: 1;
+  font-size: 0.8rem;
+}
+.side-tabs button.selected {
+  border-color: var(--accent);
+}
+.side-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 38vh;
+  margin-top: 6px;
+}
+.side-body input {
+  width: 100%;
+}
+.side-note {
+  margin: 4px 0;
+  font-size: 0.78rem;
+}
+.side-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.side-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+.side-list button {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 3px 4px;
+  font-size: 0.78rem;
+}
+.side-list button:hover {
+  background: var(--raised);
+}
+.side-where {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.side-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-status {
+  flex: 0 0 1.2em;
+  font-weight: 600;
+  text-align: center;
+}
+.git-M,
+.git-R {
+  color: var(--accent);
+}
+.git-A,
+.git-new {
+  color: var(--ok);
+}
+.git-D {
+  color: var(--danger);
+}
+
+.diff {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 0;
+  font: 0.82rem/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.diff span {
+  display: block;
+  padding: 0 12px;
+  white-space: pre;
+}
+.d-add {
+  background: rgba(91, 214, 160, 0.12);
+}
+.d-del {
+  background: rgba(255, 122, 112, 0.14);
+}
+.d-hunk {
+  color: var(--accent);
+}
+.d-meta {
+  color: var(--muted);
+}
+
+/* ---- code intelligence and the debugger --------------------------------- */
+
+/* The whole column takes clicks; cells exist only where a breakpoint is. */
+.cm-breakpoint-gutter {
+  cursor: pointer;
+}
+.cm-breakpoint-gutter .cm-gutterElement {
+  padding: 0 2px 0 4px;
+  min-width: 14px;
+}
+.cm-breakpoint {
+  color: var(--danger);
+}
+.server-note {
+  font-size: 0.78rem;
+}
+.debug-note {
+  margin: 4px 12px;
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+}
+.debug-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 2fr);
+}
+.debug-col {
+  overflow: auto;
+  padding: 4px 8px;
+  border-right: 1px solid var(--border);
+}
+.debug-col h3 {
+  margin: 2px 0 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.debug-panel .side-list button.selected {
+  background: var(--raised);
+}
+.debug-vars {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 4px;
+  font: 0.8rem/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.debug-vars button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 1px 2px;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.debug-vars button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.var-name {
+  color: var(--accent);
+}
+.debug-output {
+  margin: 0;
+  padding: 4px 8px;
+  overflow: auto;
+  font: 0.8rem/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
 }

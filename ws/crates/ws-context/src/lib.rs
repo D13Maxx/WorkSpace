@@ -22,7 +22,8 @@ pub use config::ContextConfig;
 pub use error::ContextError;
 pub use ids::{BackendId, BlobRef, ConvId, EventId, MsgId, SummaryId};
 pub use message::{
-    Conversation, ConversationEvent, EventKind, Message, MsgStatus, Part, ProviderOpaque, Role,
+    Conversation, ConversationEvent, EventKind, HelperEntry, Message, MsgStatus, Part,
+    ProviderOpaque, Role,
 };
 pub use model::{
     DEFAULT_CONTEXT_WINDOW, DEFAULT_IMAGE_TOKEN_COST, DEFAULT_MAX_OUTPUT_TOKENS, ModelCapabilities,

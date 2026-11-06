@@ -58,6 +58,7 @@ fn harness(replies: Vec<Scripted>) -> Harness {
     }
     let orch = Orchestrator::new(store, blobs, profiles)
         .with_backend(Arc::new(backend) as Arc<_>)
+        .with_agents(Arc::new(ws_core::Agents::default().with_worker()))
         .with_tools(Arc::new(EditingTools {
             root: root.path().to_path_buf(),
         }) as Arc<_>);
@@ -178,4 +179,43 @@ async fn a_declined_or_no_op_edit_records_nothing() {
     std::fs::write(h.file("a.rs"), "same\n").unwrap();
     let conv = h.turn(true).await;
     assert!(h.orch.file_edits(conv).unwrap().is_empty(), "unchanged");
+}
+
+#[tokio::test]
+async fn two_workers_that_reuse_a_call_id_both_get_their_edit_recorded_and_undoable() {
+    // Some providers number calls per response, so both workers say "w".
+    let h = harness(vec![
+        Scripted::CallsTools(vec![
+            (
+                "d1".to_owned(),
+                "dispatch_agent".to_owned(),
+                r#"{"agent":"worker","prompt":"a"}"#.to_owned(),
+            ),
+            (
+                "d2".to_owned(),
+                "dispatch_agent".to_owned(),
+                r#"{"agent":"worker","prompt":"b"}"#.to_owned(),
+            ),
+        ]),
+        Scripted::calls("w", "write_file", r#"{"path":"a.rs","content":"A\n"}"#),
+        // Each write waits for approval, so the second worker starts meanwhile.
+        Scripted::calls("w", "write_file", r#"{"path":"b.rs","content":"B\n"}"#),
+        Scripted::Text(vec!["done".to_owned()]),
+        Scripted::Text(vec!["done".to_owned()]),
+        Scripted::Text(vec!["all done".to_owned()]),
+    ]);
+    let conv = h.turn(true).await;
+
+    let edits = h.orch.file_edits(conv).unwrap();
+    assert_eq!(
+        edits.len(),
+        2,
+        "the second edit was not lost to a duplicate id"
+    );
+    assert_ne!(edits[0].call_id, edits[1].call_id);
+    h.orch.undo_edit(&edits[1].call_id).unwrap();
+    assert!(
+        h.file("a.rs").exists() && !h.file("b.rs").exists(),
+        "undo touched only its own edit"
+    );
 }

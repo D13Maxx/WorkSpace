@@ -5,7 +5,7 @@
 //! replay care about.
 
 use serde::{Deserialize, Serialize};
-use ws_context::{ContextView, ModelRef, MsgId, StopReason};
+use ws_context::{ContextView, HelperEntry, ModelRef, MsgId, StopReason};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -71,6 +71,14 @@ pub enum TurnEvent {
         call_id: String,
         is_error: bool,
         text: String,
+    },
+
+    /// A helper agent, working for the `dispatch_agent` call `dispatch`, said
+    /// or did something. The whole log is saved when it finishes.
+    HelperStep {
+        dispatch: String,
+        agent: String,
+        entry: HelperEntry,
     },
 
     /// The reply is persisted. `message` is the row that was written.

@@ -20,7 +20,7 @@ pub struct Entry {
 }
 
 /// Join `rel` onto `root`, refusing anything that would leave it.
-pub(crate) fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
+pub fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
     let root = Path::new(root.trim());
     let rel = Path::new(rel);
     if rel
@@ -89,7 +89,7 @@ pub fn read_text(root: &str, rel: &str) -> Result<String, String> {
 
 /// Where `rel` is, or would be once written: like `resolve`, but the file
 /// (and folders on the way to it) need not exist yet.
-pub(crate) fn resolve_for_write(root: &str, rel: &str) -> Result<PathBuf, String> {
+pub fn resolve_for_write(root: &str, rel: &str) -> Result<PathBuf, String> {
     let rel_path = Path::new(rel);
     if rel.trim().is_empty()
         || rel_path

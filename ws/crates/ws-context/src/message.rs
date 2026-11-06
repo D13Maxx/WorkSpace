@@ -158,7 +158,42 @@ pub struct Conversation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {
-    ModelSwitch { from: ModelRef, to: ModelRef },
+    ModelSwitch {
+        from: ModelRef,
+        to: ModelRef,
+    },
+    /// What a helper agent did for the `dispatch_agent` call `dispatch`.
+    HelperLog {
+        dispatch: String,
+        agent: String,
+        entries: Vec<HelperEntry>,
+    },
+}
+
+/// One thing a helper agent did, kept so the user can follow its work.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HelperEntry {
+    /// What it said; the last one is its report.
+    Text { text: String },
+    Call {
+        call_id: String,
+        name: String,
+        args: String,
+    },
+    Result {
+        call_id: String,
+        is_error: bool,
+        text: String,
+    },
+    /// Notes the other helpers sent it.
+    Received { text: String },
+    /// Its model failed, so it carried on with the next fallback.
+    Switch {
+        from: String,
+        to: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

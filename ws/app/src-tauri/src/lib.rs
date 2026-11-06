@@ -8,16 +8,18 @@
 //! two conversations streaming at once cannot interleave into one another.
 
 mod blueprint;
+mod bridge;
 mod commands;
-mod files;
 mod graph;
 mod graph_builder;
 mod run;
 mod sandbox;
 mod state;
-mod workspace;
 
 pub use state::AppState;
+
+// The agent's file and command tools live in `ws-tools`, shared with the CLI.
+use ws_tools::{files, workspace};
 
 // `manage` comes from the Manager trait.
 use tauri::Manager as _;
@@ -74,6 +76,8 @@ pub fn run() {
             commands::cancel_turn,
             commands::switch_model,
             commands::list_models,
+            commands::worker_fallbacks,
+            commands::set_worker_fallbacks,
             commands::list_backends,
             commands::save_compat_provider,
             commands::list_compat_providers,
@@ -100,6 +104,13 @@ pub fn run() {
             commands::has_graph,
             commands::list_dir,
             commands::ask_model,
+            commands::lsp_start,
+            commands::dap_start,
+            commands::bridge_send,
+            commands::bridge_stop,
+            commands::search_project,
+            commands::git_status,
+            commands::git_diff,
             commands::read_text_file,
             commands::write_text_file,
             commands::create_file,
@@ -109,6 +120,7 @@ pub fn run() {
             commands::open_terminal,
             commands::pip_install,
             commands::set_workspace,
+            commands::workspace_folder,
             commands::run_file,
             commands::run_input,
             commands::run_resize,

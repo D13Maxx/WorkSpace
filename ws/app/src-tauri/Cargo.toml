@@ -25,6 +25,7 @@ ws-secrets.workspace = true
 ws-providers.workspace = true
 ws-engine.workspace = true
 ws-mcp.workspace = true
+ws-tools.workspace = true
 async-trait.workspace = true
 tauri = { version = "2.11", features = [] }
 # The native open-file/folder picker. Only its open command is granted.
@@ -41,8 +42,6 @@ tokio-util.workspace = true
 # A real console (ConPTY on Windows) for compiled programs, so prompts and
 # input work as they do in a terminal.
 portable-pty = "0.9.0"
-# Delete in the explorer moves to the Recycle Bin, so a slip is recoverable.
-trash = "5.2.9"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true

@@ -852,6 +852,7 @@ impl Store {
         // filtered in SQL without parsing every row.
         let tag = match kind {
             EventKind::ModelSwitch { .. } => "model_switch",
+            EventKind::HelperLog { .. } => "helper_log",
         };
         self.conn.execute(
             "INSERT INTO conversation_events

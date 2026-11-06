@@ -44,26 +44,7 @@ const NO_PYTHON: &str = "No Python found. Install it from python.org, then resta
 const NO_RUST: &str = "No Rust found. Install it from rustup.rs, then restart Workspace.";
 const NO_NODE: &str = "No Node.js found. Install it from nodejs.org, then restart Workspace.";
 
-/// The first of `names` on PATH.
-pub(crate) fn find(names: &[&str]) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    let exts: Vec<String> = if cfg!(windows) {
-        std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".EXE;.CMD;.BAT".to_owned())
-            .split(';')
-            .map(str::to_owned)
-            .collect()
-    } else {
-        vec![String::new()]
-    };
-    names.iter().find_map(|name| {
-        std::env::split_paths(&path).find_map(|dir| {
-            exts.iter()
-                .map(|ext| dir.join(format!("{name}{ext}")))
-                .find(|p| p.is_file())
-        })
-    })
-}
+pub(crate) use ws_tools::find;
 
 fn step(program: PathBuf, args: &[&str]) -> Step {
     Step {

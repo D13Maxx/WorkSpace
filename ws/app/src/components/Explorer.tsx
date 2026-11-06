@@ -8,6 +8,10 @@ import { api, pickFile, pickFolder, type FileEntry } from "../api";
 export interface OpenFile {
   root: string;
   path: string;
+  /** Scroll to this line (1-based) when the file shows. */
+  line?: number;
+  /** Show what changed since the last commit instead of the file. */
+  diff?: boolean;
 }
 
 interface Props {
@@ -234,9 +238,8 @@ export function Explorer({
   // Expanded folders inside the roots, by root and path.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const key = (root: string, path: string) => `${root}\n${path}`;
-  /** Show `p`: its root and every folder on the way to it. */
+  /** Open every folder on the way to `p`. A root the user collapsed stays collapsed. */
   const expandTo = (p: Place) => {
-    setCollapsed((c) => ({ ...c, [p.root]: false }));
     const parts = p.dir ? p.dir.split("/") : [];
     setExpanded((x) => {
       const next = { ...x };
@@ -287,7 +290,6 @@ export function Explorer({
     const p = locate(folder);
     if (!folders.includes(p.root)) onAddFolder(p.root);
     setPicked(p);
-    expandTo(p);
     setName("");
     setError(null);
     setCreating(kind);
@@ -348,6 +350,7 @@ export function Explorer({
         expandTo({ root: place.root, dir: path });
       } else {
         await api.createFile(place.root, path);
+        expandTo(place);
         onOpenFile({ root: place.root, path });
       }
       setCreating(null);

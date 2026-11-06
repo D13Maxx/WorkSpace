@@ -13,7 +13,10 @@ pub mod turn;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
-pub use agents::Agents;
+pub use agents::{
+    Agents, PLAN_FILE, coordinator_instructions, coordinator_message, load_worker_fallbacks,
+    save_worker_fallbacks,
+};
 pub use error::{CoreError, Result};
 pub use events::TurnEvent;
 pub use profiles::{Profile, ProfileTable};

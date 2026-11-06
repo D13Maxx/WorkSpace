@@ -5,7 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { StreamLanguage } from "@codemirror/language";
@@ -76,13 +76,20 @@ interface Props {
   onSave: () => void;
   /** The text as it was when the editor closed, to keep unsaved work. */
   onDispose: (text: string) => void;
+  /** Move to this line (1-based); a new `lineKey` moves again, to the same line. */
+  line?: number;
+  lineKey?: unknown;
+  /** More extensions (a language server, breakpoints); may change while open. */
+  extensions?: Extension;
 }
 
-export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose }: Props) {
+export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose, line, lineKey, extensions }: Props) {
   const host = useRef<HTMLDivElement>(null);
   // Latest callbacks, without rebuilding the editor when they change.
   const handlers = useRef({ onChange, onSave, onDispose });
   handlers.current = { onChange, onSave, onDispose };
+  const extra = useRef({ slot: new Compartment(), now: extensions });
+  extra.current.now = extensions;
 
   useEffect(() => {
     if (!host.current) return;
@@ -91,6 +98,8 @@ export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose }: 
       state: EditorState.create({
         doc: text,
         extensions: [
+          // First: breakpoints sit left of the line numbers, and server keys win.
+          extra.current.slot.of(extra.current.now ?? []),
           basicSetup,
           keymap.of([
             indentWithTab,
@@ -122,6 +131,21 @@ export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose }: 
       if (viewRef.current === view) viewRef.current = null;
     };
   }, [text, ext, viewRef]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: extra.current.slot.reconfigure(extensions ?? []) });
+  }, [extensions, viewRef]);
+
+  // Runs after the effect above, so on first show the editor exists. Not tied
+  // to `text`: a reload from disk must not yank the cursor back to a search hit.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !line) return;
+    const at = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
+    view.dispatch({ selection: { anchor: at.from }, effects: EditorView.scrollIntoView(at.from, { y: "center" }) });
+    view.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line, lineKey, viewRef]);
 
   return <div className="code-editor" ref={host} />;
 }

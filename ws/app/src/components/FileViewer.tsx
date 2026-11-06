@@ -1,12 +1,18 @@
 // The middle pane: one code or Markdown file, in the editor. Other files
 // (PDFs, Word, plain text…) stay in the tree but do not open here.
 
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
+import type { Extension } from "@codemirror/state";
 import type { EditorView } from "codemirror";
 import { emit } from "@tauri-apps/api/event";
 import { api, ask } from "../api";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { fileUri, languageServer } from "../lsp";
+import { breakpointGutter } from "../breakpoints";
+
+/** Files the debugger can run. */
+export const DEBUGGABLE = new Set(["c", "cpp", "cc", "cxx", "rs", "py"]);
 
 const MARKDOWN = new Set(["md", "markdown", "mdx"]);
 
@@ -54,11 +60,33 @@ export function moveDrafts(root: string, from: string, to: string | null) {
     drafts.delete(key);
     if (to !== null) drafts.set(`${root}\n${to}${path.slice(from.length)}`, draft);
   }
+  for (const key of [...edited]) {
+    const [r, path] = key.split("\n");
+    if (r === root && (path === from || path.startsWith(`${from}/`))) edited.delete(key);
+  }
+}
+
+/** Files being edited with unsaved changes right now; `drafts` only fills when an editor closes. */
+const edited = new Set<string>();
+
+/** Whether `path` has unsaved text, shown or kept aside, for a tab's dot. */
+export function hasDraft(root: string, path: string): boolean {
+  const key = `${root}\n${path}`;
+  return edited.has(key) || drafts.has(key);
 }
 
 interface Props {
   project: string;
   path: string;
+  /** Show this file's changes since the last commit rather than the file. */
+  diff?: boolean;
+  /** Scroll to this line when the file shows; `lineKey` repeats a jump. */
+  line?: number;
+  lineKey?: unknown;
+  /** Called when this file gains or loses unsaved changes, so a tab's dot can follow. */
+  onDirtyChange?: () => void;
+  /** Start debugging `path`; absent where the debugger is not offered. */
+  onDebug?: (path: string) => void;
   /** Bumped when the agent or a run may have changed files on disk. */
   version: number;
   onClose: () => void;
@@ -108,6 +136,7 @@ export function FileViewer(props: Props) {
 }
 
 function FileView(props: Props) {
+  if (props.diff) return <DiffFile {...props} />;
   if (!opensHere(props.path)) {
     return (
       <section className="file-viewer" aria-label={props.path}>
@@ -119,7 +148,7 @@ function FileView(props: Props) {
   return <TextFile {...props} ext={extOf(props.path)} />;
 }
 
-function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext: string }) {
+function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, lineKey, onDirtyChange }: Props & { ext: string }) {
   const key = `${project}\n${path}`;
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,12 +158,37 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
   const viewRef = useRef<EditorView | null>(null);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  useEffect(() => {
+    if (dirty) edited.add(key);
+    else edited.delete(key);
+    onDirtyChange?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, key]);
   // The file as it was on disk when last read or saved here.
   const base = useRef<string | null>(null);
   // Markdown: the preview beside the editor, from the text as typed.
   const md = MARKDOWN.has(ext);
   const [preview, setPreview] = useState(true);
   const [live, setLive] = useState("");
+  // Code intelligence from the language server, once it is up.
+  const [server, setServer] = useState<Extension | null>(null);
+  const [serverNote, setServerNote] = useState<string | null>(null);
+  useEffect(() => {
+    let current = true;
+    setServer(null);
+    setServerNote(null);
+    void languageServer(project, ext).then((r) => {
+      if (!current || !r) return;
+      if ("client" in r) setServer(r.client.plugin(fileUri(project, path), r.languageId));
+      else setServerNote(r.error);
+    });
+    return () => {
+      current = false;
+    };
+  }, [project, path, ext]);
+  const debuggable = DEBUGGABLE.has(ext) && !!onDebug;
+  const gutter = useMemo(() => (debuggable ? breakpointGutter(project, path) : []), [debuggable, project, path]);
+  const extensions = useMemo(() => [gutter, server ?? []], [gutter, server]);
   useEffect(() => setLive(text ?? ""), [text]);
 
   useEffect(() => {
@@ -212,6 +266,11 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
     <section className="file-viewer" aria-label={path}>
       <Header path={path} onClose={onClose}>
         {dirty && <span className="muted unsaved">unsaved</span>}
+        {serverNote && (
+          <span className="muted server-note" title={serverNote}>
+            no code intelligence
+          </span>
+        )}
         {md && (
           <button onClick={() => setPreview(!preview)} className={preview ? "selected" : ""} aria-pressed={preview}>
             Preview
@@ -226,6 +285,16 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
             }}
           >
             {ext === "tex" ? "Build PDF" : "Run"}
+          </button>
+        )}
+        {debuggable && (
+          <button
+            title="Save, build with debug information and debug; click left of a line number to set a breakpoint"
+            onClick={async () => {
+              if (!dirtyRef.current || (await save())) onDebug?.(path);
+            }}
+          >
+            Debug
           </button>
         )}
         <button onClick={() => void save()} disabled={!dirty || saving} title="Ctrl+S">
@@ -255,12 +324,57 @@ function TextFile({ project, path, version, onClose, onRun, ext }: Props & { ext
               if (md) setLive(viewRef.current?.state.sliceDoc() ?? "");
             }}
             onSave={() => void save()}
+            line={line}
+            lineKey={lineKey}
+            extensions={extensions}
             onDispose={(doc) => {
               if (dirtyRef.current) drafts.set(key, { doc, base: base.current });
             }}
           />
           {md && preview && <MarkdownPreview text={live} />}
         </div>
+      )}
+    </section>
+  );
+}
+
+const diffClass = (l: string) =>
+  /^(\+\+\+|---|diff |index |new file)/.test(l) ? "d-meta" : l.startsWith("@@") ? "d-hunk" : l.startsWith("+") ? "d-add" : l.startsWith("-") ? "d-del" : "";
+
+/** One file's change since the last commit, coloured. */
+function DiffFile({ project, path, version, onClose }: Props) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .gitDiff(project, path)
+      .then((t) => {
+        if (!live) return;
+        setText(t);
+        setError(null);
+      })
+      .catch((e) => live && setError(String(e)));
+    return () => {
+      live = false;
+    };
+  }, [project, path, version]);
+  return (
+    <section className="file-viewer" aria-label={`Changes in ${path}`}>
+      <Header path={path} onClose={onClose}>
+        <span className="muted">changes since the last commit</span>
+      </Header>
+      {error && <p className="failure">{error}</p>}
+      {text === null && !error && <p className="muted">Loading…</p>}
+      {text !== null && (
+        <pre className="diff">
+          {text.split("\n").map((l, i) => (
+            <span key={i} className={diffClass(l)}>
+              {l}
+              {"\n"}
+            </span>
+          ))}
+        </pre>
       )}
     </section>
   );

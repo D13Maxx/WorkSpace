@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, ask, claudeFirst, preferredModel, rememberModel, type ContextView, type ModelOption, type Thread, type TurnEvent } from "./api";
+import { api, ask, claudeFirst, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
@@ -11,11 +11,17 @@ import { PrefillProgress } from "./components/PrefillProgress";
 import { Explorer, baseName, type OpenFile } from "./components/Explorer";
 import { GraphDialog } from "./components/GraphDialog";
 import { FileViewer, moveDrafts } from "./components/FileViewer";
+import { SidePanel } from "./components/SidePanel";
+import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
+import { DebugPanel } from "./components/DebugPanel";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
 const MIN_CHAT = 300;
 const MIN_REST = 580;
+const MIN_SIDE = 160;
+/** The editor keeps at least this much between the side panel and the chat. */
+const MIN_EDITOR = 300;
 
 /** Per-viewer UI preferences. Storage can be unavailable; the app works without it. */
 function readPref(key: string): string | null {
@@ -72,6 +78,13 @@ export default function App() {
   const [streaming, setStreaming] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  // Helpers' work as it streams in; the saved logs replace it once they finish.
+  const [liveHelpers, setLiveHelpers] = useState<Record<string, HelperLog>>({});
+  const helperLogs = useMemo(() => {
+    const logs = new Map(Object.entries(liveHelpers));
+    for (const log of thread?.helpers ?? []) logs.set(log.dispatch, log);
+    return logs;
+  }, [liveHelpers, thread]);
   // Local engine only: how much of the prompt has been read so far.
   const [prefill, setPrefill] = useState<{
     reused: number;
@@ -102,6 +115,10 @@ export default function App() {
   // files are not remembered, chats are (they live in the database).
   const [folders, setFolders] = useState<string[]>([]);
   const [openFile, setOpenFile] = useState<OpenFile | null>(null);
+  // Every file opened and not yet closed; `openFile` is the one showing.
+  const [tabs, setTabs] = useState<OpenFile[]>([]);
+  // A tab's unsaved dot follows its editor, which App cannot see.
+  const [, redrawTabs] = useReducer((n: number) => n + 1, 0);
   // The folder last opened, when no file says otherwise.
   const [focus, setFocus] = useState<string | null>(null);
   // The folder the agent and Run work in.
@@ -113,9 +130,15 @@ export default function App() {
   // What the output panel is running: a file, a terminal or a pip install.
   const [run, setRun] = useState<{ task: RunTask; key: number } | null>(null);
   const startTask = (task: RunTask) => setRun((r) => ({ task, key: (r?.key ?? 0) + 1 }));
+  // The file being debugged; a new key starts a new session.
+  const [debug, setDebug] = useState<{ root: string; path: string; key: number } | null>(null);
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("ws.chatWidth")) || 420);
 
   useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
+  const [sideWidth, setSideWidth] = useState(() => Number(readPref("ws.sideWidth")) || 260);
+  useEffect(() => writePref("ws.sideWidth", String(sideWidth)), [sideWidth]);
+  const clampSide = (w: number) =>
+    Math.round(Math.max(MIN_SIDE, Math.min(window.innerWidth - chatWidth - MIN_EDITOR, w)));
 
   // The agent's file tools act on whatever is open here.
   useEffect(() => {
@@ -128,8 +151,19 @@ export default function App() {
   }, [fileVersion]);
 
   /** Files open in the middle; a blueprint opens in its own window. */
+  const show = (f: OpenFile) => {
+    setTabs((ts) => (ts.some((t) => tabKey(t) === tabKey(f)) ? ts : [...ts, f]));
+    setOpenFile(f);
+  };
+  /** Close a tab; the one beside it shows if it was the one showing. */
+  const closeTab = (f: OpenFile) => {
+    const i = tabs.findIndex((t) => tabKey(t) === tabKey(f));
+    const rest = tabs.filter((t) => tabKey(t) !== tabKey(f));
+    setTabs(rest);
+    if (openFile && tabKey(openFile) === tabKey(f)) setOpenFile(rest[Math.min(i, rest.length - 1)] ?? null);
+  };
   const openAny = (f: OpenFile) => {
-    if (!f.path.toLowerCase().endsWith(".blueprint")) return setOpenFile(f);
+    if (!f.path.toLowerCase().endsWith(".blueprint")) return show(f);
     api.openBlueprintWindow(f.root, f.path).catch((e) => setError(String(e)));
   };
   const openAnyRef = useRef(openAny);
@@ -196,9 +230,12 @@ export default function App() {
       setError(null);
       setStatus(null);
       setPrefill(null);
+      setLiveHelpers({});
 
       let text = "";
       let reasoned = "";
+      // choose_location calls, so the folder picked for the agent shows in the explorer.
+      const choosing = new Set<string>();
       try {
         await run((event) => {
           switch (event.type) {
@@ -236,6 +273,7 @@ export default function App() {
               break;
             case "tool_call":
               setStatus(`Running ${event.name}…`);
+              if (event.name.endsWith("choose_location")) choosing.add(event.call_id);
               break;
             case "approval_required":
               if (allowAll.current) {
@@ -245,9 +283,18 @@ export default function App() {
                 setApprovals((q) => [...q, asked]);
               }
               break;
+            case "helper_step":
+              setLiveHelpers((all) => {
+                const log = all[event.dispatch] ?? { dispatch: event.dispatch, agent: event.agent, entries: [] };
+                return { ...all, [event.dispatch]: { ...log, entries: [...log.entries, event.entry] } };
+              });
+              break;
             case "tool_result":
               setStatus(null);
               setFileVersion((v) => v + 1);
+              if (choosing.has(event.call_id) && !event.is_error) {
+                void api.workspaceFolder().then((f) => f && addFolder(f));
+              }
               break;
             case "completed":
               // One user message can produce several model replies with tool
@@ -280,11 +327,11 @@ export default function App() {
   );
 
   const onSend = useCallback(
-    async (text: string) => {
+    async (text: string, coordinate: boolean) => {
       if (!active) return;
       // The model a chat is used with is the one new work should start with.
       if (thread) rememberModel(thread.backend, thread.model_id);
-      await consume(active, (onEvent) => api.sendMessage(active, text, onEvent));
+      await consume(active, (onEvent) => api.sendMessage(active, text, onEvent, coordinate));
     },
     [active, consume, thread],
   );
@@ -428,12 +475,13 @@ export default function App() {
   return (
     <div className="app">
       {/* Left: the open folder. */}
-      <div className="pane-left">
+      <div className="pane-left" style={{ width: sideWidth, flexBasis: sideWidth }}>
         <Explorer
           folders={folders}
           onAddFolder={addFolder}
           onRemoveFolder={(f) => {
             setFolders((fs) => fs.filter((x) => x !== f));
+            setTabs((ts) => ts.filter((t) => t.root !== f));
             if (openFile?.root === f) setOpenFile(null);
             if (focus === f) setFocus(null);
           }}
@@ -442,12 +490,16 @@ export default function App() {
           onTerminal={project ? () => startTask({ kind: "terminal", root: project }) : undefined}
           onRenamed={(root, from, to) => {
             moveDrafts(root, from, to);
+            const moved = (t: OpenFile) =>
+              t.root === root && (t.path === from || t.path.startsWith(`${from}/`)) ? { ...t, path: to + t.path.slice(from.length) } : t;
+            setTabs((ts) => ts.map(moved));
             if (openFile?.root === root && (openFile.path === from || openFile.path.startsWith(`${from}/`))) {
               setOpenFile({ root, path: to + openFile.path.slice(from.length) });
             }
           }}
           onDeleted={(root, path) => {
             moveDrafts(root, path, null);
+            setTabs((ts) => ts.filter((t) => !(t.root === root && (t.path === path || t.path.startsWith(`${path}/`)))));
             if (openFile?.root === root && (openFile.path === path || openFile.path.startsWith(`${path}/`))) {
               setOpenFile(null);
             }
@@ -456,27 +508,64 @@ export default function App() {
           open={openFile}
           version={fileVersion}
         />
+        <SidePanel root={project} version={fileVersion} onOpen={openAny} />
         <button className="settings" onClick={() => setShowSettings(true)}>
           Settings
         </button>
       </div>
 
       {/* Middle: the file being viewed. */}
+      <div
+        className="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the side panel"
+        aria-valuenow={sideWidth}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          document.body.classList.add("resizing");
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) setSideWidth(clampSide(e.clientX));
+        }}
+        onLostPointerCapture={() => document.body.classList.remove("resizing")}
+        onKeyDown={(e) => {
+          const step = e.key === "ArrowLeft" ? -24 : e.key === "ArrowRight" ? 24 : 0;
+          if (step) setSideWidth((w) => clampSide(w + step));
+        }}
+      />
+
       <section className="pane-middle">
+        <TabBar tabs={tabs} active={openFile} onSelect={setOpenFile} onClose={closeTab} />
         {openFile ? (
           <FileViewer
             // One editor per file, so unsaved text stays with its file.
-            key={`${openFile.root}|${openFile.path}`}
+            key={tabKey(openFile)}
             project={openFile.root}
             path={openFile.path}
+            diff={openFile.diff}
+            line={openFile.line}
+            lineKey={openFile}
+            onDirtyChange={redrawTabs}
             version={fileVersion}
-            onClose={() => setOpenFile(null)}
+            onClose={() => closeTab(openFile)}
             onRun={(path) => startTask({ kind: "file", root: openFile.root, path })}
+            onDebug={(path) => setDebug((d) => ({ root: openFile.root, path, key: (d?.key ?? 0) + 1 }))}
           />
         ) : (
           <div className="empty">
             <p>{folders.length ? "Choose a file on the left, or make a new one." : "Open a folder on the left to start."}</p>
           </div>
+        )}
+        {debug && (
+          <DebugPanel
+            root={debug.root}
+            path={debug.path}
+            runKey={debug.key}
+            onOpen={openAny}
+            onClose={() => setDebug(null)}
+          />
         )}
         {run && (
           <RunPanel
@@ -593,6 +682,7 @@ export default function App() {
 
             <MessageList
               messages={thread.messages}
+              helpers={helperLogs}
               streaming={streaming}
               streamingReasoning={reasoning}
               onRegenerate={onRegenerate}

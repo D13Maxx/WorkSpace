@@ -59,6 +59,7 @@ pub struct FakeBackend {
     script: Arc<Mutex<Vec<Scripted>>>,
     pub recorder: Arc<Mutex<Recorder>>,
     profiles: Arc<dyn ModelProfiles>,
+    tools: bool,
 }
 
 impl std::fmt::Debug for FakeBackend {
@@ -76,7 +77,15 @@ impl FakeBackend {
             script: Arc::new(Mutex::new(Vec::new())),
             recorder: Arc::new(Mutex::new(Recorder::default())),
             profiles,
+            tools: true,
         }
+    }
+
+    /// Behave like a provider whose adapter cannot carry tools.
+    #[must_use]
+    pub fn without_tools(mut self) -> Self {
+        self.tools = false;
+        self
     }
 
     /// Impersonate a particular provider's opaque blocks.
@@ -156,7 +165,7 @@ impl ChatBackend for FakeBackend {
     }
 
     fn supports_tools(&self) -> bool {
-        true
+        self.tools
     }
 
     async fn stream(

@@ -8,9 +8,70 @@
 //! is built on this.
 
 use std::path::Path;
-use ws_context::ToolSpec;
+use ws_context::{ModelRef, ToolSpec};
 
 pub const DISPATCH_AGENT: &str = "dispatch_agent";
+
+/// The built-in helper every coordinator can dispatch.
+pub const WORKER: &str = "worker";
+
+/// The models workers fall back to, in order, kept in the app data folder so
+/// the app and the `ws` CLI share them.
+pub const WORKER_FALLBACKS_FILE: &str = "worker-fallbacks.json";
+
+/// The saved fallback list; empty if there is none or it cannot be read.
+#[must_use]
+pub fn load_worker_fallbacks(data_dir: &Path) -> Vec<ModelRef> {
+    let path = data_dir.join(WORKER_FALLBACKS_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, path = %path.display(), "worker fallbacks unreadable; using none");
+        Vec::new()
+    })
+}
+
+/// # Errors
+/// The file cannot be written.
+pub fn save_worker_fallbacks(data_dir: &Path, models: &[ModelRef]) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(models).map_err(std::io::Error::other)?;
+    std::fs::write(data_dir.join(WORKER_FALLBACKS_FILE), json)
+}
+
+/// Where the coordinator keeps its plan and progress, relative to the project
+/// root, so a run that stops can be picked up again.
+pub const PLAN_FILE: &str = ".ws/plan.md";
+
+const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part in ONE reply so they run at the same time. Give each worker the full task, its files, and the interfaces it must keep. When they report, check the result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch workers again for anything that is wrong. Keep the plan current after every round: it is how a stopped run resumes. Finish with a short summary for the user.";
+
+/// What makes the model the coordinator, with the plan a previous run left.
+#[must_use]
+pub fn coordinator_instructions(plan: Option<&str>) -> String {
+    let mut out = COORDINATOR_PROMPT.to_owned();
+    if let Some(plan) = plan {
+        out.push_str(&format!(
+            "\n\nA previous run left this plan in {PLAN_FILE}:\n\n{plan}\n\nContinue from it: check that ticked parts really are done, then do the rest. If the task below is a different one, replace the plan."
+        ));
+    }
+    out
+}
+
+/// The coordinator's first message (tier one; the workers it dispatches are
+/// tier two): its instructions, the plan a previous run left, and the task.
+/// An empty task means carry on with the plan.
+#[must_use]
+pub fn coordinator_message(task: &str, plan: Option<&str>) -> String {
+    let mut out = coordinator_instructions(plan);
+    let task = task.trim();
+    let task = if task.is_empty() {
+        "Continue the plan."
+    } else {
+        task
+    };
+    out.push_str(&format!("\n\nTask:\n{task}"));
+    out
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentDef {
@@ -51,6 +112,20 @@ impl Agents {
         Self { list }
     }
 
+    /// Add the built-in `worker`, unless an agent of that name is already loaded.
+    #[must_use]
+    pub fn with_worker(mut self) -> Self {
+        if self.get(WORKER).is_none() {
+            self.list.push(AgentDef {
+                name: WORKER.to_owned(),
+                description: "General coding worker: reads, edits and checks code for one self-contained task.".to_owned(),
+                body: "You are a coding worker. Do exactly the task you were given, in the files it names, and stay out of other files. Read before you edit; check your work (build or run the tests) before you report. Other workers are editing this project at the same time: post_message what you are changing if it touches shared code, and act on messages you receive. Finish with a short report: what you changed, what you checked, and anything left open.".to_owned(),
+            });
+            self.list.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        self
+    }
+
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&AgentDef> {
         self.list.iter().find(|a| a.name == name)
@@ -86,12 +161,166 @@ impl Agents {
     }
 }
 
+/// What one helper may post in a dispatch, and how long a note may be.
+pub const MAX_POSTS_PER_HELPER: usize = 20;
+pub const MAX_NOTE_CHARS: usize = 2_000;
+
+/// The tool a helper uses to talk to the other helpers running beside it.
+pub const POST_MESSAGE: &str = "post_message";
+
+#[must_use]
+pub fn post_spec() -> ToolSpec {
+    ToolSpec {
+        name: POST_MESSAGE.to_owned(),
+        description: "Tell the other helpers running at the same time something they need: which file you are changing, a question, a finished handoff. Their new messages arrive on their own before their next step; you do not need to poll.".to_owned(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "to": {"type": "string", "description": "A helper's name or id; leave out to tell everyone."}
+            },
+            "required": ["text"]
+        }),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    /// Sender's id: the agent name and the call that started it.
+    pub from: String,
+    pub to: Option<String>,
+    pub text: String,
+}
+
+/// What the helpers of each conversation have said to one another.
+// shortcut: lives in memory and is never pruned, upgrade if channels must survive a restart.
+#[derive(Debug, Default)]
+pub struct Channel(std::sync::Mutex<std::collections::HashMap<ws_context::ConvId, Vec<Note>>>);
+
+impl Channel {
+    /// Add `note`, cut to `MAX_NOTE_CHARS`. Refused (false) once its sender
+    /// has posted `MAX_POSTS_PER_HELPER`, so two chatty helpers cannot loop.
+    pub fn post(&self, conv: ws_context::ConvId, mut note: Note) -> bool {
+        let mut map = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let notes = map.entry(conv).or_default();
+        if notes.iter().filter(|n| n.from == note.from).count() >= MAX_POSTS_PER_HELPER {
+            return false;
+        }
+        note.text = note.text.chars().take(MAX_NOTE_CHARS).collect();
+        notes.push(note);
+        true
+    }
+
+    /// Forget a conversation's notes, once the helpers that wrote them are done.
+    pub fn clear(&self, conv: ws_context::ConvId) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&conv);
+    }
+
+    /// Notes past `cursor` from others and for `me` (an id) or `agent` (its name) or everyone.
+    /// Moves `cursor` to the end.
+    pub fn unread(
+        &self,
+        conv: ws_context::ConvId,
+        me: &str,
+        agent: &str,
+        cursor: &mut usize,
+    ) -> Vec<Note> {
+        let map = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let all = map.get(&conv).map_or(&[][..], Vec::as_slice);
+        let new = all
+            .get(*cursor..)
+            .unwrap_or_default()
+            .iter()
+            .filter(|n| n.from != me && n.to.as_deref().is_none_or(|t| t == me || t == agent))
+            .cloned()
+            .collect();
+        *cursor = all.len();
+        new
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Spec s14 permits unwrap/expect in tests.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn the_built_in_worker_is_offered_unless_replaced() {
+        assert!(Agents::default().with_worker().get(WORKER).is_some());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("worker.md"),
+            "---
+name: worker
+description: mine
+---
+mine",
+        )
+        .unwrap();
+        let agents = Agents::load(dir.path()).with_worker();
+        assert_eq!(agents.get(WORKER).unwrap().body, "mine");
+    }
+
+    #[test]
+    fn a_helper_reads_what_others_said_to_it_once() {
+        let (ch, conv) = (Channel::default(), ws_context::ConvId::new());
+        let note = |from: &str, to: Option<&str>| Note {
+            from: from.to_owned(),
+            to: to.map(str::to_owned),
+            text: "t".to_owned(),
+        };
+        ch.post(conv, note("a#1", None));
+        ch.post(conv, note("b#2", Some("a")));
+        ch.post(conv, note("b#2", Some("c")));
+        ch.post(conv, note("a#1", None));
+        let mut cursor = 0;
+        let got = ch.unread(conv, "a#1", "a", &mut cursor);
+        assert_eq!(
+            got.len(),
+            1,
+            "own and other helpers' private notes are skipped"
+        );
+        assert!(
+            ch.unread(conv, "a#1", "a", &mut cursor).is_empty(),
+            "only once"
+        );
+    }
+
+    #[test]
+    fn a_helper_cannot_post_forever_and_notes_are_cut_and_cleared() {
+        let (ch, conv) = (Channel::default(), ws_context::ConvId::new());
+        let note = |text: String| Note {
+            from: "a#1".to_owned(),
+            to: None,
+            text,
+        };
+        for _ in 0..MAX_POSTS_PER_HELPER {
+            assert!(ch.post(conv, note("x".repeat(MAX_NOTE_CHARS + 50))));
+        }
+        assert!(!ch.post(conv, note("one too many".to_owned())));
+        let mut cursor = 0;
+        let got = ch.unread(conv, "b#2", "b", &mut cursor);
+        assert_eq!(got.len(), MAX_POSTS_PER_HELPER);
+        assert_eq!(got[0].text.chars().count(), MAX_NOTE_CHARS);
+
+        ch.clear(conv);
+        assert!(ch.unread(conv, "b#2", "b", &mut 0).is_empty());
+        assert!(
+            ch.post(conv, note("again".to_owned())),
+            "a cleared channel starts over"
+        );
+    }
 
     #[test]
     fn agents_are_read_from_markdown_with_frontmatter() {
@@ -110,5 +339,45 @@ mod tests {
                 .contains("project-scanner: Scans a project.")
         );
         assert!(Agents::load(&dir.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn the_coordinator_is_given_a_left_plan_and_an_empty_task_continues_it() {
+        let fresh = coordinator_message("add tests", None);
+        assert!(
+            fresh.contains(PLAN_FILE)
+                && fresh.ends_with(
+                    "Task:
+add tests"
+                )
+        );
+        assert!(!fresh.contains("previous run"));
+
+        let resumed = coordinator_message(
+            " ",
+            Some(
+                "- [x] parser
+- [ ] cli",
+            ),
+        );
+        assert!(resumed.contains(
+            "- [x] parser
+- [ ] cli"
+        ));
+        assert!(resumed.ends_with(
+            "Task:
+Continue the plan."
+        ));
+    }
+
+    #[test]
+    fn worker_fallbacks_round_trip_and_a_broken_file_means_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_worker_fallbacks(dir.path()).is_empty(), "none saved");
+        let list = vec![ModelRef::new("anthropic", "a"), ModelRef::new("groq", "b")];
+        save_worker_fallbacks(dir.path(), &list).unwrap();
+        assert_eq!(load_worker_fallbacks(dir.path()), list);
+        std::fs::write(dir.path().join(WORKER_FALLBACKS_FILE), "not json").unwrap();
+        assert!(load_worker_fallbacks(dir.path()).is_empty());
     }
 }

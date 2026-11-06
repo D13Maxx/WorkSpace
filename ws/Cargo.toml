@@ -9,6 +9,8 @@ members = [
     "crates/ws-engine-cli",
     "crates/ws-core",
     "crates/ws-mcp",
+    "crates/ws-tools",
+    "crates/ws-cli",
     "app/src-tauri",
 ]
 
@@ -83,6 +85,7 @@ ws-providers = { path = "crates/ws-providers" }
 ws-engine = { path = "crates/ws-engine" }
 ws-core = { path = "crates/ws-core" }
 ws-mcp = { path = "crates/ws-mcp" }
+ws-tools = { path = "crates/ws-tools" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

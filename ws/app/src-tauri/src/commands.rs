@@ -10,7 +10,8 @@ use std::str::FromStr;
 use tauri::State;
 use tauri::ipc::Channel;
 use ws_context::{
-    ContextView, ConvId, ModelCapabilities, ModelRef, MsgId, MsgStatus, Part, Role, ThinkingMode,
+    ContextView, ConvId, EventKind, HelperEntry, ModelCapabilities, ModelRef, MsgId, MsgStatus,
+    Part, Role, ThinkingMode,
 };
 use ws_core::{Profile, TurnEvent};
 use ws_secrets::{Secret, SecretStore};
@@ -101,6 +102,15 @@ pub struct Thread {
     pub backend: String,
     pub model_id: String,
     pub messages: Vec<ThreadMessage>,
+    /// What each helper agent did, keyed by the `dispatch_agent` call it ran for.
+    pub helpers: Vec<HelperLog>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelperLog {
+    pub dispatch: String,
+    pub agent: String,
+    pub entries: Vec<HelperEntry>,
 }
 
 #[derive(Debug, Serialize)]
@@ -305,12 +315,31 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
         });
     }
 
+    let helpers = store
+        .list_events(id)
+        .map_err(err)?
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            EventKind::HelperLog {
+                dispatch,
+                agent,
+                entries,
+            } => Some(HelperLog {
+                dispatch,
+                agent,
+                entries,
+            }),
+            EventKind::ModelSwitch { .. } => None,
+        })
+        .collect();
+
     Ok(Thread {
         conversation_id: id.to_string(),
         title: conv.title,
         backend: conv.current_model.backend.to_string(),
         model_id: conv.current_model.model_id,
         messages,
+        helpers,
     })
 }
 
@@ -350,19 +379,60 @@ pub async fn send_message(
     state: State<'_, AppState>,
     conversation: String,
     text: String,
+    coordinate: Option<bool>,
     on_event: Channel<TurnEvent>,
 ) -> CmdResult<()> {
     let conv = conv_id(&conversation)?;
-    // `/name request` runs a skill: its instructions travel with the message.
-    let parts = state
-        .skills
-        .expand(&text)
-        .unwrap_or_else(|| vec![Part::text(text)]);
+    let parts = if coordinate == Some(true) {
+        let plan = state.workspace.folder().and_then(|root| {
+            std::fs::read_to_string(std::path::Path::new(&root).join(ws_core::PLAN_FILE)).ok()
+        });
+        coordinate_parts(&text, plan.as_deref())
+    } else {
+        // `/name request` runs a skill: its instructions travel with the message.
+        state
+            .skills
+            .expand(&text)
+            .unwrap_or_else(|| vec![Part::text(text)])
+    };
     state
         .orchestrator
         .append_user_message(conv, parts)
         .map_err(err)?;
     stream_turn(&state, conv, on_event).await
+}
+
+/// The message that makes the model the coordinator: its instructions (and the
+/// plan a previous run left) folded under `/coordinate`, then the task. An
+/// empty task carries on with the plan.
+fn coordinate_parts(task: &str, plan: Option<&str>) -> Vec<Part> {
+    let task = task.trim();
+    vec![
+        Part::text(ws_core::skills::envelope(
+            "coordinate",
+            "built-in",
+            &ws_core::coordinator_instructions(plan),
+        )),
+        Part::text(if task.is_empty() {
+            "Continue the plan."
+        } else {
+            task
+        }),
+    ]
+}
+
+/// The models a worker switches to, in order, when its own fails.
+#[tauri::command]
+pub fn worker_fallbacks(state: State<'_, AppState>) -> Vec<ModelRef> {
+    ws_core::load_worker_fallbacks(&state.data_dir)
+}
+
+/// Save the fallback list and use it from the next worker on.
+#[tauri::command]
+pub fn set_worker_fallbacks(state: State<'_, AppState>, models: Vec<ModelRef>) -> CmdResult<()> {
+    ws_core::save_worker_fallbacks(&state.data_dir, &models).map_err(err)?;
+    state.orchestrator.set_worker_fallbacks(models);
+    Ok(())
 }
 
 /// Regenerate an assistant message as a new sibling (master spec s5.1).
@@ -559,6 +629,7 @@ pub fn save_compat_provider(
     if crate::state::BUILT_IN.contains(&id.as_str()) {
         return Err(format!("{id} is a built-in backend; choose another id"));
     }
+    check_endpoint(&base_url, &extra_headers)?;
 
     let store = state.store.lock().map_err(|_| "store unavailable")?;
     store
@@ -571,6 +642,30 @@ pub fn save_compat_provider(
             enabled: true,
         })
         .map_err(err)
+}
+
+/// An endpoint receives the API key on every request, so it must be reachable
+/// over https (plain http only for this machine), and the key belongs in the
+/// credential store, not in headers kept as plain text in the database.
+fn check_endpoint(
+    base_url: &str,
+    headers: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    let url = reqwest::Url::parse(base_url.trim()).map_err(|e| format!("not a valid URL: {e}"))?;
+    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if url.scheme() != "https" && !(url.scheme() == "http" && local) {
+        return Err("use an https:// URL; plain http is only allowed for localhost".to_owned());
+    }
+    let secret = |h: &str| {
+        let h = h.to_ascii_lowercase();
+        h == "authorization" || h.contains("api-key") || h.contains("apikey") || h.contains("token")
+    };
+    if let Some(name) = headers.keys().find(|h| secret(h)) {
+        return Err(format!(
+            "{name} looks like a credential; set the API key for this endpoint instead, so it is kept in the credential store"
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -941,6 +1036,39 @@ pub async fn ask_model(
         .await
 }
 
+#[derive(Debug, Serialize)]
+pub struct SearchResult {
+    matches: Vec<ws_tools::workspace::Match>,
+    /// The search stopped at its limit; a narrower query would show more.
+    truncated: bool,
+}
+
+/// Lines containing `query` anywhere in the project, for the search panel.
+#[tauri::command]
+pub async fn search_project(root: String, query: String) -> CmdResult<SearchResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ws_tools::workspace::search_matches(&root, "", query.trim())
+            .map(|(matches, truncated)| SearchResult { matches, truncated })
+    })
+    .await
+    .map_err(err)?
+}
+
+/// What differs from the last commit, for the changes panel.
+#[tauri::command]
+pub async fn git_status(root: String) -> CmdResult<Vec<ws_tools::git::Change>> {
+    tauri::async_runtime::spawn_blocking(move || ws_tools::git::status(&root))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn git_diff(root: String, path: String) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || ws_tools::git::diff(&root, &path))
+        .await
+        .map_err(err)?
+}
+
 #[tauri::command]
 pub fn read_text_file(root: String, path: String) -> CmdResult<String> {
     crate::files::read_text(&root, &path)
@@ -1007,6 +1135,13 @@ pub fn set_workspace(state: State<'_, AppState>, root: Option<String>, file: Opt
     state.workspace.set(root, file);
 }
 
+/// The folder the agent's tools act on: the open one, or one the agent was
+/// given with `choose_location` when none was open.
+#[tauri::command]
+pub fn workspace_folder(state: State<'_, AppState>) -> Option<String> {
+    state.workspace.folder()
+}
+
 // ---- running code -------------------------------------------------------------
 
 /// Compile and run one file in the output panel, stopping any earlier run.
@@ -1044,4 +1179,114 @@ pub fn stop_run(state: State<'_, AppState>) {
 #[tauri::command]
 pub fn undo_edit(state: State<'_, AppState>, call_id: String) -> CmdResult<()> {
     state.orchestrator.undo_edit(&call_id).map_err(err)
+}
+
+#[cfg(test)]
+mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::{check_endpoint, coordinate_parts};
+    use std::collections::BTreeMap;
+    use ws_context::Part;
+
+    #[test]
+    fn a_coordinated_message_folds_the_instructions_and_plan_under_coordinate() {
+        let parts = coordinate_parts("  ", Some("- [x] parser\n- [ ] cli"));
+        let (name, body) = parts[0]
+            .as_text()
+            .and_then(ws_core::skills::unwrap_envelope)
+            .unwrap();
+        assert_eq!(name, "coordinate");
+        assert!(body.contains(ws_core::PLAN_FILE) && body.contains("- [ ] cli"));
+        assert_eq!(parts[1].as_text(), Some("Continue the plan."));
+        assert_eq!(
+            coordinate_parts("add tests", None)[1],
+            Part::text("add tests")
+        );
+    }
+
+    fn headers(names: &[&str]) -> BTreeMap<String, String> {
+        names
+            .iter()
+            .map(|n| ((*n).to_owned(), "v".to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn keys_only_go_over_https_or_to_this_machine() {
+        let none = headers(&[]);
+        assert!(check_endpoint("https://openrouter.ai/api/v1", &none).is_ok());
+        assert!(check_endpoint("http://localhost:11434/v1", &none).is_ok());
+        assert!(check_endpoint("http://127.0.0.1:8080/v1", &none).is_ok());
+        assert!(check_endpoint("http://openrouter.ai/api/v1", &none).is_err());
+        assert!(check_endpoint("ftp://x/v1", &none).is_err());
+        assert!(check_endpoint("not a url", &none).is_err());
+    }
+
+    #[test]
+    fn credential_headers_are_refused_and_ordinary_ones_pass() {
+        let url = "https://openrouter.ai/api/v1";
+        assert!(check_endpoint(url, &headers(&["HTTP-Referer", "X-Title"])).is_ok());
+        assert!(check_endpoint(url, &headers(&["Authorization"])).is_err());
+        assert!(check_endpoint(url, &headers(&["x-api-key"])).is_err());
+    }
+}
+
+// ---- language servers and the debugger --------------------------------------
+
+/// Start the language server for `.ext` files in `root`; its messages arrive
+/// on `on_event`. Returns the id `bridge_send` and `bridge_stop` take.
+#[tauri::command]
+pub fn lsp_start(
+    root: String,
+    ext: String,
+    on_event: Channel<crate::bridge::BridgeEvent>,
+) -> CmdResult<u64> {
+    let root = std::path::Path::new(root.trim())
+        .canonicalize()
+        .map_err(err)?;
+    let cmd = crate::bridge::language_server(&root, &ext.to_ascii_lowercase())?;
+    crate::bridge::start(cmd, move |e| {
+        let _ = on_event.send(e);
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct DebugStart {
+    id: u64,
+    /// The `launch` request's arguments, for the page to send as they are.
+    launch: serde_json::Value,
+}
+
+/// Build `path` for debugging if it needs it, and start its debug adapter.
+#[tauri::command]
+pub async fn dap_start(
+    root: String,
+    path: String,
+    on_event: Channel<crate::bridge::BridgeEvent>,
+) -> CmdResult<DebugStart> {
+    let file = crate::files::resolve(&root, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = crate::bridge::debugger(&file)?;
+        let id = crate::bridge::start(d.adapter, move |e| {
+            let _ = on_event.send(e);
+        })?;
+        Ok(DebugStart {
+            id,
+            launch: d.launch,
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub fn bridge_send(id: u64, message: String) -> CmdResult<()> {
+    crate::bridge::send(id, &message)
+}
+
+#[tauri::command]
+pub fn bridge_stop(id: u64) {
+    crate::bridge::stop(id);
 }

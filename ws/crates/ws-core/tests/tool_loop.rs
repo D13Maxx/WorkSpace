@@ -348,3 +348,410 @@ Read what you are told.
         "the helper's turn is not stored in the conversation"
     );
 }
+
+#[tokio::test]
+async fn workers_dispatched_together_can_message_each_other() {
+    let post = |id: &str, text: &str| {
+        Scripted::calls(
+            id,
+            "post_message",
+            &serde_json::json!({ "text": text }).to_string(),
+        )
+    };
+    // The fake backend answers in call order, and the fake streams never wait,
+    // so the first worker runs to its end before the second starts.
+    let h = harness_with(
+        vec![
+            Scripted::CallsTools(vec![
+                (
+                    "d1".to_owned(),
+                    "dispatch_agent".to_owned(),
+                    r#"{"agent":"worker","prompt":"part a"}"#.to_owned(),
+                ),
+                (
+                    "d2".to_owned(),
+                    "dispatch_agent".to_owned(),
+                    r#"{"agent":"worker","prompt":"part b"}"#.to_owned(),
+                ),
+            ]),
+            post("p1", "hello from A"),
+            Scripted::Text(vec!["A done".to_owned()]),
+            post("p2", "hello from B"),
+            Scripted::Text(vec!["B done".to_owned()]),
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        Some(Arc::new(ws_core::Agents::default().with_worker())),
+    );
+    let conv = h.conversation();
+    let events = run(&h, conv, true).await;
+
+    // What each worker did is streamed as it happens and saved when it ends.
+    let live = events
+        .iter()
+        .filter(|e| matches!(e, TurnEvent::HelperStep { dispatch, .. } if dispatch == "d2"))
+        .count();
+    assert_eq!(live, 4, "B's post, its result, A's note and B's report");
+    let logs: Vec<(String, Vec<ws_context::HelperEntry>)> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog {
+                dispatch, entries, ..
+            } => Some((dispatch, entries)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(logs.len(), 2, "one log per worker");
+    let (dispatch, b) = &logs[1];
+    assert_eq!(dispatch, "d2");
+    use ws_context::HelperEntry as E;
+    assert!(matches!(&b[0], E::Call { name, .. } if name == "post_message"));
+    assert!(matches!(
+        &b[1],
+        E::Result {
+            is_error: false,
+            ..
+        }
+    ));
+    assert!(
+        matches!(&b[2], E::Received { text } if text == "- from worker (d1): hello from A"),
+        "{:?}",
+        b[2]
+    );
+    assert!(matches!(&b[3], E::Text { text } if text == "B done"));
+
+    let requests = h.backend.requests();
+    assert_eq!(requests.len(), 6);
+    let has_tool = |i: usize| requests[i].tools.iter().any(|t| t.name == "post_message");
+    assert!(!has_tool(0), "the coordinator does not chat with workers");
+    assert!(has_tool(1) && has_tool(3), "workers do");
+    let text = |i: usize| -> String {
+        requests[i]
+            .view
+            .messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(Part::as_text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let heard = "Messages from the other helpers:\n- from worker (d1): hello from A";
+    assert!(
+        text(4).contains(heard),
+        "B is told what A posted: {}",
+        text(4)
+    );
+    assert!(
+        !text(2).contains("Messages from the other helpers"),
+        "A hears nothing of itself"
+    );
+}
+
+#[tokio::test]
+async fn a_worker_on_a_backend_without_tools_says_so_instead_of_doing_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Mutex::new(Store::open(dir.path().join("ws.db")).unwrap()));
+    let blobs = Arc::new(BlobStore::new(dir.path().join("blobs")).unwrap());
+    let profiles = Arc::new(ProfileTable::new());
+    let backend = Arc::new(
+        FakeBackend::new("fake", profiles.clone() as Arc<_>)
+            .without_tools()
+            .scripted(Scripted::calls(
+                "d1",
+                "dispatch_agent",
+                r#"{"agent":"worker","prompt":"do it"}"#,
+            ))
+            .says("ok"),
+    );
+    let orch = Arc::new(
+        Orchestrator::new(store, blobs, profiles)
+            .with_backend(backend.clone() as Arc<_>)
+            .with_tools(Arc::new(FakeTools::default()) as Arc<_>)
+            .with_agents(Arc::new(ws_core::Agents::default().with_worker())),
+    );
+    let conv = orch
+        .create_conversation("t", ModelRef::new("fake", "fake-1"))
+        .unwrap();
+    orch.append_user_message(conv, vec![Part::text("go")])
+        .unwrap();
+    let (tx, mut rx) = mpsc::channel(64);
+    let run = orch.run_turn(conv, tx, CancellationToken::new());
+    let (result, ()) = tokio::join!(run, async { while rx.recv().await.is_some() {} });
+    result.unwrap();
+
+    let requests = backend.requests();
+    assert_eq!(requests.len(), 2, "no worker request was made");
+    // Without tool support the history is flattened to text.
+    let told = requests[1]
+        .view
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .any(|p| {
+            p.as_text()
+                .is_some_and(|t| t.contains("does not support tools"))
+        });
+    assert!(told, "the coordinator is told why nothing happened");
+}
+
+// ---- helpers and workers: failure paths ------------------------------------
+
+fn worker_agents() -> Option<Arc<ws_core::Agents>> {
+    Some(Arc::new(ws_core::Agents::default().with_worker()))
+}
+
+fn dispatch(id: &str, agent: &str) -> Scripted {
+    Scripted::calls(
+        id,
+        "dispatch_agent",
+        &serde_json::json!({"agent": agent, "prompt": "do it"}).to_string(),
+    )
+}
+
+/// Whether anything the model was sent in `request` mentions `needle`.
+fn heard(request: &ws_context::BackendRequest, needle: &str) -> bool {
+    request
+        .view
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .any(|p| match p {
+            Part::ToolResult { content, .. } => content
+                .iter()
+                .any(|c| c.as_text().is_some_and(|t| t.contains(needle))),
+            other => other.as_text().is_some_and(|t| t.contains(needle)),
+        })
+}
+
+#[tokio::test]
+async fn dispatching_an_agent_that_does_not_exist_is_an_error_result() {
+    let h = harness_with(
+        vec![
+            dispatch("d1", "nope"),
+            Scripted::Text(vec!["ok".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let requests = h.backend.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(heard(&requests[1], "there is no agent called nope"));
+}
+
+#[tokio::test]
+async fn a_worker_cannot_dispatch_workers_of_its_own() {
+    let h = harness_with(
+        vec![
+            dispatch("d1", "worker"),
+            dispatch("w1", "worker"), // the worker tries
+            Scripted::Text(vec!["gave up".to_owned()]),
+            Scripted::Text(vec!["ok".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let requests = h.backend.requests();
+    assert_eq!(requests.len(), 4, "the nested dispatch started nothing");
+    assert!(heard(&requests[2], "cannot dispatch helpers of its own"));
+}
+
+#[tokio::test]
+async fn a_worker_whose_backend_fails_reports_the_failure_and_the_coordinator_carries_on() {
+    let h = harness_with(
+        vec![
+            dispatch("d1", "worker"),
+            Scripted::FailsAfter {
+                deltas: vec!["partial".to_owned()],
+                error: "connection reset".to_owned(),
+            },
+            Scripted::Text(vec!["ok".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let requests = h.backend.requests();
+    assert!(heard(&requests[2], "worker failed"));
+    assert!(heard(&requests[2], "connection reset"));
+}
+
+#[tokio::test]
+async fn a_worker_that_never_stops_calling_tools_is_stopped_at_the_round_limit() {
+    let mut replies = vec![dispatch("d1", "worker")];
+    // Exactly the limit: every round calls a tool, so the worker never gets to end.
+    replies
+        .extend((0..50).map(|i| Scripted::calls(&format!("r{i}"), "read_file", r#"{"path":"a"}"#)));
+    replies.push(Scripted::Text(vec!["ok".to_owned()]));
+    let h = harness_with(replies, worker_agents());
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let requests = h.backend.requests();
+    assert_eq!(
+        h.tools.calls.lock().unwrap().len(),
+        50,
+        "50 rounds, then stop"
+    );
+    assert!(heard(requests.last().unwrap(), "stopped after 50 rounds"));
+}
+
+#[tokio::test]
+async fn cancelling_while_a_worker_waits_for_approval_ends_it_without_hanging() {
+    let h = harness_with(
+        vec![
+            dispatch("d1", "worker"),
+            Scripted::calls("w1", "write_file", r#"{"path":"a","content":"x"}"#),
+            Scripted::Text(vec!["never reached".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let conv = h.conversation();
+    let cancel = CancellationToken::new();
+    let (tx, mut rx) = mpsc::channel(64);
+    let orch = h.orch.clone();
+    let token = cancel.clone();
+    let turn = tokio::spawn(async move { orch.run_turn(conv, tx, token).await });
+    while let Some(e) = rx.recv().await {
+        if matches!(e, TurnEvent::ApprovalRequired { .. }) {
+            cancel.cancel();
+        }
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(5), turn)
+        .await
+        .expect("the turn ended")
+        .unwrap()
+        .unwrap();
+    assert!(
+        h.tools.calls.lock().unwrap().is_empty(),
+        "the write never ran"
+    );
+    assert_eq!(
+        h.backend.requests().len(),
+        2,
+        "no model call after the cancel"
+    );
+}
+
+// ---- post_message misuse ----------------------------------------------------
+
+#[tokio::test]
+async fn post_message_from_the_coordinator_or_without_text_is_an_error_result() {
+    let h = harness_with(
+        vec![
+            Scripted::calls("p1", "post_message", r#"{"text":"hi"}"#), // not a worker
+            dispatch("d1", "worker"),
+            Scripted::calls("p2", "post_message", r#"{"to":"x"}"#), // no text
+            Scripted::Text(vec!["done".to_owned()]),
+            Scripted::Text(vec!["ok".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let requests = h.backend.requests();
+    assert!(
+        heard(&requests[1], "post_message is for helpers"),
+        "coordinator"
+    );
+    assert!(
+        heard(&requests[3], "post_message is for helpers"),
+        "missing text"
+    );
+}
+
+#[tokio::test]
+async fn a_worker_whose_model_fails_moves_down_the_fallbacks_and_the_coordinator_is_told() {
+    let overloaded = || ws_context::BackendError::Http {
+        backend: "fake".into(),
+        status: 529,
+        message: "overloaded".to_owned(),
+    };
+    let h = harness_with(
+        vec![
+            dispatch("d1", "worker"),
+            // The worker on the chat's model, then on each fallback in turn.
+            Scripted::RefusesToStart {
+                error: overloaded(),
+            },
+            Scripted::FailsAfter {
+                deltas: vec!["half".to_owned()],
+                error: "connection reset".to_owned(),
+            },
+            Scripted::Text(vec!["done".to_owned()]),
+            // Back in the coordinator's turn.
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    h.orch.set_worker_fallbacks(vec![
+        // Not a backend here: skipped, not a failure.
+        ModelRef::new("gone", "x"),
+        ModelRef::new("fake", "fake-2"),
+        ModelRef::new("fake", "fake-3"),
+    ]);
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+
+    let requests = h.backend.requests();
+    let models: Vec<&str> = requests.iter().map(|r| r.model.model_id.as_str()).collect();
+    assert_eq!(
+        models,
+        ["fake-1", "fake-1", "fake-2", "fake-3", "fake-1"],
+        "only the worker moves; the coordinator stays on the chat's model"
+    );
+    assert!(
+        !heard(&requests[3], "half"),
+        "the failed round's partial reply is dropped, not shown to the next model"
+    );
+    assert!(heard(
+        &requests[4],
+        "worker finished on fake/fake-3 because fake/fake-1 failed"
+    ));
+
+    let switches: Vec<(String, String)> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .filter_map(|e| match e {
+            ws_context::HelperEntry::Switch { from, to, .. } => Some((from, to)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        switches,
+        [
+            ("fake/fake-1".to_owned(), "fake/fake-2".to_owned()),
+            ("fake/fake-2".to_owned(), "fake/fake-3".to_owned())
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_coordinator_itself_never_falls_back() {
+    let h = harness(vec![Scripted::RefusesToStart {
+        error: ws_context::BackendError::Http {
+            backend: "fake".into(),
+            status: 529,
+            message: "overloaded".to_owned(),
+        },
+    }]);
+    h.orch
+        .set_worker_fallbacks(vec![ModelRef::new("fake", "fake-2")]);
+    let conv = h.conversation();
+    let (tx, _rx) = mpsc::channel(64);
+    let result = h.orch.run_turn(conv, tx, CancellationToken::new()).await;
+    assert!(result.is_err(), "the turn fails as before");
+    assert_eq!(h.backend.requests().len(), 1, "no second model was tried");
+}

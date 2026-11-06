@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { api, type ThreadMessage } from "../api";
+import { api, type HelperLog, type ThreadMessage } from "../api";
+import { HelperPanel } from "./HelperPanel";
 
 interface Props {
   messages: ThreadMessage[];
+  /** Helper agents' work, by the dispatch_agent call it was for. */
+  helpers: Map<string, HelperLog>;
   streaming: string | null;
   streamingReasoning: string;
   onRegenerate: (message: string) => void;
@@ -133,11 +136,15 @@ export function MessageList(props: Props) {
           )}
           {m.text && <div className="body">{m.text}</div>}
 
-          {m.tool_calls.map((c) => (
-            <div key={c.call_id} className="tool-call">
-              <code>{c.name}</code> <span className="muted">{c.args}</span>
-            </div>
-          ))}
+          {m.tool_calls.map((c) =>
+            c.name === "dispatch_agent" ? (
+              <HelperPanel key={c.call_id} args={c.args} log={props.helpers.get(c.call_id)} running={props.busy} />
+            ) : (
+              <div key={c.call_id} className="tool-call">
+                <code>{c.name}</code> <span className="muted">{c.args}</span>
+              </div>
+            ),
+          )}
           {m.tool_results.map((r) => (
             <div key={r.call_id}>
               {r.edit && (

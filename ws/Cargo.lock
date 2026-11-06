@@ -6705,7 +6705,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "trash",
  "ulid",
  "ws-context",
  "ws-core",
@@ -6714,6 +6713,24 @@ dependencies = [
  "ws-providers",
  "ws-secrets",
  "ws-store",
+ "ws-tools",
+]
+
+[[package]]
+name = "ws-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing-subscriber",
+ "ws-context",
+ "ws-core",
+ "ws-providers",
+ "ws-store",
+ "ws-tools",
 ]
 
 [[package]]
@@ -6841,6 +6858,20 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "ws-context",
+]
+
+[[package]]
+name = "ws-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "trash",
+ "ws-context",
+ "ws-core",
 ]
 
 [[package]]

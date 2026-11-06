@@ -93,6 +93,28 @@ export interface Thread {
   backend: string;
   model_id: string;
   messages: ThreadMessage[];
+  /** What each helper agent did, keyed by the dispatch_agent call it ran for. */
+  helpers: HelperLog[];
+}
+
+export type HelperEntry =
+  | { kind: "text"; text: string }
+  | { kind: "call"; call_id: string; name: string; args: string }
+  | { kind: "result"; call_id: string; is_error: boolean; text: string }
+  /** Notes the other helpers sent it. */
+  | { kind: "received"; text: string }
+  /** Its model failed, so it carried on with the next fallback. */
+  | { kind: "switch"; from: string; to: string; error: string };
+
+export interface HelperLog {
+  dispatch: string;
+  agent: string;
+  entries: HelperEntry[];
+}
+
+export interface ModelChoice {
+  backend: string;
+  model_id: string;
 }
 
 export interface ModelOption {
@@ -180,6 +202,7 @@ export type TurnEvent =
   | { type: "tool_call"; call_id: string; name: string; args: string }
   | { type: "approval_required"; call_id: string; name: string; args: string }
   | { type: "tool_result"; call_id: string; is_error: boolean; text: string }
+  | { type: "helper_step"; dispatch: string; agent: string; entry: HelperEntry }
   | { type: "completed"; message: string; stop_reason: unknown }
   | { type: "failed"; message: string | null; error: string };
 
@@ -236,6 +259,23 @@ export interface SandboxReport {
   output: string;
 }
 
+/** What a language server or debug adapter sent: one JSON message, or its exit. */
+export type BridgeEvent = { type: "message"; text: string } | { type: "exit"; code: number | null; stderr: string };
+
+/** One line of the project that contains the searched text. */
+export interface SearchMatch {
+  path: string;
+  /** 1-based. */
+  line: number;
+  text: string;
+}
+
+/** A file that differs from the last commit. `status` is M, A, D, R or ?. */
+export interface GitChange {
+  path: string;
+  status: string;
+}
+
 export const api = {
   listConversations: () => invoke<ConversationSummary[]>("list_conversations"),
 
@@ -255,10 +295,11 @@ export const api = {
   selectBranch: (conversation: string, message: string) =>
     invoke<void>("select_branch", { conversation, message }),
 
-  sendMessage: (conversation: string, text: string, onEvent: (e: TurnEvent) => void) => {
+  /** `coordinate`: the model plans in .ws/plan.md and dispatches workers. */
+  sendMessage: (conversation: string, text: string, onEvent: (e: TurnEvent) => void, coordinate = false) => {
     const channel = new Channel<TurnEvent>();
     channel.onmessage = onEvent;
-    return invoke<void>("send_message", { conversation, text, onEvent: channel });
+    return invoke<void>("send_message", { conversation, text, coordinate, onEvent: channel });
   },
 
   regenerate: (conversation: string, message: string, onEvent: (e: TurnEvent) => void) => {
@@ -273,6 +314,11 @@ export const api = {
     invoke<void>("switch_model", { conversation, backend, modelId }),
 
   listModels: () => invoke<ModelOption[]>("list_models"),
+
+  /** Models a worker switches to, in order, when its own fails. */
+  workerFallbacks: () => invoke<ModelChoice[]>("worker_fallbacks"),
+
+  setWorkerFallbacks: (models: ModelChoice[]) => invoke<void>("set_worker_fallbacks", { models }),
 
   listBackends: () => invoke<BackendInfo[]>("list_backends"),
 
@@ -324,6 +370,31 @@ export const api = {
   readTextFile: (root: string, path: string) =>
     invoke<string>("read_text_file", { root, path }),
 
+  searchProject: (root: string, query: string) =>
+    invoke<{ matches: SearchMatch[]; truncated: boolean }>("search_project", { root, query }),
+
+  gitStatus: (root: string) => invoke<GitChange[]>("git_status", { root }),
+
+  gitDiff: (root: string, path: string) => invoke<string>("git_diff", { root, path }),
+
+  /** Start the language server for `ext` files in `root`. Resolves to its id. */
+  lspStart: (root: string, ext: string, onEvent: (e: BridgeEvent) => void) => {
+    const channel = new Channel<BridgeEvent>();
+    channel.onmessage = onEvent;
+    return invoke<number>("lsp_start", { root, ext, onEvent: channel });
+  },
+
+  /** Build `path` for debugging and start its debug adapter. */
+  dapStart: (root: string, path: string, onEvent: (e: BridgeEvent) => void) => {
+    const channel = new Channel<BridgeEvent>();
+    channel.onmessage = onEvent;
+    return invoke<{ id: number; launch: unknown }>("dap_start", { root, path, onEvent: channel });
+  },
+
+  bridgeSend: (id: number, message: string) => invoke<void>("bridge_send", { id, message }),
+
+  bridgeStop: (id: number) => invoke<void>("bridge_stop", { id }),
+
 
   writeTextFile: (root: string, path: string, text: string) =>
     invoke<void>("write_text_file", { root, path, text }),
@@ -372,6 +443,9 @@ export const api = {
   /** Tell the agent's tools which folder and file are open. */
   setWorkspace: (root: string | null, file: string | null) =>
     invoke<void>("set_workspace", { root, file }),
+
+  /** The agent's working folder: the open one, or the one it was given. */
+  workspaceFolder: () => invoke<string | null>("workspace_folder"),
 
   runFile: (root: string, path: string, onEvent: (e: RunEvent) => void) => {
     const channel = new Channel<RunEvent>();

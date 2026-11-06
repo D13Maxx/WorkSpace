@@ -13,23 +13,25 @@
 //! - **Nothing the user saw is discarded.** Cancel and failure both persist the
 //!   partial text under a status that says what happened.
 
-use crate::agents::{Agents, DISPATCH_AGENT};
+use crate::agents::{
+    Agents, Channel, DISPATCH_AGENT, MAX_POSTS_PER_HELPER, Note, POST_MESSAGE, post_spec,
+};
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
 use crate::tools::{ToolHost, ToolOutput};
 use chrono::Utc;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use ws_context::{
     BackendEvent, BackendId, BackendRequest, BuildViewParams, ByteEstimateCounter, ChatBackend,
-    ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventKind, InlineBlob,
-    Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part, ProviderOpaque, RenderedMessage,
-    RenderedView, Role, StopReason, SummaryId, SummaryRequest, ViewMode, ViewPlan, build_view,
-    summary_prompt,
+    ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventKind, HelperEntry,
+    InlineBlob, Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part, ProviderOpaque,
+    RenderedMessage, RenderedView, Role, StopReason, SummaryId, SummaryRequest, ViewMode, ViewPlan,
+    build_view, summary_prompt,
 };
 use ws_store::{BlobStore, Draft, FileEdit, NewMessage, Store};
 
@@ -63,7 +65,7 @@ const MAX_AGENT_ROUNDS: usize = 50;
 const MAX_PARALLEL_AGENTS: usize = 5;
 
 /// Appended to every helper's instructions.
-const AGENT_NOTE: &str = "You are a helper agent dispatched by Workspace. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
+const AGENT_NOTE: &str = "You are a helper agent dispatched by Workspace. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Change files only with write_file and edit_file, never through shell commands such as sed, so edits stay safe and undoable. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
 
 /// A file edit, ready to show: the diff, and whether it has been undone.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,76 @@ struct PendingCall {
     call_id: String,
     name: String,
     args: String,
+}
+
+const DROPPED: &str = "[output dropped to fit the context window]";
+
+/// Tell the UI what a helper just did, and keep it for the saved log.
+async fn step(
+    events: &mpsc::Sender<TurnEvent>,
+    dispatch: &PendingCall,
+    agent: &str,
+    log: &mut Vec<HelperEntry>,
+    entry: HelperEntry,
+) {
+    let _ = events
+        .send(TurnEvent::HelperStep {
+            dispatch: dispatch.call_id.clone(),
+            agent: agent.to_owned(),
+            entry: entry.clone(),
+        })
+        .await;
+    log.push(entry);
+}
+
+fn model_name(m: &ModelRef) -> String {
+    format!("{}/{}", m.backend, m.model_id)
+}
+
+/// A tool's output as the helper log keeps it: the full text went to the
+/// helper, but a whole file read would bloat every saved conversation.
+fn clip(text: &str) -> String {
+    const KEEP: usize = 4_000;
+    match text.char_indices().nth(KEEP) {
+        Some((at, _)) => format!(
+            "{}\n… ({} more characters)",
+            &text[..at],
+            text[at..].chars().count()
+        ),
+        None => text.to_owned(),
+    }
+}
+
+/// Cut a helper's history down to `budget` tokens (estimated) by replacing the
+/// oldest tool results with a note. The newest message is never touched, since
+/// the model is about to read it.
+fn trim_history(messages: &mut [RenderedMessage], budget: u32) {
+    use ws_context::TokenCounter as _;
+    let count = |t: &str| ByteEstimateCounter.count_text(t);
+    let size = |p: &Part| match p {
+        Part::Text { text } => count(text),
+        Part::ToolCall { args_json, .. } => count(args_json),
+        Part::ToolResult { content, .. } => {
+            content.iter().filter_map(Part::as_text).map(count).sum()
+        }
+        _ => 0,
+    };
+    let mut total: u32 = messages.iter().flat_map(|m| &m.parts).map(size).sum();
+    let last = messages.len().saturating_sub(1);
+    for part in messages.iter_mut().take(last).flat_map(|m| &mut m.parts) {
+        if total <= budget {
+            return;
+        }
+        if let Part::ToolResult { content, .. } = part {
+            let was = size(&Part::ToolResult {
+                call_id: String::new(),
+                content: std::mem::take(content),
+                is_error: false,
+            });
+            *content = vec![Part::text(DROPPED)];
+            total = (total - was.min(total)) + count(DROPPED);
+        }
+    }
 }
 
 /// Send `request` and gather the reply's text; the error is the backend's message.
@@ -120,6 +192,16 @@ pub struct Orchestrator {
     agents: Option<Arc<Agents>>,
     /// Calls waiting on the user, by call id. Resolved by `resolve_approval`.
     approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// One lock per edited file, held from the before-snapshot to the
+    /// after-snapshot, so agents running side by side cannot interleave edits
+    /// to one file or get each other's changes in their diffs.
+    // shortcut: entries are never pruned, upgrade if a session touches millions of paths.
+    file_locks: Mutex<HashMap<std::path::PathBuf, Arc<tokio::sync::Mutex<()>>>>,
+    /// What helpers running side by side say to one another.
+    channel: Channel,
+    /// Models a helper switches to, in order, when its own fails. Never used
+    /// for the main turn.
+    worker_fallbacks: std::sync::RwLock<Vec<ModelRef>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -148,7 +230,20 @@ impl Orchestrator {
             tools: None,
             agents: None,
             approvals: Mutex::new(HashMap::new()),
+            file_locks: Mutex::new(HashMap::new()),
+            channel: Channel::default(),
+            worker_fallbacks: std::sync::RwLock::default(),
         }
+    }
+
+    fn file_lock(&self, path: &std::path::Path) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self
+            .file_locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Canonical when the file exists, so `A.rs` and `a.rs` share a lock on Windows.
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        locks.entry(key).or_default().clone()
     }
 
     #[must_use]
@@ -177,7 +272,31 @@ impl Orchestrator {
 
     /// Tools are offered only when there is a host and the target's backend
     /// can carry them; otherwise tool history is flattened to text.
-    fn tools_enabled(&self, target: &ModelRef) -> bool {
+    /// Set the models a helper falls back to, in order, when its model fails
+    /// (after the provider's own retries). The main turn never falls back.
+    pub fn set_worker_fallbacks(&self, models: Vec<ModelRef>) {
+        if let Ok(mut f) = self.worker_fallbacks.write() {
+            *f = models;
+        }
+    }
+
+    /// The first model in `models` a helper can work with: one whose backend
+    /// is here and takes tools. Those it skips are dropped.
+    fn next_worker_model(
+        &self,
+        models: &mut VecDeque<ModelRef>,
+    ) -> Option<(ModelRef, Arc<dyn ChatBackend>)> {
+        while let Some(m) = models.pop_front() {
+            if self.tools_enabled(&m)
+                && let Ok(b) = self.backend(&m.backend)
+            {
+                return Some((m, b));
+            }
+        }
+        None
+    }
+
+    pub fn tools_enabled(&self, target: &ModelRef) -> bool {
         self.tools.is_some()
             && self
                 .backends
@@ -670,7 +789,7 @@ impl Orchestrator {
             // checker's higher-ranked lifetimes once this future must be Send.
             let runs: Vec<_> = calls
                 .iter()
-                .map(|c| self.run_call(conv, c, events, cancel, false))
+                .map(|c| self.run_call(conv, c, events, cancel, None))
                 .collect();
             futures_util::stream::iter(runs)
                 .buffered(MAX_PARALLEL_AGENTS)
@@ -679,10 +798,12 @@ impl Orchestrator {
         } else {
             let mut outs = Vec::with_capacity(calls.len());
             for call in &calls {
-                outs.push(self.run_call(conv, call, events, cancel, false).await);
+                outs.push(self.run_call(conv, call, events, cancel, None).await);
             }
             outs
         };
+        // Whatever the helpers said to one another is of no use to the next batch.
+        self.channel.clear(conv);
         let mut parts = Vec::with_capacity(calls.len());
         for (call, out) in calls.into_iter().zip(outs) {
             let _ = events
@@ -701,15 +822,15 @@ impl Orchestrator {
         parts
     }
 
-    /// Run one call. `in_helper` is true inside a dispatched agent, which may
-    /// not dispatch agents of its own.
+    /// Run one call. `helper` is the id of the dispatched agent making it, which
+    /// may not dispatch agents of its own.
     async fn run_call(
         &self,
         conv: ConvId,
         call: &PendingCall,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
-        in_helper: bool,
+        helper: Option<&str>,
     ) -> ToolOutput {
         let Some(host) = &self.tools else {
             return ToolOutput::error("no tools are available");
@@ -718,7 +839,7 @@ impl Orchestrator {
             return ToolOutput::error("cancelled by the user before it ran");
         }
         if call.name == DISPATCH_AGENT {
-            if in_helper {
+            if helper.is_some() {
                 return ToolOutput::error("a helper agent cannot dispatch helpers of its own");
             }
             // Boxed: a helper's own calls come back through run_call.
@@ -728,6 +849,24 @@ impl Orchestrator {
             Ok(v) => v,
             Err(e) => return ToolOutput::error(format!("the arguments were not valid JSON: {e}")),
         };
+        if call.name == POST_MESSAGE {
+            let (Some(from), Some(text)) = (helper, args["text"].as_str()) else {
+                return ToolOutput::error("post_message is for helpers and needs \"text\"");
+            };
+            let to = args["to"].as_str().map(str::to_owned);
+            let note = Note {
+                from: from.to_owned(),
+                to,
+                text: text.to_owned(),
+            };
+            return if self.channel.post(conv, note) {
+                ToolOutput::ok("sent")
+            } else {
+                ToolOutput::error(format!(
+                    "you have already posted {MAX_POSTS_PER_HELPER} messages; finish your task and report"
+                ))
+            };
+        }
 
         if host.needs_approval(&call.name) {
             let (tx, rx) = oneshot::channel();
@@ -756,6 +895,16 @@ impl Orchestrator {
         // Snapshot the file it will edit, so the change can be shown and undone.
         // An unreadable file is skipped rather than recorded as "created".
         let target = host.file_for(&call.name, &args);
+        let lock = target.as_deref().map(|p| self.file_lock(p));
+        let _guard = match &lock {
+            Some(l) => tokio::select! {
+                g = l.lock() => Some(g),
+                () = cancel.cancelled() => {
+                    return ToolOutput::error("cancelled by the user before it ran");
+                }
+            },
+            None => None,
+        };
         let before = target
             .as_deref()
             .and_then(|p| crate::edits::snapshot(p).ok());
@@ -789,12 +938,43 @@ impl Orchestrator {
     ///
     /// Its own tool calls go through `run_call`, so they ask for approval and
     /// record their file edits exactly as the main turn's do.
+    /// Run a helper, then save what it did, however it ended, so the user can
+    /// read its work after the turn.
     async fn run_agent(
         &self,
         conv: ConvId,
         call: &PendingCall,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
+    ) -> ToolOutput {
+        let mut log = Vec::new();
+        let out = self
+            .run_agent_steps(conv, call, events, cancel, &mut log)
+            .await;
+        if !log.is_empty() {
+            let agent = serde_json::from_str::<serde_json::Value>(&call.args)
+                .ok()
+                .and_then(|a| a.get("agent")?.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            let kind = EventKind::HelperLog {
+                dispatch: call.call_id.clone(),
+                agent,
+                entries: log,
+            };
+            if let Err(e) = self.with_store(|s| Ok(s.record_event(conv, None, &kind)?)) {
+                tracing::warn!(error = %e, "could not save a helper's log");
+            }
+        }
+        out
+    }
+
+    async fn run_agent_steps(
+        &self,
+        conv: ConvId,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+        log: &mut Vec<HelperEntry>,
     ) -> ToolOutput {
         use futures_util::StreamExt as _;
 
@@ -806,17 +986,55 @@ impl Orchestrator {
         let Some(def) = self.agents.as_ref().and_then(|a| a.get(agent)).cloned() else {
             return ToolOutput::error(format!("there is no agent called {agent}"));
         };
-        let target = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
+        let first = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
             Ok(Some(c)) => c.current_model,
             _ => return ToolOutput::error("the conversation is gone"),
         };
-        let backend = match self.backend(&target.backend) {
-            Ok(b) => b,
-            Err(e) => return ToolOutput::error(e.to_string()),
+        // The chat's model, then the fallbacks: a helper whose model fails in a
+        // way its provider's retries could not fix moves down this list.
+        let mut models: VecDeque<ModelRef> = self
+            .worker_fallbacks
+            .read()
+            .map(|f| f.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| *m != first)
+            .collect();
+        models.push_front(first.clone());
+        let Some((mut target, mut backend)) = self.next_worker_model(&mut models) else {
+            return ToolOutput::error(format!(
+                "{} does not support tools, so {agent} cannot work, and no fallback model that does is set; use a model from Anthropic or an OpenAI-compatible endpoint",
+                first.backend
+            ));
         };
-        let tools = self.tools.as_ref().map(|h| h.specs()).unwrap_or_default();
+        if target != first {
+            step(
+                events,
+                call,
+                agent,
+                log,
+                HelperEntry::Switch {
+                    from: model_name(&first),
+                    to: model_name(&target),
+                    error: "it cannot use tools here".to_owned(),
+                },
+            )
+            .await;
+        }
+        let mut tools = self.tools.as_ref().map(|h| h.specs()).unwrap_or_default();
+        tools.push(post_spec());
+        let me = format!("{agent} ({})", call.call_id);
+        let mut seen = 0;
         let system = format!("{}\n\n{AGENT_NOTE}", def.body.trim());
-        let max_output = self.profiles.capabilities(&target).max_output_tokens;
+        let limits = |target: &ModelRef| {
+            let caps = self.profiles.capabilities(target);
+            let max_output = caps.max_output_tokens;
+            // 80% of the window, less the reply: the rest is margin for the system
+            // prompt, tool definitions and the estimate being only an estimate.
+            let budget = (caps.context_window / 10 * 8).saturating_sub(max_output);
+            (max_output, budget)
+        };
+        let (mut max_output, mut budget) = limits(&target);
         let mut messages = vec![RenderedMessage {
             source_id: MsgId::new(),
             role: Role::User,
@@ -826,6 +1044,40 @@ impl Orchestrator {
         for _ in 0..MAX_AGENT_ROUNDS {
             if cancel.is_cancelled() {
                 return ToolOutput::error("cancelled by the user");
+            }
+            trim_history(&mut messages, budget);
+            // Between steps only, so it follows a tool result and never splits the prompt.
+            if messages.last().is_some_and(|m| m.role == Role::Tool) {
+                let notes = self.channel.unread(conv, &me, agent, &mut seen);
+                if !notes.is_empty() {
+                    let text: String = notes
+                        .iter()
+                        .map(|n| {
+                            format!(
+                                "
+- from {}: {}",
+                                n.from, n.text
+                            )
+                        })
+                        .collect();
+                    step(
+                        events,
+                        call,
+                        agent,
+                        log,
+                        HelperEntry::Received {
+                            text: text.trim_start().to_owned(),
+                        },
+                    )
+                    .await;
+                    messages.push(RenderedMessage {
+                        source_id: MsgId::new(),
+                        role: Role::User,
+                        parts: vec![Part::text(format!(
+                            "Messages from the other helpers:{text}"
+                        ))],
+                    });
+                }
             }
             let request = BackendRequest {
                 model: target.clone(),
@@ -839,15 +1091,22 @@ impl Orchestrator {
                 blobs: BTreeMap::new(),
                 tools: tools.clone(),
             };
-            let mut stream = match backend.stream(request, cancel.clone()).await {
-                Ok(s) => s,
-                Err(e) => return ToolOutput::error(format!("{agent} could not start: {e}")),
-            };
             let mut text = String::new();
             let mut opaque = Vec::new();
             let mut calls: Vec<PendingCall> = Vec::new();
             let mut stop = StopReason::EndTurn;
-            while let Some(event) = stream.next().await {
+            let mut failed = None;
+            let mut stream = match backend.stream(request, cancel.clone()).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    failed = Some(format!("could not start: {e}"));
+                    None
+                }
+            };
+            while let Some(event) = match stream.as_mut() {
+                Some(s) => s.next().await,
+                None => None,
+            } {
                 match event {
                     BackendEvent::TextDelta(t) => text.push_str(&t),
                     BackendEvent::OpaqueBlock(o) => opaque.push(o),
@@ -873,12 +1132,52 @@ impl Orchestrator {
                         break;
                     }
                     BackendEvent::Error(e) => {
-                        return ToolOutput::error(format!("{agent} failed: {e}"));
+                        failed = Some(format!("failed: {e}"));
+                        break;
                     }
                     _ => {}
                 }
             }
+            if let Some(error) = failed {
+                if cancel.is_cancelled() {
+                    return ToolOutput::error("cancelled by the user");
+                }
+                let Some((next, next_backend)) = self.next_worker_model(&mut models) else {
+                    return ToolOutput::error(format!("{agent} {error}"));
+                };
+                step(
+                    events,
+                    call,
+                    agent,
+                    log,
+                    HelperEntry::Switch {
+                        from: model_name(&target),
+                        to: model_name(&next),
+                        error: error.clone(),
+                    },
+                )
+                .await;
+                (target, backend) = (next, next_backend);
+                (max_output, budget) = limits(&target);
+                // Signed reasoning and the like only make sense to the provider
+                // that wrote them.
+                for m in &mut messages {
+                    m.parts.retain(|p| !matches!(p, Part::Opaque(_)));
+                }
+                // The failed round is tried again on the new model.
+                continue;
+            }
 
+            if !text.trim().is_empty() {
+                step(
+                    events,
+                    call,
+                    agent,
+                    log,
+                    HelperEntry::Text { text: text.clone() },
+                )
+                .await;
+            }
             let mut parts: Vec<Part> = opaque.into_iter().map(Part::Opaque).collect();
             if !text.is_empty() {
                 parts.push(Part::text(text.clone()));
@@ -894,30 +1193,73 @@ impl Orchestrator {
                 parts,
             });
             if stop != StopReason::ToolUse || calls.is_empty() {
-                return if text.trim().is_empty() {
-                    ToolOutput::ok(format!("{agent} finished without a report"))
+                let report = if text.trim().is_empty() {
+                    format!("{agent} finished without a report")
                 } else {
-                    ToolOutput::ok(text)
+                    text
                 };
+                // The coordinator should know another model finished the work.
+                return ToolOutput::ok(if target == first {
+                    report
+                } else {
+                    format!(
+                        "{report}\n\n({agent} finished on {} because {} failed.)",
+                        model_name(&target),
+                        model_name(&first)
+                    )
+                });
             }
 
             let mut results = Vec::with_capacity(calls.len());
             for c in calls {
+                // Providers number calls their own way, and two helpers can both
+                // say "call_0": approvals and saved edits are keyed by this id.
+                let scoped = PendingCall {
+                    call_id: format!("{me}:{}", c.call_id),
+                    name: c.name.clone(),
+                    args: c.args.clone(),
+                };
                 let _ = events
                     .send(TurnEvent::ToolCall {
-                        call_id: c.call_id.clone(),
+                        call_id: scoped.call_id.clone(),
                         name: format!("{agent}: {}", c.name),
                         args: c.args.clone(),
                     })
                     .await;
-                let out = self.run_call(conv, &c, events, cancel, true).await;
+                step(
+                    events,
+                    call,
+                    agent,
+                    log,
+                    HelperEntry::Call {
+                        call_id: scoped.call_id.clone(),
+                        name: c.name.clone(),
+                        args: c.args.clone(),
+                    },
+                )
+                .await;
+                let out = self
+                    .run_call(conv, &scoped, events, cancel, Some(&me))
+                    .await;
                 let _ = events
                     .send(TurnEvent::ToolResult {
-                        call_id: c.call_id.clone(),
+                        call_id: scoped.call_id.clone(),
                         is_error: out.is_error,
                         text: out.text.clone(),
                     })
                     .await;
+                step(
+                    events,
+                    call,
+                    agent,
+                    log,
+                    HelperEntry::Result {
+                        call_id: scoped.call_id.clone(),
+                        is_error: out.is_error,
+                        text: clip(&out.text),
+                    },
+                )
+                .await;
                 results.push(Part::ToolResult {
                     call_id: c.call_id,
                     content: vec![Part::text(out.text)],
@@ -1253,5 +1595,53 @@ impl Orchestrator {
             }
         }
         Ok((id, calls))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Spec s14 permits unwrap/expect in tests.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn result(text: &str) -> RenderedMessage {
+        RenderedMessage {
+            source_id: MsgId::new(),
+            role: Role::Tool,
+            parts: vec![Part::ToolResult {
+                call_id: "c".to_owned(),
+                content: vec![Part::text(text)],
+                is_error: false,
+            }],
+        }
+    }
+
+    fn text_of(m: &RenderedMessage) -> String {
+        match &m.parts[0] {
+            Part::ToolResult { content, .. } => content[0].as_text().unwrap().to_owned(),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn the_oldest_tool_results_go_first_and_the_newest_message_stays() {
+        let big = "x".repeat(30_000); // about 11k tokens each
+        let mut messages = vec![result(&big), result(&big), result(&big)];
+        trim_history(&mut messages, 25_000);
+        assert_eq!(text_of(&messages[0]), DROPPED, "oldest is dropped");
+        assert_eq!(text_of(&messages[1]).len(), 30_000, "stops once it fits");
+        assert_eq!(text_of(&messages[2]).len(), 30_000, "newest is kept");
+
+        trim_history(&mut messages, 1);
+        assert_eq!(text_of(&messages[1]), DROPPED);
+        assert_eq!(text_of(&messages[2]).len(), 30_000, "never the newest");
+    }
+
+    #[test]
+    fn a_history_that_fits_is_left_alone() {
+        let mut messages = vec![result("small"), result("small")];
+        trim_history(&mut messages, 10_000);
+        assert_eq!(text_of(&messages[0]), "small");
     }
 }

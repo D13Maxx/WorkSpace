@@ -254,6 +254,7 @@ async fn a_model_switch_is_recorded_as_an_event_not_a_message() {
             assert_eq!(from, &model());
             assert_eq!(to, &other_model());
         }
+        other => panic!("expected a model switch, got {other:?}"),
     }
     // The path is unchanged: a switch is not a message.
     assert_eq!(s.load_active_path(conv).unwrap().len(), 1);

@@ -28,6 +28,26 @@ pub const BUILT_IN: [&str; 3] = [ANTHROPIC, OPENAI, GEMINI];
 /// Ponytail, and the Understand-Anything skills that read an existing graph.
 /// Both MIT; their licences sit beside them in `src-tauri/skills`.
 /// shortcut: /understand itself (building a graph) is left out; it needs subagents and UA's Node packages.
+/// The agent's `choose_location`: the system folder picker, titled with why.
+fn folder_chooser(app: tauri::AppHandle) -> crate::workspace::Chooser {
+    use tauri_plugin_dialog::DialogExt as _;
+    crate::workspace::Chooser(Arc::new(move |reason| {
+        let app = app.clone();
+        Box::pin(async move {
+            tauri::async_runtime::spawn_blocking(move || {
+                app.dialog()
+                    .file()
+                    .set_title(format!("Choose a folder: {reason}"))
+                    .blocking_pick_folder()
+            })
+            .await
+            .ok()
+            .flatten()
+            .and_then(|f| f.into_path().ok())
+        })
+    }))
+}
+
 const BUILTIN_SKILLS: &[(&str, &str)] = &[
     (
         "built-in/ponytail/ponytail",
@@ -83,6 +103,8 @@ pub struct AppState {
     /// `SKILL.md` packs found under `skills/` in the app data folder.
     pub skills: Arc<ws_core::Skills>,
     pub skills_dir: std::path::PathBuf,
+    /// The app data folder, where the worker fallback list lives.
+    pub data_dir: std::path::PathBuf,
     /// The Understand-Anything viewer process, while its window is open.
     pub viewer: crate::graph::Viewer,
     /// The open folder and file, for the agent's built-in tools.
@@ -149,9 +171,13 @@ impl AppState {
             pipeline
                 .as_ref()
                 .map(|dir| ws_core::Agents::load(&dir.join("agents")))
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .with_worker(),
         );
-        let workspace = Arc::new(crate::workspace::Workspace::new(pipeline));
+        let workspace = Arc::new(
+            crate::workspace::Workspace::new(pipeline)
+                .with_chooser(folder_chooser(app.handle().clone())),
+        );
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_agents(agents)
@@ -183,8 +209,11 @@ impl AppState {
                 );
         }
 
+        orchestrator.set_worker_fallbacks(ws_core::load_worker_fallbacks(&dir));
+
         Ok(Self {
             orchestrator: Arc::new(orchestrator),
+            data_dir: dir,
             store,
             profiles,
             local,

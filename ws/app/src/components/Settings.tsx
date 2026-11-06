@@ -4,6 +4,7 @@ import {
   ask,
   type BackendInfo,
   type CompatProvider,
+  type ModelChoice,
   type ModelOption,
   type McpStatus,
   type SkillList,
@@ -215,6 +216,80 @@ function ProfileSection({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Where a worker goes when its model fails: an ordered list, workers only. */
+function FallbackSection({ models }: { models: ModelOption[] }) {
+  const [list, setList] = useState<ModelChoice[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
+
+  useEffect(() => {
+    api
+      .workerFallbacks()
+      .then(setList)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const save = (next: ModelChoice[]) => {
+    setList(next);
+    api.setWorkerFallbacks(next).then(() => setError(null), (e) => setError(String(e)));
+  };
+  const move = (i: number, by: number) => {
+    const next = [...list];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    save(next);
+  };
+  const name = (m: ModelChoice) => {
+    const known = models.find((o) => key(o) === key(m));
+    return known ? `${m.backend} / ${known.display_name}` : `${key(m)} (not available now)`;
+  };
+  const addable = models.filter((m) => !list.some((l) => key(l) === key(m)));
+
+  return (
+    <section>
+      <h3>Worker fallbacks</h3>
+      <p className="muted">
+        When a worker's model fails (overloaded, down, out of credit) after the provider's own
+        retries, the worker carries on with the first model here that works, then the next. The
+        model you chat with never switches. Models that cannot use tools are skipped.
+      </p>
+      {list.length > 0 && (
+        <ol className="fallback-list">
+          {list.map((m, i) => (
+            <li key={key(m)}>
+              <span>{name(m)}</span>
+              <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${key(m)} up`}>
+                ↑
+              </button>
+              <button onClick={() => move(i, 1)} disabled={i === list.length - 1} aria-label={`Move ${key(m)} down`}>
+                ↓
+              </button>
+              <button onClick={() => save(list.filter((_, j) => j !== i))} aria-label={`Remove ${key(m)}`}>
+                ✕
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <select
+        value=""
+        onChange={(e) => {
+          const m = addable.find((o) => key(o) === e.target.value);
+          if (m) save([...list, { backend: m.backend, model_id: m.model_id }]);
+        }}
+        aria-label="Add a fallback model"
+      >
+        <option value="">{list.length ? "Add another fallback…" : "Add a fallback model…"}</option>
+        {addable.map((m) => (
+          <option key={key(m)} value={key(m)}>
+            {m.backend} / {m.display_name}
+          </option>
+        ))}
+      </select>
+      {error && <p className="failure">{error}</p>}
     </section>
   );
 }
@@ -433,6 +508,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
+      <FallbackSection models={models} />
       <CompatSection onChanged={refreshBackends} />
     </aside>
     </div>
