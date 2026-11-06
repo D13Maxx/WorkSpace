@@ -21,7 +21,7 @@ struct FakeTools {
 #[async_trait::async_trait]
 impl ToolHost for FakeTools {
     fn specs(&self) -> Vec<ToolSpec> {
-        ["read_file", "write_file"]
+        ["read_file", "write_file", "choose_location"]
             .map(|n| ToolSpec {
                 name: n.to_owned(),
                 description: format!("{n} for tests"),
@@ -156,7 +156,7 @@ async fn a_tool_call_runs_and_its_result_goes_back_to_the_model() {
     // The second request carries the result, and both carry the tool list.
     let requests = h.backend.requests();
     assert_eq!(requests.len(), 2);
-    assert!(requests.iter().all(|r| r.tools.len() == 2));
+    assert!(requests.iter().all(|r| r.tools.len() == 3));
     let last = requests[1].view.messages.last().unwrap();
     assert!(matches!(
         &last.parts[0],
@@ -323,6 +323,11 @@ Read what you are told.
     assert!(
         !names(1).contains(&"dispatch_agent".to_owned()),
         "a helper cannot dispatch helpers"
+    );
+    assert!(names(0).contains(&"choose_location".to_owned()));
+    assert!(
+        !names(1).contains(&"choose_location".to_owned()),
+        "only the main model opens the folder picker"
     );
     let system = requests[1].view.system.clone().unwrap();
     assert!(system.starts_with("Read what you are told."), "{system}");

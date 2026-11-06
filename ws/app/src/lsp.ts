@@ -36,7 +36,22 @@ export function fileUri(root: string, path: string): string {
 }
 
 type Started = { client: LSPClient; languageId: string } | { error: string };
-const started = new Map<string, Promise<{ client: LSPClient } | { error: string }>>();
+type Running = { client: LSPClient; id: number } | { error: string };
+const started = new Map<string, Promise<Running>>();
+
+/** Stop the servers for a folder that was closed; reopening it starts them again. */
+export function stopLanguageServers(root: string): void {
+  for (const [key, p] of started) {
+    if (!key.startsWith(`${root}\n`)) continue;
+    started.delete(key);
+    void p.then((r) => {
+      if ("client" in r) {
+        r.client.disconnect();
+        void api.bridgeStop(r.id);
+      }
+    });
+  }
+}
 
 /** The language server for `ext` files in `root`, started if need be; null
  *  for a type no server is known for. An error says what to install. */
@@ -53,7 +68,7 @@ export async function languageServer(root: string, ext: string): Promise<Started
   return "client" in r ? { client: r.client, languageId: lang[1] } : r;
 }
 
-async function start(root: string, ext: string, key: string): Promise<{ client: LSPClient } | { error: string }> {
+async function start(root: string, ext: string, key: string): Promise<Running> {
   const handlers = new Set<(message: string) => void>();
   let id: number;
   try {
@@ -84,5 +99,5 @@ async function start(root: string, ext: string, key: string): Promise<{ client: 
     sanitizeHTML: (html) => DOMPurify.sanitize(html),
     // shortcut: jumps stay within open files (the default workspace), upgrade to open other files in tabs.
   }).connect(transport);
-  return { client };
+  return { client, id };
 }

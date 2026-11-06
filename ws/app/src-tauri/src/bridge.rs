@@ -147,6 +147,18 @@ pub fn stop(id: u64) {
     }
 }
 
+/// Stop every program still running. For when the app quits: rust-analyzer,
+/// for one, keeps running after its input closes.
+pub fn stop_all() {
+    let all: Vec<Live> = LIVE
+        .lock()
+        .map(|mut m| m.drain().map(|(_, l)| l).collect())
+        .unwrap_or_default();
+    for mut l in all {
+        let _ = l.child.kill();
+    }
+}
+
 /// `C:\x` for `\\?\C:\x`: language servers and gdb want plain paths.
 fn plain(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();

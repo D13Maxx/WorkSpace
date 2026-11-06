@@ -1022,6 +1022,9 @@ impl Orchestrator {
             .await;
         }
         let mut tools = self.tools.as_ref().map(|h| h.specs()).unwrap_or_default();
+        // Workers run side by side: each opening its own folder picker would
+        // stack them up. The coordinator asks, and names the folder in the brief.
+        tools.retain(|t| t.name != "choose_location");
         tools.push(post_spec());
         let me = format!("{agent} ({})", call.call_id);
         let mut seen = 0;

@@ -15,6 +15,7 @@ import { SidePanel } from "./components/SidePanel";
 import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
+import { stopLanguageServers } from "./lsp";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
 const MIN_CHAT = 300;
@@ -481,6 +482,7 @@ export default function App() {
           onAddFolder={addFolder}
           onRemoveFolder={(f) => {
             setFolders((fs) => fs.filter((x) => x !== f));
+            stopLanguageServers(f);
             setTabs((ts) => ts.filter((t) => t.root !== f));
             if (openFile?.root === f) setOpenFile(null);
             if (focus === f) setFocus(null);

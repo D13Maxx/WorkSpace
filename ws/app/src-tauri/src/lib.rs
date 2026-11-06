@@ -56,6 +56,7 @@ pub fn run() {
         // closing it closes Workspace. It asks first about unsaved blueprints.
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                bridge::stop_all();
                 window.app_handle().exit(0);
             }
         })
