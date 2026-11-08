@@ -15,7 +15,7 @@ import { SidePanel } from "./components/SidePanel";
 import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
-import { stopLanguageServers } from "./lsp";
+import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
 import { setVimEnabled, vimEnabled } from "./vim";
 
@@ -188,6 +188,8 @@ export default function App() {
   };
   const openAnyRef = useRef(openAny);
   openAnyRef.current = openAny;
+  // Go to definition and references open other files in tabs.
+  useEffect(() => setFileOpener((root, path) => openAnyRef.current({ root, path })), []);
 
   const addFolder = (f: string) => {
     setFolders((fs) => (fs.includes(f) ? fs : [...fs, f]));

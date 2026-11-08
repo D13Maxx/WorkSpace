@@ -2240,3 +2240,20 @@ button.danger {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Language-server dialogs in the editor: code actions and short messages. */
+.cm-lsp-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.cm-lsp-actions button {
+  text-align: left;
+}
+.cm-lsp-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

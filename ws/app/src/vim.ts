@@ -2,6 +2,7 @@
 // editors straight away. The choice is kept in this window's storage.
 
 import { Vim } from "@replit/codemirror-vim";
+import { findReferences, jumpToDefinition } from "@codemirror/lsp-client";
 import type { EditorView } from "@codemirror/view";
 
 const KEY = "ws.vim";
@@ -39,3 +40,9 @@ export function setSaver(view: EditorView, save: () => void): void {
 const write = (cm: { cm6: EditorView }) => savers.get(cm.cm6)?.();
 Vim.defineEx("write", "w", write);
 Vim.defineEx("update", "up", write);
+
+// Neovim's language-server keys: gd for the definition, gr for references.
+Vim.defineAction("lspDefinition", (cm: { cm6: EditorView }) => void jumpToDefinition(cm.cm6));
+Vim.defineAction("lspReferences", (cm: { cm6: EditorView }) => void findReferences(cm.cm6));
+Vim.mapCommand("gd", "action", "lspDefinition", {}, { context: "normal" });
+Vim.mapCommand("gr", "action", "lspReferences", {}, { context: "normal" });
