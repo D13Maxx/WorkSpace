@@ -353,6 +353,9 @@ export const api = {
     return invoke<void>("send_message", { conversation, text, coordinate, onEvent: channel });
   },
 
+  /** On close: hides to the tray instead if agents are working (true). */
+  hideIfWorking: () => invoke<boolean>("hide_if_working"),
+
   regenerate: (conversation: string, message: string, onEvent: (e: TurnEvent) => void) => {
     const channel = new Channel<TurnEvent>();
     channel.onmessage = onEvent;

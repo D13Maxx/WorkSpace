@@ -27,7 +27,7 @@ ws-engine.workspace = true
 ws-mcp.workspace = true
 ws-tools.workspace = true
 async-trait.workspace = true
-tauri = { version = "2.11", features = [] }
+tauri = { version = "2.11", features = ["tray-icon"] }
 # The native open-file/folder picker. Only its open command is granted.
 tauri-plugin-dialog = "2.8.2"
 # One Workspace at a time: two would share ws.db and the parts inventory.

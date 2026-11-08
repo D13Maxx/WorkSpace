@@ -16,6 +16,7 @@ mod graph_builder;
 mod run;
 mod sandbox;
 mod state;
+mod tray;
 
 pub use state::AppState;
 
@@ -46,10 +47,8 @@ pub fn run() {
         // First, so a second launch hands over to this one and exits before
         // it opens the database.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.unminimize();
-                let _ = main.set_focus();
-            }
+            // Also brings it back from the tray.
+            tray::show_main(app);
             blueprint::open_from_args(app, &argv, &cwd);
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -57,11 +56,7 @@ pub fn run() {
         // closing it closes Workspace. It asks first about unsaved blueprints.
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                bridge::stop_all();
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
-                    state.terminals.close_all();
-                }
-                window.app_handle().exit(0);
+                tray::quit_now(window.app_handle());
             }
         })
         .setup(|app| {
@@ -77,6 +72,7 @@ pub fn run() {
             commands::create_conversation,
             commands::load_thread,
             commands::send_message,
+            commands::hide_if_working,
             commands::regenerate,
             commands::cancel_turn,
             commands::switch_model,

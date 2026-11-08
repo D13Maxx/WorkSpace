@@ -376,6 +376,7 @@ pub fn select_branch(
 /// streaming at once cannot interleave.
 #[tauri::command]
 pub async fn send_message(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     conversation: String,
     text: String,
@@ -399,7 +400,7 @@ pub async fn send_message(
         .orchestrator
         .append_user_message(conv, parts)
         .map_err(err)?;
-    stream_turn(&state, conv, on_event).await
+    stream_turn(&app, &state, conv, on_event).await
 }
 
 /// The message that makes the model the coordinator: its instructions (and the
@@ -438,6 +439,7 @@ pub fn set_worker_fallbacks(state: State<'_, AppState>, models: Vec<ModelRef>) -
 /// Regenerate an assistant message as a new sibling (master spec s5.1).
 #[tauri::command]
 pub async fn regenerate(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     conversation: String,
     message: String,
@@ -449,10 +451,11 @@ pub async fn regenerate(
         .orchestrator
         .prepare_regenerate(conv, msg)
         .map_err(err)?;
-    stream_turn(&state, conv, on_event).await
+    stream_turn(&app, &state, conv, on_event).await
 }
 
 async fn stream_turn(
+    app: &tauri::AppHandle,
     state: &State<'_, AppState>,
     conv: ConvId,
     on_event: Channel<TurnEvent>,
@@ -475,8 +478,16 @@ async fn stream_turn(
     let result = orchestrator.run_turn(conv, tx, cancel).await;
     let _ = forward.await;
     state.end_turn(conv);
+    crate::tray::quit_if_done(app);
 
     result.map(|_| ()).map_err(err)
+}
+
+/// Closing the window: hide it to the tray instead if agents are working.
+/// Returns whether it did, so the window knows not to close.
+#[tauri::command]
+pub fn hide_if_working(app: tauri::AppHandle) -> bool {
+    crate::tray::hide_if_working(&app)
 }
 
 /// Stop the turn streaming in this conversation. Partial text is kept.

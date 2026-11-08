@@ -580,6 +580,11 @@ export default function App() {
   // Closing this window closes Workspace, blueprint windows too: ask about unsaved ones first.
   useEffect(() => {
     const off = getCurrentWindow().onCloseRequested(async (e) => {
+      // Agents working: hide to the tray so they finish; it quits once they do.
+      if (await api.hideIfWorking().catch(() => false)) {
+        e.preventDefault();
+        return;
+      }
       const n = await api.unsavedBlueprints().catch(() => 0);
       const what = n === 1 ? "A blueprint has" : `${n} blueprints have`;
       if (n && !(await ask(`${what} unsaved changes. Close Workspace anyway?`))) e.preventDefault();

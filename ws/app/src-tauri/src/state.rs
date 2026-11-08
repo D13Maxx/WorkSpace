@@ -247,6 +247,11 @@ impl AppState {
         token
     }
 
+    /// Whether any turn is running, in any conversation.
+    pub fn working(&self) -> bool {
+        self.running.lock().is_ok_and(|m| !m.is_empty())
+    }
+
     pub fn end_turn(&self, conv: ConvId) {
         if let Ok(mut map) = self.running.lock() {
             map.remove(&conv);
