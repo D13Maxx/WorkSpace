@@ -2112,12 +2112,17 @@ button.danger {
 /* ---- code intelligence and the debugger --------------------------------- */
 
 /* The whole column takes clicks; cells exist only where a breakpoint is. */
+/* Wide enough to hit, and tinted under the pointer so it is found. */
 .cm-breakpoint-gutter {
   cursor: pointer;
+  min-width: 18px;
+}
+.cm-breakpoint-gutter:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 .cm-breakpoint-gutter .cm-gutterElement {
-  padding: 0 2px 0 4px;
-  min-width: 14px;
+  padding: 0 3px 0 5px;
+  min-width: 18px;
 }
 .cm-breakpoint {
   color: var(--danger);

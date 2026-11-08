@@ -3,6 +3,7 @@
 // sets breakpoints, runs, steps and reads the stack.
 
 import { api } from "./api";
+import { repeatStop, type LastStop } from "./debugStops";
 import { allBreakpoints, onBreakpoints } from "./breakpoints";
 
 export interface Frame {
@@ -38,6 +39,10 @@ export class DebugSession {
   private pending = new Map<number, (response: any) => void>();
   private initialized: () => void = () => {};
   private thread = 1;
+  /** How the program last went on: a continue may skip repeat stops, a step never. */
+  private resumedBy: "continue" | "step" | null = null;
+  /** Where it last stopped, for skipping lldb's repeat stops on one line. */
+  private lastStop: LastStop | null = null;
   private unlisten: () => void = () => {};
   private done = false;
 
@@ -120,10 +125,28 @@ export class DebugSession {
       case "continued":
         this.on.running();
         break;
-      case "stopped":
+      case "stopped": {
         if (body.threadId) this.thread = body.threadId;
-        void this.stack().then((frames) => this.on.stopped(frames, body.description ?? body.reason ?? "paused"));
+        const resumedBy = this.resumedBy;
+        this.resumedBy = null;
+        void this.stack().then((frames) => {
+          const top = frames[0];
+          const { skip, last } = repeatStop(this.lastStop, {
+            resumedBy,
+            reason: body.reason,
+            where: top ? `${top.path}:${top.line}` : "",
+            description: body.description,
+          });
+          this.lastStop = last;
+          if (skip) {
+            this.resumedBy = "continue";
+            void this.request("continue", { threadId: this.thread });
+            return;
+          }
+          this.on.stopped(frames, body.description ?? body.reason ?? "paused");
+        });
         break;
+      }
       case "terminated":
       case "exited":
         this.end();
@@ -151,10 +174,12 @@ export class DebugSession {
 
   resume() {
     this.on.running();
+    this.resumedBy = "continue";
     void this.request("continue", { threadId: this.thread });
   }
   step(kind: "next" | "stepIn" | "stepOut") {
     this.on.running();
+    this.resumedBy = "step";
     void this.request(kind, { threadId: this.thread });
   }
   pause() {

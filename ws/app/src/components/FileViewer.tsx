@@ -327,7 +327,10 @@ function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, 
             ext={ext}
             viewRef={viewRef}
             onChange={() => {
-              setDirty(true);
+              // Unsaved while it differs from the file: undoing back to it clears the dot.
+              const doc = viewRef.current?.state;
+              const same = !!doc && base.current !== null && doc.doc.length <= base.current.length && doc.sliceDoc() === base.current;
+              setDirty(!same);
               if (md) setLive(viewRef.current?.state.sliceDoc() ?? "");
             }}
             onSave={() => void save()}
