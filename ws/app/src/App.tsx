@@ -17,12 +17,21 @@ import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
 import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
-import { setVimEnabled, vimEnabled } from "./vim";
+import { setVimEnabled, setWindowCommands, vimEnabled } from "./vim";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
 const MIN_CHAT = 300;
 const MIN_REST = 580;
 const MIN_SIDE = 160;
+/** More splits than this leave each too narrow to use. */
+const MAX_SPLITS = 4;
+
+interface Group {
+  /** Stable, so closing one split does not rebuild the others' editors. */
+  id: number;
+  tabs: OpenFile[];
+  open: OpenFile | null;
+}
 /** The editor keeps at least this much between the side panel and the chat. */
 const MIN_EDITOR = 300;
 
@@ -118,6 +127,11 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
+      if (k === "\\" && !e.shiftKey) {
+        e.preventDefault();
+        splitsRef.current.splitEditor("row");
+        return;
+      }
       const start =
         k === "p" ? (e.shiftKey ? ">" : "") : k === "t" && !e.shiftKey ? "@" : k === "f" && e.shiftKey ? "/" : null;
       if (start === null) return;
@@ -134,9 +148,23 @@ export default function App() {
   // The folders open on the left. Every launch starts with none: folders and
   // files are not remembered, chats are (they live in the database).
   const [folders, setFolders] = useState<string[]>([]);
-  const [openFile, setOpenFile] = useState<OpenFile | null>(null);
-  // Every file opened and not yet closed; `openFile` is the one showing.
-  const [tabs, setTabs] = useState<OpenFile[]>([]);
+  // The editor splits, each with its tabs and the one showing. A file is open
+  // in one split at most: two editors on it would each keep unsaved text.
+  const [groups, setGroups] = useState<Group[]>(() => [{ id: 0, tabs: [], open: null }]);
+  const [focused, setFocused] = useState(0);
+  const [splitDir, setSplitDir] = useState<"row" | "column">("row");
+  const nextGroupId = useRef(1);
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const group = groups[Math.min(focused, groups.length - 1)];
+  const openFile = group.open;
+  // Set by keyboard moves between splits, which also move the typing focus.
+  const focusEditorNext = useRef(false);
+  useEffect(() => {
+    if (!focusEditorNext.current) return;
+    focusEditorNext.current = false;
+    document.querySelectorAll<HTMLElement>(".editor-group")[focused]?.querySelector<HTMLElement>(".cm-content")?.focus();
+  }, [focused, groups]);
   // A tab's unsaved dot follows its editor, which App cannot see.
   const [, redrawTabs] = useReducer((n: number) => n + 1, 0);
   // The folder last opened, when no file says otherwise.
@@ -170,18 +198,87 @@ export default function App() {
     if (fileVersion) void emit("files-changed");
   }, [fileVersion]);
 
-  /** Files open in the middle; a blueprint opens in its own window. */
+  /** Change every split: renames, deletes and closed folders reach them all. */
+  const eachGroup = (fn: (g: Group) => Group) => setGroups((gs) => gs.map(fn));
+  /** Show `f` (or nothing) in the focused split, without adding a tab. */
+  const setOpenFile = (f: OpenFile | null) =>
+    setGroups((gs) => gs.map((g, i) => (i === Math.min(focusedRef.current, gs.length - 1) ? { ...g, open: f } : g)));
+  /** Files open in the middle, in the split that has them, else the focused
+   *  one; a blueprint opens in its own window. */
   const show = (f: OpenFile) => {
-    setTabs((ts) => (ts.some((t) => tabKey(t) === tabKey(f)) ? ts : [...ts, f]));
-    setOpenFile(f);
+    const at = groups.findIndex((g) => g.tabs.some((t) => tabKey(t) === tabKey(f)));
+    const gi = at >= 0 ? at : Math.min(focused, groups.length - 1);
+    setFocused(gi);
+    setGroups((gs) =>
+      gs.map((g, i) =>
+        i !== gi ? g : { ...g, tabs: g.tabs.some((t) => tabKey(t) === tabKey(f)) ? g.tabs : [...g.tabs, f], open: f },
+      ),
+    );
   };
   /** Close a tab; the one beside it shows if it was the one showing. */
-  const closeTab = (f: OpenFile) => {
-    const i = tabs.findIndex((t) => tabKey(t) === tabKey(f));
-    const rest = tabs.filter((t) => tabKey(t) !== tabKey(f));
-    setTabs(rest);
-    if (openFile && tabKey(openFile) === tabKey(f)) setOpenFile(rest[Math.min(i, rest.length - 1)] ?? null);
+  const closeTab = (f: OpenFile, gi = focused) =>
+    setGroups((gs) =>
+      gs.map((g, j) => {
+        if (j !== gi) return g;
+        const i = g.tabs.findIndex((t) => tabKey(t) === tabKey(f));
+        const rest = g.tabs.filter((t) => tabKey(t) !== tabKey(f));
+        const open = g.open && tabKey(g.open) === tabKey(f) ? (rest[Math.min(i, rest.length - 1)] ?? null) : g.open;
+        return { ...g, tabs: rest, open };
+      }),
+    );
+  /** A new, empty split beside (row) or below (column) the focused one. */
+  const splitEditor = (dir: "row" | "column") => {
+    if (groups.length >= MAX_SPLITS) return;
+    const at = Math.min(focused, groups.length - 1) + 1;
+    setSplitDir(dir);
+    setGroups((gs) => [...gs.slice(0, at), { id: nextGroupId.current++, tabs: [], open: null }, ...gs.slice(at)]);
+    setFocused(at);
+    focusEditorNext.current = true;
   };
+  /** Close a split; its tabs move to the split next to it, so nothing is lost. */
+  const closeSplit = (gi = focused) => {
+    if (groups.length < 2) return;
+    const into = gi > 0 ? gi - 1 : 1;
+    setGroups((gs) =>
+      gs
+        .map((g, j) =>
+          j !== into
+            ? g
+            : { ...g, tabs: [...g.tabs, ...gs[gi].tabs.filter((t) => !g.tabs.some((u) => tabKey(u) === tabKey(t)))], open: g.open ?? gs[gi].open },
+        )
+        .filter((_, j) => j !== gi),
+    );
+    setFocused(into > gi ? into - 1 : into);
+    focusEditorNext.current = true;
+  };
+  /** Move to the next (1) or previous (-1) split. */
+  const focusSplit = (by: number) => {
+    setFocused((f) => (f + by + groups.length) % groups.length);
+    focusEditorNext.current = true;
+  };
+  /** Keep only the focused split, its neighbours' tabs joining it. */
+  const onlySplit = () => {
+    const keep = Math.min(focused, groups.length - 1);
+    setGroups((gs) => {
+      const mine = gs[keep];
+      const others = gs.flatMap((g, j) => (j === keep ? [] : g.tabs));
+      const tabs = [...mine.tabs, ...others.filter((t, i) => !mine.tabs.some((u) => tabKey(u) === tabKey(t)) && others.findIndex((u) => tabKey(u) === tabKey(t)) === i)];
+      return [{ ...mine, tabs }];
+    });
+    setFocused(0);
+  };
+  const splitsRef = useRef({ splitEditor, closeSplit, focusSplit, onlySplit });
+  splitsRef.current = { splitEditor, closeSplit, focusSplit, onlySplit };
+  useEffect(
+    () =>
+      setWindowCommands({
+        split: (dir) => splitsRef.current.splitEditor(dir),
+        close: () => splitsRef.current.closeSplit(),
+        focus: (by) => splitsRef.current.focusSplit(by),
+        only: () => splitsRef.current.onlySplit(),
+      }),
+    [],
+  );
   const openAny = (f: OpenFile) => {
     if (!f.path.toLowerCase().endsWith(".blueprint")) return show(f);
     api.openBlueprintWindow(f.root, f.path).catch((e) => setError(String(e)));
@@ -207,6 +304,15 @@ export default function App() {
     { label: "Search in files", run: () => setFinder("/") },
     { label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
     ...(openFile ? [{ label: "Close tab", run: () => closeTab(openFile) }] : []),
+    { label: "Split editor right", run: () => splitEditor("row") },
+    { label: "Split editor down", run: () => splitEditor("column") },
+    ...(groups.length > 1
+      ? [
+          { label: "Close split", run: () => closeSplit() },
+          { label: "Focus next split", run: () => focusSplit(1) },
+          { label: "Keep only this split", run: () => onlySplit() },
+        ]
+      : []),
   ];
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -515,8 +621,7 @@ export default function App() {
           onRemoveFolder={(f) => {
             setFolders((fs) => fs.filter((x) => x !== f));
             stopLanguageServers(f);
-            setTabs((ts) => ts.filter((t) => t.root !== f));
-            if (openFile?.root === f) setOpenFile(null);
+            eachGroup((g) => ({ ...g, tabs: g.tabs.filter((t) => t.root !== f), open: g.open?.root === f ? null : g.open }));
             if (focus === f) setFocus(null);
           }}
           onGraph={setGraphFor}
@@ -526,17 +631,12 @@ export default function App() {
             moveDrafts(root, from, to);
             const moved = (t: OpenFile) =>
               t.root === root && (t.path === from || t.path.startsWith(`${from}/`)) ? { ...t, path: to + t.path.slice(from.length) } : t;
-            setTabs((ts) => ts.map(moved));
-            if (openFile?.root === root && (openFile.path === from || openFile.path.startsWith(`${from}/`))) {
-              setOpenFile({ root, path: to + openFile.path.slice(from.length) });
-            }
+            eachGroup((g) => ({ ...g, tabs: g.tabs.map(moved), open: g.open && moved(g.open) }));
           }}
           onDeleted={(root, path) => {
             moveDrafts(root, path, null);
-            setTabs((ts) => ts.filter((t) => !(t.root === root && (t.path === path || t.path.startsWith(`${path}/`)))));
-            if (openFile?.root === root && (openFile.path === path || openFile.path.startsWith(`${path}/`))) {
-              setOpenFile(null);
-            }
+            const gone = (t: OpenFile) => t.root === root && (t.path === path || t.path.startsWith(`${path}/`));
+            eachGroup((g) => ({ ...g, tabs: g.tabs.filter((t) => !gone(t)), open: g.open && gone(g.open) ? null : g.open }));
           }}
           onOpenFile={openAny}
           open={openFile}
@@ -571,27 +671,66 @@ export default function App() {
       />
 
       <section className="pane-middle">
-        <TabBar tabs={tabs} active={openFile} onSelect={setOpenFile} onClose={closeTab} />
-        {openFile ? (
-          <FileViewer
-            // One editor per file, so unsaved text stays with its file.
-            key={tabKey(openFile)}
-            project={openFile.root}
-            path={openFile.path}
-            diff={openFile.diff}
-            line={openFile.line}
-            lineKey={openFile}
-            onDirtyChange={redrawTabs}
-            version={fileVersion}
-            onClose={() => closeTab(openFile)}
-            onRun={(path) => startTask({ kind: "file", root: openFile.root, path })}
-            onDebug={(path) => setDebug((d) => ({ root: openFile.root, path, key: (d?.key ?? 0) + 1 }))}
-          />
-        ) : (
-          <div className="empty">
-            <p>{folders.length ? "Choose a file on the left, or make a new one." : "Open a folder on the left to start."}</p>
-          </div>
-        )}
+        <div className={`editor-groups ${splitDir}`}>
+          {groups.map((g, gi) => (
+            <div
+              key={g.id}
+              className={`editor-group${groups.length > 1 && gi === focused ? " focused" : ""}`}
+              onMouseDownCapture={() => setFocused(gi)}
+            >
+              <div className="group-bar">
+                <TabBar
+                  tabs={g.tabs}
+                  active={g.open}
+                  onSelect={(f) => {
+                    setFocused(gi);
+                    setGroups((gs) => gs.map((x, j) => (j === gi ? { ...x, open: f } : x)));
+                  }}
+                  onClose={(f) => closeTab(f, gi)}
+                />
+                <span className="group-actions">
+                  <button onClick={() => splitEditor("row")} disabled={groups.length >= MAX_SPLITS} title="Split right (Ctrl+\)" aria-label="Split right">
+                    ◫
+                  </button>
+                  <button onClick={() => splitEditor("column")} disabled={groups.length >= MAX_SPLITS} title="Split down" aria-label="Split down">
+                    ⊟
+                  </button>
+                  {groups.length > 1 && (
+                    <button onClick={() => closeSplit(gi)} title="Close this split; its tabs move next door" aria-label="Close split">
+                      ✕
+                    </button>
+                  )}
+                </span>
+              </div>
+              {g.open ? (
+                <FileViewer
+                  // One editor per file, so unsaved text stays with its file.
+                  key={tabKey(g.open)}
+                  project={g.open.root}
+                  path={g.open.path}
+                  diff={g.open.diff}
+                  line={g.open.line}
+                  lineKey={g.open}
+                  onDirtyChange={redrawTabs}
+                  version={fileVersion}
+                  onClose={() => g.open && closeTab(g.open, gi)}
+                  onRun={(path) => g.open && startTask({ kind: "file", root: g.open.root, path })}
+                  onDebug={(path) => g.open && setDebug((d) => ({ root: g.open!.root, path, key: (d?.key ?? 0) + 1 }))}
+                />
+              ) : (
+                <div className="empty">
+                  <p>
+                    {!folders.length
+                      ? "Open a folder on the left to start."
+                      : groups.length > 1
+                        ? "Open a file here: Ctrl+P, or choose one on the left."
+                        : "Choose a file on the left, or make a new one."}
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
         {debug && (
           <DebugPanel
             root={debug.root}

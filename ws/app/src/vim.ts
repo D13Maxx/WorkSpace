@@ -46,3 +46,37 @@ Vim.defineAction("lspDefinition", (cm: { cm6: EditorView }) => void jumpToDefini
 Vim.defineAction("lspReferences", (cm: { cm6: EditorView }) => void findReferences(cm.cm6));
 Vim.mapCommand("gd", "action", "lspDefinition", {}, { context: "normal" });
 Vim.mapCommand("gr", "action", "lspReferences", {}, { context: "normal" });
+
+/** What Vim's window keys do: the app's editor splits. */
+export interface WindowCommands {
+  split: (dir: "row" | "column") => void;
+  close: () => void;
+  focus: (by: number) => void;
+  only: () => void;
+}
+let windows: WindowCommands | null = null;
+export function setWindowCommands(commands: WindowCommands): void {
+  windows = commands;
+}
+
+// Ctrl+W v/s split, w/l/j next, h/k previous, c/q close, o only; and the
+// matching : commands.
+const windowActions: [string, string[], () => void][] = [
+  ["winSplitRight", ["v"], () => windows?.split("row")],
+  ["winSplitDown", ["s"], () => windows?.split("column")],
+  ["winNext", ["w", "l", "j", "<C-w>"], () => windows?.focus(1)],
+  ["winPrevious", ["h", "k", "W"], () => windows?.focus(-1)],
+  ["winClose", ["c", "q"], () => windows?.close()],
+  ["winOnly", ["o"], () => windows?.only()],
+];
+// The library ignores Ctrl+W on its own in normal mode, which ends the key
+// sequence before the second key; insert mode's Ctrl+W (delete word) stays.
+Vim.unmap("<C-w>", "normal");
+for (const [name, keys, run] of windowActions) {
+  Vim.defineAction(name, run);
+  for (const k of keys) Vim.mapCommand(`<C-w>${k}`, "action", name, {}, { context: "normal" });
+}
+Vim.defineEx("vsplit", "vs", () => windows?.split("row"));
+Vim.defineEx("split", "sp", () => windows?.split("column"));
+Vim.defineEx("close", "clo", () => windows?.close());
+Vim.defineEx("only", "on", () => windows?.only());

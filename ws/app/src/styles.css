@@ -2257,3 +2257,58 @@ button.danger {
   align-items: center;
   gap: 10px;
 }
+
+/* Editor splits: side by side (row) or stacked (column), each with its tabs. */
+.editor-groups {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.editor-groups.row {
+  flex-direction: row;
+}
+.editor-groups.column {
+  flex-direction: column;
+}
+.editor-group {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid transparent;
+}
+.editor-groups.row > .editor-group + .editor-group {
+  border-left-color: var(--border);
+}
+.editor-groups.column > .editor-group + .editor-group {
+  border-top-color: var(--border);
+}
+.editor-group.focused {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.group-bar {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.group-bar > .tab-bar {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+.group-actions button {
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
