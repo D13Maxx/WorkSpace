@@ -18,6 +18,8 @@ import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { vim } from "@replit/codemirror-vim";
+import { onVimChange, setSaver, vimEnabled } from "../vim";
 
 function language(ext: string): Extension {
   switch (ext) {
@@ -90,6 +92,8 @@ export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose, li
   handlers.current = { onChange, onSave, onDispose };
   const extra = useRef({ slot: new Compartment(), now: extensions });
   extra.current.now = extensions;
+  const vimSlot = useRef(new Compartment());
+  const vimKeys = (on: boolean) => (on ? vim({ status: true }) : []);
 
   useEffect(() => {
     if (!host.current) return;
@@ -98,7 +102,9 @@ export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose, li
       state: EditorState.create({
         doc: text,
         extensions: [
-          // First: breakpoints sit left of the line numbers, and server keys win.
+          // Vim first: in normal mode it must see every key before anything else.
+          vimSlot.current.of(vimKeys(vimEnabled())),
+          // Then breakpoints, left of the line numbers, and server keys.
           extra.current.slot.of(extra.current.now ?? []),
           basicSetup,
           keymap.of([
@@ -124,8 +130,13 @@ export function CodeEditor({ text, ext, viewRef, onChange, onSave, onDispose, li
       }),
     });
     viewRef.current = view;
+    setSaver(view, () => handlers.current.onSave());
+    const stopVim = onVimChange((on) =>
+      view.dispatch({ effects: vimSlot.current.reconfigure(vimKeys(on)) }),
+    );
     view.focus();
     return () => {
+      stopVim();
       handlers.current.onDispose(view.state.sliceDoc());
       view.destroy();
       if (viewRef.current === view) viewRef.current = null;

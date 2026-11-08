@@ -11,6 +11,7 @@ import {
   type ModelProfile,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
+import { setVimEnabled, vimEnabled } from "../vim";
 
 interface Props {
   onClose: () => void;
@@ -216,6 +217,30 @@ function ProfileSection({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function EditorSection() {
+  const [vim, setVim] = useState(vimEnabled);
+  return (
+    <section>
+      <h3>Editor</h3>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={vim}
+          onChange={(e) => {
+            setVim(e.target.checked);
+            setVimEnabled(e.target.checked);
+          }}
+        />
+        Vim keys
+      </label>
+      <p className="muted">
+        Normal, insert and visual modes, motions, operators, text objects, registers, macros and
+        marks; <code>:w</code> saves. Applies to open files straight away.
+      </p>
     </section>
   );
 }
@@ -497,6 +522,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
         </button>
       </header>
 
+      <EditorSection />
       <KeySection
         backends={backends}
         onChanged={() => {
