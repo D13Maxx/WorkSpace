@@ -10,6 +10,7 @@ import { CodeEditor } from "./CodeEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { fileUri, languageServer } from "../lsp";
 import { breakpointGutter } from "../breakpoints";
+import { gitChanged, gitExtensions } from "../git";
 
 /** Files the debugger can run. */
 export const DEBUGGABLE = new Set(["c", "cpp", "cc", "cxx", "rs", "py"]);
@@ -188,7 +189,8 @@ function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, 
   }, [project, path, ext]);
   const debuggable = DEBUGGABLE.has(ext) && !!onDebug;
   const gutter = useMemo(() => (debuggable ? breakpointGutter(project, path) : []), [debuggable, project, path]);
-  const extensions = useMemo(() => [gutter, server ?? []], [gutter, server]);
+  const git = useMemo(() => gitExtensions(project, path), [project, path]);
+  const extensions = useMemo(() => [gutter, git, server ?? []], [gutter, git, server]);
   useEffect(() => setLive(text ?? ""), [text]);
 
   useEffect(() => {
@@ -253,6 +255,8 @@ function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, 
       drafts.delete(key);
       setDirty(false);
       setError(null);
+      // Blame follows the saved file.
+      gitChanged();
       return true;
     } catch (e) {
       setError(String(e));

@@ -2387,3 +2387,70 @@ body.resizing-v {
 .terminal-body .terminal[hidden] {
   display: none;
 }
+
+/* Git in the editor: changed lines against the staged copy, and line blame. */
+.cm-git-gutter .cm-gutterElement {
+  width: 4px;
+  padding: 0;
+  cursor: pointer;
+}
+.cm-git-add,
+.cm-git-change {
+  width: 3px;
+  height: 100%;
+}
+.cm-git-add {
+  background: var(--ok);
+}
+.cm-git-change {
+  background: var(--accent);
+}
+.cm-git-delete {
+  width: 0;
+  height: 0;
+  border-left: 4px solid var(--danger);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  margin-top: -4px;
+}
+.cm-line-blame {
+  margin-left: 2.5em;
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* Changes panel: commit box, stage and unstage per file. */
+.git-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.git-commit textarea {
+  resize: vertical;
+  font-size: 0.85rem;
+}
+.side-heading {
+  margin: 8px 0 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.git-row {
+  display: flex;
+  align-items: center;
+}
+.git-row > button:first-child {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.git-row > .git-act {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0 7px;
+  line-height: 1.4;
+}

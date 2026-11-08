@@ -1085,6 +1085,55 @@ pub async fn project_symbols(
         .map_err(err)
 }
 
+/// Run a git step off the main thread.
+async fn git_task<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
+}
+
+/// Which lines of the editor's text differ from the staged copy, for the gutter.
+#[tauri::command]
+pub async fn git_hunks(
+    root: String,
+    path: String,
+    text: String,
+) -> CmdResult<Vec<ws_tools::git::Hunk>> {
+    git_task(move || ws_tools::git::hunks(&root, &path, &text)).await
+}
+
+/// Stage one change of the editor's text.
+#[tauri::command]
+pub async fn git_stage_hunk(
+    root: String,
+    path: String,
+    text: String,
+    index: usize,
+) -> CmdResult<()> {
+    git_task(move || ws_tools::git::stage_hunk(&root, &path, &text, index)).await
+}
+
+#[tauri::command]
+pub async fn git_stage(root: String, path: String) -> CmdResult<()> {
+    git_task(move || ws_tools::git::stage(&root, &path)).await
+}
+
+#[tauri::command]
+pub async fn git_unstage(root: String, path: String) -> CmdResult<()> {
+    git_task(move || ws_tools::git::unstage(&root, &path)).await
+}
+
+/// Commit what is staged; returns the new commit's short id.
+#[tauri::command]
+pub async fn git_commit(root: String, message: String) -> CmdResult<String> {
+    git_task(move || ws_tools::git::commit(&root, &message)).await
+}
+
+#[tauri::command]
+pub async fn git_blame(root: String, path: String) -> CmdResult<Vec<ws_tools::git::BlameLine>> {
+    git_task(move || ws_tools::git::blame(&root, &path)).await
+}
+
 /// What differs from the last commit, for the changes panel.
 #[tauri::command]
 pub async fn git_status(root: String) -> CmdResult<Vec<ws_tools::git::Change>> {

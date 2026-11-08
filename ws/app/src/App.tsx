@@ -18,6 +18,7 @@ import { DebugPanel } from "./components/DebugPanel";
 import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
 import { TerminalPanel } from "./components/TerminalPanel";
+import { lineBlameEnabled, setLineBlameEnabled } from "./git";
 import { setVimEnabled, setWindowCommands, vimEnabled } from "./vim";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
@@ -325,6 +326,10 @@ export default function App() {
     { label: "Go to symbol", run: () => setFinder("@") },
     { label: "Search in files", run: () => setFinder("/") },
     { label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
+    {
+      label: lineBlameEnabled() ? "Hide line blame" : "Show line blame",
+      run: () => setLineBlameEnabled(!lineBlameEnabled()),
+    },
     ...(openFile ? [{ label: "Close tab", run: () => closeTab(openFile) }] : []),
     { label: terminalOpen ? "Hide terminal" : "Show terminal", run: toggleTerminal },
     ...(project ? [{ label: "New terminal", run: newTerminal }] : []),

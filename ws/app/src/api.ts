@@ -283,6 +283,28 @@ export interface SearchMatch {
 export interface GitChange {
   path: string;
   status: string;
+  /** Some of it is staged for the next commit. */
+  staged: boolean;
+  /** Some of it is not staged (untracked files count). */
+  unstaged: boolean;
+}
+
+/** Changed lines in the editor's text, against the staged copy. */
+export interface GitHunk {
+  kind: "add" | "change" | "delete";
+  /** 1-based; for a deletion, the line the removed ones were above (0: top). */
+  line: number;
+  count: number;
+}
+
+export interface BlameLine {
+  commit: string;
+  author: string;
+  /** Seconds since 1970. */
+  time: number;
+  summary: string;
+  /** The line as blamed: blame shows only where the line is still the same. */
+  text: string;
 }
 
 export const api = {
@@ -391,6 +413,19 @@ export const api = {
   gitStatus: (root: string) => invoke<GitChange[]>("git_status", { root }),
 
   gitDiff: (root: string, path: string) => invoke<string>("git_diff", { root, path }),
+
+  gitHunks: (root: string, path: string, text: string) => invoke<GitHunk[]>("git_hunks", { root, path, text }),
+
+  gitStageHunk: (root: string, path: string, text: string, index: number) =>
+    invoke<void>("git_stage_hunk", { root, path, text, index }),
+
+  gitStage: (root: string, path: string) => invoke<void>("git_stage", { root, path }),
+
+  gitUnstage: (root: string, path: string) => invoke<void>("git_unstage", { root, path }),
+
+  gitCommit: (root: string, message: string) => invoke<string>("git_commit", { root, message }),
+
+  gitBlame: (root: string, path: string) => invoke<BlameLine[]>("git_blame", { root, path }),
 
   /** Start the language server for `ext` files in `root`. Resolves to its id. */
   lspStart: (root: string, ext: string, onEvent: (e: BridgeEvent) => void) => {
