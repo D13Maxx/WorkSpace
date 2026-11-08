@@ -2454,3 +2454,13 @@ body.resizing-v {
   padding: 0 7px;
   line-height: 1.4;
 }
+
+.keymap-problems {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px;
+}
+.keymap-problems span {
+  flex: 1;
+}

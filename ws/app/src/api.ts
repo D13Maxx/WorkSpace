@@ -419,6 +419,9 @@ export const api = {
   gitStageHunk: (root: string, path: string, text: string, index: number) =>
     invoke<void>("git_stage_hunk", { root, path, text, index }),
 
+  /** The app data folder, where keymap.json lives. */
+  appDataFolder: () => invoke<string>("app_data_folder"),
+
   gitStage: (root: string, path: string) => invoke<void>("git_stage", { root, path }),
 
   gitUnstage: (root: string, path: string) => invoke<void>("git_unstage", { root, path }),

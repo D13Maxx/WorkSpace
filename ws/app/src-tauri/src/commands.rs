@@ -1085,6 +1085,12 @@ pub async fn project_symbols(
         .map_err(err)
 }
 
+/// The app data folder, where keymap.json lives.
+#[tauri::command]
+pub fn app_data_folder(state: State<'_, AppState>) -> String {
+    state.data_dir.display().to_string()
+}
+
 /// Run a git step off the main thread.
 async fn git_task<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, String> + Send + 'static,

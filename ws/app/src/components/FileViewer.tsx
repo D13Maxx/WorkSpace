@@ -86,6 +86,8 @@ interface Props {
   lineKey?: unknown;
   /** Called when this file gains or loses unsaved changes, so a tab's dot can follow. */
   onDirtyChange?: () => void;
+  /** Called after the file is saved. */
+  onSaved?: () => void;
   /** Start debugging `path`; absent where the debugger is not offered. */
   onDebug?: (path: string) => void;
   /** Bumped when the agent or a run may have changed files on disk. */
@@ -149,7 +151,7 @@ function FileView(props: Props) {
   return <TextFile {...props} ext={extOf(props.path)} />;
 }
 
-function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, lineKey, onDirtyChange }: Props & { ext: string }) {
+function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, lineKey, onDirtyChange, onSaved }: Props & { ext: string }) {
   const key = `${project}\n${path}`;
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -257,6 +259,7 @@ function TextFile({ project, path, version, onClose, onRun, onDebug, ext, line, 
       setError(null);
       // Blame follows the saved file.
       gitChanged();
+      onSaved?.();
       return true;
     } catch (e) {
       setError(String(e));

@@ -118,6 +118,7 @@ pub fn run() {
             commands::git_status,
             commands::git_diff,
             commands::git_hunks,
+            commands::app_data_folder,
             commands::git_stage_hunk,
             commands::git_stage,
             commands::git_unstage,

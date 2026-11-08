@@ -7,8 +7,14 @@ import { best } from "../fuzzy";
 import type { OpenFile } from "./Explorer";
 
 export interface Command {
+  /** Stable, for keymap.json. */
+  id: string;
   label: string;
   run: () => void;
+  /** Keys bound to it, shown beside it. */
+  keys?: string[];
+  /** Listed only when it applies (a tab to close, a split to leave). */
+  when?: boolean;
 }
 
 interface Props {
@@ -83,10 +89,10 @@ export function Finder({ folders, initial, commands, onOpen, onClose }: Props) {
     };
     switch (mode) {
       case ">":
-        return best(commands, query, (c) => c.label).map((c) => ({
-          key: c.label,
+        return best(commands.filter((c) => c.when !== false), query, (c) => c.label).map((c) => ({
+          key: c.id,
           main: c.label,
-          detail: "",
+          detail: c.keys?.join(", ") ?? "",
           pick: () => {
             onClose();
             c.run();

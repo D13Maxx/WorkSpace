@@ -19,6 +19,7 @@ import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { lineBlameEnabled, setLineBlameEnabled } from "./git";
+import { DEFAULT_KEYMAP, comboOf, keysFor, normalize, parseKeymap } from "./keymap";
 import { setVimEnabled, setWindowCommands, vimEnabled } from "./vim";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
@@ -125,29 +126,28 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   // The finder, open with what its box starts with ("", "@", "/" or ">").
   const [finder, setFinder] = useState<string | null>(null);
+  // The app's shortcuts: the default keymap with the user's keymap.json over it.
+  const [keymap, setKeymap] = useState<Record<string, string>>(() => {
+    const keys: Record<string, string> = {};
+    for (const [combo, id] of Object.entries(DEFAULT_KEYMAP)) keys[normalize(combo)!] = id;
+    return keys;
+  });
+  // What keymap.json got wrong, shown over the editor until dismissed.
+  const [keymapProblems, setKeymapProblems] = useState<string | null>(null);
+  const keymapRef = useRef(keymap);
+  keymapRef.current = keymap;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey) return;
-      // By key position: Shift turns ` into ~ on most layouts.
-      if (e.code === "Backquote") {
-        e.preventDefault();
-        if (e.shiftKey) terminalRef.current.newTerminal();
-        else terminalRef.current.toggleTerminal();
-        return;
-      }
-      const k = e.key.toLowerCase();
-      if (k === "\\" && !e.shiftKey) {
-        e.preventDefault();
-        splitsRef.current.splitEditor("row");
-        return;
-      }
-      const start =
-        k === "p" ? (e.shiftKey ? ">" : "") : k === "t" && !e.shiftKey ? "@" : k === "f" && e.shiftKey ? "/" : null;
-      if (start === null) return;
+      const id = keymapRef.current[comboOf(e)];
+      if (!id) return;
+      // The finder's own Ctrl+P/Ctrl+N move through its list.
+      if ((e.target as HTMLElement | null)?.closest?.(".finder")) return;
+      const command = commandsRef.current.find((c) => c.id === id);
+      if (!command) return;
       // Before the editor: Vim's own Ctrl+P must not swallow it.
       e.preventDefault();
       e.stopPropagation();
-      setFinder(start);
+      command.run();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -179,7 +179,10 @@ export default function App() {
   // The folder last opened, when no file says otherwise.
   const [focus, setFocus] = useState<string | null>(null);
   // The folder the agent and Run work in.
-  const project = openFile?.root ?? focus ?? folders[0] ?? "";
+  // keymap.json, once known: it lives in the app data folder.
+  const keymapFile = useRef<{ root: string; path: string } | null>(null);
+  // Never the app data folder (keymap.json's), which holds the chats database.
+  const project = (openFile && openFile.root !== keymapFile.current?.root ? openFile.root : null) ?? focus ?? folders[0] ?? "";
   // The folder whose knowledge-graph choices are showing.
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
@@ -318,31 +321,62 @@ export default function App() {
 
   const busy = streaming !== null;
 
-  const commands: Command[] = [
-    { label: "Open folder", run: () => void pickFolder().then((f) => f && addFolder(f)) },
-    { label: "New chat", run: () => void onNewConversation() },
-    { label: "Settings", run: () => setShowSettings(true) },
-    { label: "Find file", run: () => setFinder("") },
-    { label: "Go to symbol", run: () => setFinder("@") },
-    { label: "Search in files", run: () => setFinder("/") },
-    { label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
+  const commandList: Command[] = [
+    { id: "folder.open", label: "Open folder", run: () => void pickFolder().then((f) => f && addFolder(f)) },
+    { id: "chat.new", label: "New chat", run: () => void onNewConversation() },
+    { id: "settings.open", label: "Settings", run: () => setShowSettings(true) },
+    { id: "find.files", label: "Find file", run: () => setFinder("") },
+    { id: "find.symbols", label: "Go to symbol", run: () => setFinder("@") },
+    { id: "find.text", label: "Search in files", run: () => setFinder("/") },
+    { id: "find.commands", label: "Show all commands", run: () => setFinder(">") },
+    { id: "vim.toggle", label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
     {
+      id: "blame.toggle",
       label: lineBlameEnabled() ? "Hide line blame" : "Show line blame",
       run: () => setLineBlameEnabled(!lineBlameEnabled()),
     },
-    ...(openFile ? [{ label: "Close tab", run: () => closeTab(openFile) }] : []),
-    { label: terminalOpen ? "Hide terminal" : "Show terminal", run: toggleTerminal },
-    ...(project ? [{ label: "New terminal", run: newTerminal }] : []),
-    { label: "Split editor right", run: () => splitEditor("row") },
-    { label: "Split editor down", run: () => splitEditor("column") },
-    ...(groups.length > 1
-      ? [
-          { label: "Close split", run: () => closeSplit() },
-          { label: "Focus next split", run: () => focusSplit(1) },
-          { label: "Keep only this split", run: () => onlySplit() },
-        ]
-      : []),
+    { id: "tab.close", label: "Close tab", run: () => openFile && closeTab(openFile), when: !!openFile },
+    { id: "terminal.toggle", label: terminalOpen ? "Hide terminal" : "Show terminal", run: toggleTerminal },
+    { id: "terminal.new", label: "New terminal", run: newTerminal, when: !!project },
+    { id: "split.right", label: "Split editor right", run: () => splitEditor("row") },
+    { id: "split.down", label: "Split editor down", run: () => splitEditor("column") },
+    { id: "split.close", label: "Close split", run: () => closeSplit(), when: groups.length > 1 },
+    { id: "split.next", label: "Focus next split", run: () => focusSplit(1), when: groups.length > 1 },
+    { id: "split.only", label: "Keep only this split", run: () => onlySplit(), when: groups.length > 1 },
+    { id: "keymap.open", label: "Open keymap file", run: () => void openKeymap() },
   ];
+  const commands = commandList.map((c) => ({ ...c, keys: keysFor(keymap, c.id) }));
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
+
+  /** keymap.json in the app data folder, made with the defaults and the
+   *  command ids the first time; saving it applies it at once. */
+  const loadKeymap = async () => {
+    const root = await api.appDataFolder();
+    keymapFile.current = { root, path: "keymap.json" };
+    const text = await api.readTextFile(root, "keymap.json").catch(() => null);
+    if (text === null) return null;
+    const { keys, problems } = parseKeymap(text, new Set(commandsRef.current.map((c) => c.id)));
+    setKeymap(keys);
+    setKeymapProblems(problems.length ? `keymap.json: ${problems.join("; ")}. The rest applies.` : null);
+    return text;
+  };
+  const openKeymap = async () => {
+    if ((await loadKeymap().catch(() => null)) === null && keymapFile.current) {
+      const starter = {
+        _help: "Keys to command ids. null turns a built-in key off. Keys inside the editor (Vim, F2, F12) are not here. Save to apply.",
+        _commands: commandsRef.current.map((c) => `${c.id}: ${c.label}`),
+        ...DEFAULT_KEYMAP,
+      };
+      await api.writeTextFile(keymapFile.current.root, "keymap.json", JSON.stringify(starter, null, 2) + "\n");
+    }
+    if (keymapFile.current) show({ ...keymapFile.current });
+  };
+  const loadKeymapRef = useRef(loadKeymap);
+  loadKeymapRef.current = loadKeymap;
+  useEffect(() => {
+    void loadKeymapRef.current().catch(() => {});
+  }, []);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const refreshModels = useCallback(() => {
@@ -700,6 +734,14 @@ export default function App() {
       />
 
       <section className="pane-middle">
+        {keymapProblems && (
+          <div className="error-banner keymap-problems" role="alert">
+            <span>{keymapProblems}</span>
+            <button onClick={() => setKeymapProblems(null)} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
         <div className={`editor-groups ${splitDir}`}>
           {groups.map((g, gi) => (
             <div
@@ -741,6 +783,10 @@ export default function App() {
                   line={g.open.line}
                   lineKey={g.open}
                   onDirtyChange={redrawTabs}
+                  onSaved={() => {
+                    const k = keymapFile.current;
+                    if (k && g.open?.root === k.root && g.open.path === k.path) void loadKeymap();
+                  }}
                   version={fileVersion}
                   onClose={() => g.open && closeTab(g.open, gi)}
                   onRun={(path) => g.open && startTask({ kind: "file", root: g.open.root, path })}
