@@ -451,6 +451,24 @@ async function start(root: string, ext: string, key: string): Promise<Running> {
     rootUri: fileUri(root, ""),
     workspace: (c) => (workspace = new AppWorkspace(c, root)),
     extensions: [
+      // Servers (rust-analyzer among them) send code actions only to clients
+      // that say they take them, and edits only on request if asked so.
+      {
+        clientCapabilities: {
+          workspace: { applyEdit: true },
+          textDocument: {
+            codeAction: {
+              codeActionLiteralSupport: {
+                codeActionKind: {
+                  valueSet: ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports"],
+                },
+              },
+              resolveSupport: { properties: ["edit"] },
+              dataSupport: true,
+            },
+          },
+        },
+      },
       serverCompletion(),
       hoverTooltips(),
       // The library's F2 rename skips files that are not open, so it is replaced.
