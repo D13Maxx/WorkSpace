@@ -27,11 +27,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use ws_context::{
-    BackendEvent, BackendId, BackendRequest, BuildViewParams, ByteEstimateCounter, ChatBackend,
-    ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventKind, HelperEntry,
-    InlineBlob, Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part, ProviderOpaque,
-    RenderedMessage, RenderedView, Role, StopReason, SummaryId, SummaryRequest, ViewMode, ViewPlan,
-    build_view, summary_prompt,
+    BackendError, BackendEvent, BackendId, BackendRequest, BuildViewParams, ByteEstimateCounter,
+    ChatBackend, ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventKind,
+    HelperEntry, InlineBlob, Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part,
+    ProviderOpaque, RenderedMessage, RenderedView, Role, StopReason, SummaryId, SummaryRequest,
+    ViewMode, ViewPlan, build_view, summary_prompt,
 };
 use ws_store::{BlobStore, Draft, FileEdit, NewMessage, Store};
 
@@ -41,6 +41,16 @@ pub type ModelListResult =
 
 /// How often an in-progress reply is checkpointed (master spec s10).
 const DRAFT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The waits before each retry of a dropped connection, for apps to pass to
+/// [`Orchestrator::with_reconnect_waits`]: about two minutes in all, enough
+/// for the network to come back after a laptop wakes.
+pub const RECONNECT_WAITS: [Duration; 4] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
 
 /// The context builder asks for at most one summary per turn. A second request
 /// means the loop is not converging, which is a bug rather than a retry.
@@ -202,6 +212,9 @@ pub struct Orchestrator {
     /// Models a helper switches to, in order, when its own fails. Never used
     /// for the main turn.
     worker_fallbacks: std::sync::RwLock<Vec<ModelRef>>,
+    /// How long to wait before each retry of a step whose connection dropped,
+    /// as when the laptop sleeps mid-reply. Empty: never retry.
+    reconnect_waits: Vec<Duration>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -233,6 +246,7 @@ impl Orchestrator {
             file_locks: Mutex::new(HashMap::new()),
             channel: Channel::default(),
             worker_fallbacks: std::sync::RwLock::default(),
+            reconnect_waits: Vec::new(),
         }
     }
 
@@ -310,6 +324,15 @@ impl Orchestrator {
     #[must_use]
     pub fn with_draft_interval(mut self, interval: Duration) -> Self {
         self.draft_interval = interval;
+        self
+    }
+
+    /// Retry a step whose connection dropped, waiting each of `waits` in turn.
+    /// A sleeping laptop freezes the app mid-reply; on waking the network
+    /// takes a few seconds to come back.
+    #[must_use]
+    pub fn with_reconnect_waits(mut self, waits: Vec<Duration>) -> Self {
+        self.reconnect_waits = waits;
         self
     }
 
@@ -1060,6 +1083,7 @@ impl Orchestrator {
             role: Role::User,
             parts: vec![Part::text(prompt)],
         }];
+        let mut reconnects = 0;
 
         for _ in 0..MAX_AGENT_ROUNDS {
             if cancel.is_cancelled() {
@@ -1116,9 +1140,11 @@ impl Orchestrator {
             let mut calls: Vec<PendingCall> = Vec::new();
             let mut stop = StopReason::EndTurn;
             let mut failed = None;
+            let mut dropped = false;
             let mut stream = match backend.stream(request, cancel.clone()).await {
                 Ok(s) => Some(s),
                 Err(e) => {
+                    dropped = matches!(e, BackendError::Transport { .. });
                     failed = Some(format!("could not start: {e}"));
                     None
                 }
@@ -1152,6 +1178,7 @@ impl Orchestrator {
                         break;
                     }
                     BackendEvent::Error(e) => {
+                        dropped = matches!(e, BackendError::Transport { .. });
                         failed = Some(format!("failed: {e}"));
                         break;
                     }
@@ -1161,6 +1188,27 @@ impl Orchestrator {
             if let Some(error) = failed {
                 if cancel.is_cancelled() {
                     return ToolOutput::error("cancelled by the user");
+                }
+                // A dropped connection is not the model's fault: wait and try
+                // the round again on the same one before falling back.
+                if let Some(&wait) = self.reconnect_waits.get(reconnects).filter(|_| dropped) {
+                    reconnects += 1;
+                    step(
+                        events,
+                        call,
+                        agent,
+                        log,
+                        HelperEntry::Retry {
+                            error: error.clone(),
+                            wait_secs: wait.as_secs(),
+                        },
+                    )
+                    .await;
+                    tokio::select! {
+                        () = tokio::time::sleep(wait) => {}
+                        () = cancel.cancelled() => return ToolOutput::error("cancelled by the user"),
+                    }
+                    continue;
                 }
                 let Some((next, next_backend)) = self.next_worker_model(&mut models) else {
                     return ToolOutput::error(format!("{agent} {error}"));
@@ -1384,6 +1432,55 @@ impl Orchestrator {
         context: Option<&str>,
     ) -> Result<(MsgId, Vec<PendingCall>)> {
         let (events, cancel) = (events.clone(), cancel.clone());
+        let mut attempt = 0;
+        loop {
+            let may_retry = attempt < self.reconnect_waits.len();
+            // The dropped reply, or the refusal when nothing started.
+            let (error, dropped) = match self
+                .try_step(conv, &events, &cancel, context, may_retry)
+                .await
+            {
+                Ok(Step::Done(reply, calls)) => return Ok((reply, calls)),
+                Ok(Step::Dropped { reply, error }) => (error, Ok(reply)),
+                Err(CoreError::Backend(e @ BackendError::Transport { .. })) if may_retry => {
+                    (e.to_string(), Err(e))
+                }
+                Err(e) => return Err(e),
+            };
+            let wait = self.reconnect_waits[attempt];
+            attempt += 1;
+            let _ = events
+                .send(TurnEvent::Retrying {
+                    error: error.clone(),
+                    wait_secs: wait.as_secs(),
+                })
+                .await;
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = cancel.cancelled() => {
+                    let message = dropped.as_ref().ok().copied();
+                    let _ = events.send(TurnEvent::Failed { message, error }).await;
+                    return dropped.map(|id| (id, Vec::new())).map_err(Into::into);
+                }
+            }
+            // The dropped reply stays as a failed sibling; the retry is a new one.
+            if let Ok(id) = dropped {
+                self.prepare_regenerate(conv, id)?;
+            }
+        }
+    }
+
+    /// One attempt at a step. With `may_retry`, a dropped connection is
+    /// returned as [`Step::Dropped`] rather than reported as a failure.
+    async fn try_step(
+        &self,
+        conv: ConvId,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+        context: Option<&str>,
+        may_retry: bool,
+    ) -> Result<Step> {
+        let (events, cancel) = (events.clone(), cancel.clone());
         let (target, parent) = self.with_store(|s| {
             let c = s
                 .get_conversation(conv)?
@@ -1412,6 +1509,7 @@ impl Orchestrator {
         let backend = self.backend(&target.backend)?;
         let stream = match backend.stream(request, cancel.clone()).await {
             Ok(s) => s,
+            Err(e @ BackendError::Transport { .. }) if may_retry => return Err(e.into()),
             Err(e) => {
                 // Nothing streamed, so nothing to preserve: report and stop.
                 let _ = events
@@ -1424,8 +1522,10 @@ impl Orchestrator {
             }
         };
 
-        self.consume(conv, parent, target, view, stream, events, cancel)
-            .await
+        self.consume(
+            conv, parent, target, view, stream, events, cancel, may_retry,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1438,7 +1538,8 @@ impl Orchestrator {
         mut stream: futures_util::stream::BoxStream<'static, BackendEvent>,
         events: mpsc::Sender<TurnEvent>,
         cancel: CancellationToken,
-    ) -> Result<(MsgId, Vec<PendingCall>)> {
+        may_retry: bool,
+    ) -> Result<Step> {
         use futures_util::StreamExt as _;
 
         let mut calls: Vec<PendingCall> = Vec::new();
@@ -1448,6 +1549,7 @@ impl Orchestrator {
         let mut raw: Option<serde_json::Value> = None;
         let mut stop = StopReason::EndTurn;
         let mut failure: Option<String> = None;
+        let mut dropped = false;
         let mut last_checkpoint = Instant::now();
 
         while let Some(event) = stream.next().await {
@@ -1491,6 +1593,7 @@ impl Orchestrator {
                     break;
                 }
                 BackendEvent::Error(e) => {
+                    dropped = matches!(e, BackendError::Transport { .. });
                     failure = Some(e.to_string());
                     break;
                 }
@@ -1600,6 +1703,9 @@ impl Orchestrator {
         };
 
         match failure {
+            Some(error) if dropped && may_retry && !cancel.is_cancelled() => {
+                return Ok(Step::Dropped { reply: id, error });
+            }
             Some(error) => {
                 let _ = events
                     .send(TurnEvent::Failed {
@@ -1617,8 +1723,16 @@ impl Orchestrator {
                     .await;
             }
         }
-        Ok((id, calls))
+        Ok(Step::Done(id, calls))
     }
+}
+
+/// How one attempt at a step ended.
+enum Step {
+    /// The reply and the tools it asks for (none if it failed).
+    Done(MsgId, Vec<PendingCall>),
+    /// The connection dropped partway; the partial reply is saved as failed.
+    Dropped { reply: MsgId, error: String },
 }
 
 #[cfg(test)]

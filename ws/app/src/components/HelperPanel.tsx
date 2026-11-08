@@ -23,6 +23,13 @@ function Step({ entry, result }: { entry: HelperEntry; result?: Extract<HelperEn
           <pre>{entry.error}</pre>
         </div>
       );
+    case "retry":
+      return (
+        <div className="helper-note switched">
+          <span className="muted">Connection lost, trying again in {entry.wait_secs} s</span>
+          <pre>{entry.error}</pre>
+        </div>
+      );
     case "received":
       return (
         <div className="helper-note received">

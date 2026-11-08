@@ -245,6 +245,7 @@ async fn main() -> Result<()> {
 
     let mut orch = Orchestrator::new(Arc::new(Mutex::new(store)), blobs, profiles.clone())
         .with_agents(Arc::new(Agents::default().with_worker()))
+        .with_reconnect_waits(ws_core::RECONNECT_WAITS.to_vec())
         .with_tools(Arc::new(ToolSet::new(vec![workspace as Arc<_>])))
         .with_backend(Arc::new(AnthropicBackend::new(
             BackendId::new("anthropic"),

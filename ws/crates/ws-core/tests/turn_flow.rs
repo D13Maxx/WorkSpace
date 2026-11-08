@@ -749,3 +749,99 @@ async fn complete_answers_one_question_and_stores_nothing() {
             .is_empty()
     );
 }
+
+/// A harness whose dropped connections are retried at once.
+fn retrying(replies: Vec<Scripted>) -> Harness {
+    let h = harness(replies);
+    Harness {
+        orch: h
+            .orch
+            .with_reconnect_waits(vec![std::time::Duration::ZERO; 2]),
+        ..h
+    }
+}
+
+#[tokio::test]
+async fn a_reply_cut_off_by_sleep_is_retried_as_a_new_reply() {
+    let h = retrying(vec![
+        Scripted::FailsAfter {
+            deltas: vec!["half ".into()],
+            error: "connection reset".into(),
+        },
+        Scripted::Text(vec!["whole answer".into()]),
+    ]);
+    let conv = h.orch.create_conversation("test", model()).unwrap();
+    h.orch
+        .append_user_message(conv, vec![Part::text("hi")])
+        .unwrap();
+
+    let events = run(&h, conv, CancellationToken::new()).await;
+    assert!(events.iter().any(
+        |e| matches!(e, TurnEvent::Retrying { error, .. } if error.contains("connection reset"))
+    ));
+    assert!(
+        !events.iter().any(|e| matches!(e, TurnEvent::Failed { .. })),
+        "a retried drop is not a failure"
+    );
+    assert!(matches!(events.last(), Some(TurnEvent::Completed { .. })));
+
+    let s = h.store.lock().unwrap();
+    let path = s.load_active_path(conv).unwrap();
+    assert_eq!(path.len(), 2, "the user message, then the retried reply");
+    assert_eq!(path[1].text_content(), "whole answer");
+    // The cut-off reply is kept as a failed sibling, not thrown away.
+    let siblings = s.siblings(path[1].id).unwrap();
+    assert_eq!(siblings.len(), 2);
+    assert!(
+        siblings
+            .iter()
+            .any(|m| m.text_content() == "half " && matches!(m.status, MsgStatus::Failed { .. }))
+    );
+}
+
+#[tokio::test]
+async fn a_request_that_cannot_connect_is_retried_and_gives_up_after_the_last_wait() {
+    let offline = || Scripted::RefusesToStart {
+        error: ws_context::BackendError::Transport {
+            backend: BACKEND.into(),
+            message: "no network".into(),
+        },
+    };
+    let h = retrying(vec![offline(), offline(), offline()]);
+    let conv = h.orch.create_conversation("test", model()).unwrap();
+    h.orch
+        .append_user_message(conv, vec![Part::text("hi")])
+        .unwrap();
+
+    let events = run(&h, conv, CancellationToken::new()).await;
+    let retries = events
+        .iter()
+        .filter(|e| matches!(e, TurnEvent::Retrying { .. }))
+        .count();
+    assert_eq!(retries, 2, "one per wait");
+    assert_eq!(h.backend.requests().len(), 3);
+    assert!(matches!(
+        events.last(),
+        Some(TurnEvent::Failed { message: None, .. })
+    ));
+}
+
+#[tokio::test]
+async fn a_refused_request_is_not_retried() {
+    let h = retrying(vec![Scripted::RefusesToStart {
+        error: ws_context::BackendError::MissingApiKey {
+            backend: BACKEND.into(),
+        },
+    }]);
+    let conv = h.orch.create_conversation("test", model()).unwrap();
+    h.orch
+        .append_user_message(conv, vec![Part::text("hi")])
+        .unwrap();
+    let events = run(&h, conv, CancellationToken::new()).await;
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, TurnEvent::Retrying { .. }))
+    );
+    assert_eq!(h.backend.requests().len(), 1);
+}

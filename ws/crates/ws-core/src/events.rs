@@ -87,6 +87,13 @@ pub enum TurnEvent {
         stop_reason: StopReason,
     },
 
+    /// The connection dropped (as when the laptop slept); the step starts
+    /// again as a new reply after `wait_secs`.
+    Retrying {
+        error: String,
+        wait_secs: u64,
+    },
+
     /// Generation stopped early. The partial text is still persisted under
     /// `message`, so nothing the user saw is lost.
     Failed {

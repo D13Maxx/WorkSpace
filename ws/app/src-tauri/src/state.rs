@@ -183,6 +183,7 @@ impl AppState {
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_agents(agents)
+            .with_reconnect_waits(ws_core::RECONNECT_WAITS.to_vec())
             .with_backend(local.clone() as Arc<_>)
             .with_tools(Arc::new(ws_core::ToolSet::new(vec![
                 skills.clone() as Arc<_>,

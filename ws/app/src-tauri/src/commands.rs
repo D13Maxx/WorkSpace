@@ -458,6 +458,7 @@ async fn stream_turn(
     on_event: Channel<TurnEvent>,
 ) -> CmdResult<()> {
     let cancel = state.begin_turn(conv);
+    let _awake = crate::awake::hold();
     let orchestrator = state.orchestrator.clone();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<TurnEvent>(256);

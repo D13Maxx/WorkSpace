@@ -194,6 +194,8 @@ pub enum HelperEntry {
         to: String,
         error: String,
     },
+    /// Its connection dropped, so it tries the same model again after `wait_secs`.
+    Retry { error: String, wait_secs: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

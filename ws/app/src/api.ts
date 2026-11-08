@@ -104,7 +104,9 @@ export type HelperEntry =
   /** Notes the other helpers sent it. */
   | { kind: "received"; text: string }
   /** Its model failed, so it carried on with the next fallback. */
-  | { kind: "switch"; from: string; to: string; error: string };
+  | { kind: "switch"; from: string; to: string; error: string }
+  /** Its connection dropped, so it tries the same model again. */
+  | { kind: "retry"; error: string; wait_secs: number };
 
 export interface HelperLog {
   dispatch: string;
@@ -204,6 +206,8 @@ export type TurnEvent =
   | { type: "tool_result"; call_id: string; is_error: boolean; text: string }
   | { type: "helper_step"; dispatch: string; agent: string; entry: HelperEntry }
   | { type: "completed"; message: string; stop_reason: unknown }
+  /** The connection dropped (as when the laptop slept); the step starts again as a new reply. */
+  | { type: "retrying"; error: string; wait_secs: number }
   | { type: "failed"; message: string | null; error: string };
 
 /** A GGUF file, as read from its header without loading it. */

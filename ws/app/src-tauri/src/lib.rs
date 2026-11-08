@@ -7,6 +7,7 @@
 //! Streaming uses a Tauri IPC channel per turn rather than global events, so
 //! two conversations streaming at once cannot interleave into one another.
 
+mod awake;
 mod blueprint;
 mod bridge;
 mod commands;

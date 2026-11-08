@@ -54,6 +54,14 @@ fn harness(replies: Vec<Scripted>) -> Harness {
 }
 
 fn harness_with(replies: Vec<Scripted>, agents: Option<Arc<ws_core::Agents>>) -> Harness {
+    harness_full(replies, agents, Vec::new())
+}
+
+fn harness_full(
+    replies: Vec<Scripted>,
+    agents: Option<Arc<ws_core::Agents>>,
+    reconnect_waits: Vec<std::time::Duration>,
+) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Mutex::new(Store::open(dir.path().join("ws.db")).unwrap()));
     let blobs = Arc::new(BlobStore::new(dir.path().join("blobs")).unwrap());
@@ -78,7 +86,8 @@ fn harness_with(replies: Vec<Scripted>, agents: Option<Arc<ws_core::Agents>>) ->
     let tools = Arc::new(FakeTools::default());
     let mut orch = Orchestrator::new(store.clone(), blobs, profiles)
         .with_backend(backend.clone() as Arc<_>)
-        .with_tools(tools.clone() as Arc<_>);
+        .with_tools(tools.clone() as Arc<_>)
+        .with_reconnect_waits(reconnect_waits);
     if let Some(agents) = agents {
         orch = orch.with_agents(agents);
     }
@@ -771,4 +780,52 @@ async fn the_coordinator_itself_never_falls_back() {
     let result = h.orch.run_turn(conv, tx, CancellationToken::new()).await;
     assert!(result.is_err(), "the turn fails as before");
     assert_eq!(h.backend.requests().len(), 1, "no second model was tried");
+}
+
+#[tokio::test]
+async fn a_worker_whose_connection_drops_retries_the_same_model_before_falling_back() {
+    let h = harness_full(
+        vec![
+            dispatch("d1", "worker"),
+            Scripted::FailsAfter {
+                deltas: vec!["half".to_owned()],
+                error: "connection reset".to_owned(),
+            },
+            Scripted::Text(vec!["done".to_owned()]),
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        worker_agents(),
+        vec![std::time::Duration::ZERO],
+    );
+    h.orch
+        .set_worker_fallbacks(vec![ModelRef::new("fake", "fake-2")]);
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+
+    let requests = h.backend.requests();
+    let models: Vec<&str> = requests.iter().map(|r| r.model.model_id.as_str()).collect();
+    assert_eq!(
+        models,
+        ["fake-1", "fake-1", "fake-1", "fake-1"],
+        "no fallback for a dropped line"
+    );
+    assert!(
+        !heard(&requests[2], "half"),
+        "the cut-off round starts clean"
+    );
+
+    let retries = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .filter(|e| matches!(e, ws_context::HelperEntry::Retry { .. }))
+        .count();
+    assert_eq!(retries, 1);
 }

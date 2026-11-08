@@ -505,6 +505,13 @@ export default function App() {
               setStreaming("");
               void refreshThread(conversation);
               break;
+            case "retrying":
+              // The cut-off text is kept as a failed sibling; the retry streams fresh.
+              text = "";
+              setStreaming("");
+              setStatus(`Connection lost. Trying again in ${event.wait_secs} s…`);
+              void refreshThread(conversation);
+              break;
             case "failed":
               setError(event.error);
               break;
