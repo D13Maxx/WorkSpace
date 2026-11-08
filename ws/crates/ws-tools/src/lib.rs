@@ -5,6 +5,7 @@ pub mod files;
 pub mod git;
 pub mod index;
 pub mod workspace;
+pub mod worktree;
 
 use std::path::PathBuf;
 

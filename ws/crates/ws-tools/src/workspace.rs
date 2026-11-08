@@ -103,6 +103,9 @@ pub struct Workspace {
     /// The shipped Understand-Anything pipeline, exported to commands as
     /// `CLAUDE_PLUGIN_ROOT`, which is where its skill looks first.
     plugin_root: Option<std::path::PathBuf>,
+    /// Working in a helper's private copy: file edits there cannot reach the
+    /// user's files until they merge, so they run without asking.
+    isolated: bool,
 }
 
 /// Git for Windows' bash, found from `git` on PATH. Not System32's bash.exe,
@@ -125,6 +128,7 @@ impl Workspace {
             chooser: None,
             chosen: Mutex::default(),
             index: Arc::default(),
+            isolated: false,
         }
     }
 
@@ -537,6 +541,9 @@ impl ToolHost for Workspace {
     }
 
     fn needs_approval(&self, name: &str) -> bool {
+        if self.isolated && matches!(name, "write_file" | "edit_file" | "create_folder") {
+            return false;
+        }
         !matches!(
             name,
             // choose_location asks the user itself; a second prompt adds nothing.
@@ -569,6 +576,40 @@ impl ToolHost for Workspace {
         let root = self.root().ok()?;
         let (base, rel) = self.place(&root, args.get("path")?.as_str()?).ok()?;
         crate::files::resolve_for_write(&base, &rel).ok()
+    }
+
+    fn isolate(&self, id: &str) -> Option<Result<ws_core::Isolated, String>> {
+        let root = self.folder()?;
+        // shortcut: runs git on the async thread (a snapshot is ~a second on a big repo); move to spawn_blocking if helpers start slowly.
+        let wt = match crate::worktree::create(&root, id) {
+            Ok(Some(wt)) => wt,
+            Ok(None) => return None,
+            Err(e) => return Some(Err(e)),
+        };
+        let host = Self {
+            open: Mutex::new((Some(wt.folder.clone()), None)),
+            chooser: None,
+            chosen: Mutex::default(),
+            index: self.index.clone(),
+            bash: self.bash.clone(),
+            plugin_root: self.plugin_root.clone(),
+            isolated: true,
+        };
+        let (top, project, branch) = (wt.top.clone(), root.clone(), wt.branch.clone());
+        Some(Ok(ws_core::Isolated {
+            host: Arc::new(host),
+            root,
+            folder: wt.folder,
+            branch: wt.branch,
+            base: wt.base,
+            seal: Box::new(move |message| {
+                let changed = crate::worktree::seal(&top, message)?;
+                if !changed {
+                    crate::worktree::discard(&project, &branch)?;
+                }
+                Ok(changed)
+            }),
+        }))
     }
 
     async fn call(&self, name: &str, args: Value) -> ToolOutput {

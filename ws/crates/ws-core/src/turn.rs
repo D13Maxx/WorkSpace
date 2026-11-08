@@ -823,7 +823,7 @@ impl Orchestrator {
             // checker's higher-ranked lifetimes once this future must be Send.
             let runs: Vec<_> = calls
                 .iter()
-                .map(|c| self.run_call(conv, c, events, cancel, None))
+                .map(|c| self.run_call(conv, c, events, cancel, None, None))
                 .collect();
             futures_util::stream::iter(runs)
                 .buffered(MAX_PARALLEL_AGENTS)
@@ -832,7 +832,7 @@ impl Orchestrator {
         } else {
             let mut outs = Vec::with_capacity(calls.len());
             for call in &calls {
-                outs.push(self.run_call(conv, call, events, cancel, None).await);
+                outs.push(self.run_call(conv, call, events, cancel, None, None).await);
             }
             outs
         };
@@ -865,8 +865,10 @@ impl Orchestrator {
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
         helper: Option<&str>,
+        // A helper's own copy of the tools, working in its copy of the project.
+        scope: Option<&Arc<dyn ToolHost>>,
     ) -> ToolOutput {
-        let Some(host) = &self.tools else {
+        let Some(host) = scope.or(self.tools.as_ref()) else {
             return ToolOutput::error("no tools are available");
         };
         if cancel.is_cancelled() {
@@ -982,14 +984,74 @@ impl Orchestrator {
         cancel: &CancellationToken,
     ) -> ToolOutput {
         let mut log = Vec::new();
-        let out = self
-            .run_agent_steps(conv, call, events, cancel, &mut log)
+        let args = serde_json::from_str::<serde_json::Value>(&call.args).unwrap_or_default();
+        let field = |k: &str| {
+            args.get(k)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+        };
+        let agent = field("agent").to_owned();
+
+        let isolated = match self.tools.as_ref().and_then(|t| t.isolate(&call.call_id)) {
+            Some(Ok(iso)) => {
+                step(
+                    events,
+                    call,
+                    &agent,
+                    &mut log,
+                    HelperEntry::Isolated {
+                        root: iso.root.clone(),
+                        folder: iso.folder.clone(),
+                        branch: iso.branch.clone(),
+                        base: iso.base.clone(),
+                    },
+                )
+                .await;
+                Some(iso)
+            }
+            Some(Err(e)) => {
+                // Not fatal: it works in the project, as outside git.
+                tracing::warn!(error = %e, "could not give a helper its own copy");
+                None
+            }
+            None => None,
+        };
+
+        let mut out = self
+            .run_agent_steps(
+                conv,
+                call,
+                events,
+                cancel,
+                &mut log,
+                isolated.as_ref().map(|i| &i.host),
+            )
             .await;
+
+        if let Some(iso) = &isolated {
+            let summary = field("prompt").lines().next().unwrap_or_default();
+            let summary: String = summary.chars().take(72).collect();
+            match (iso.seal)(&format!("{agent}: {summary}")) {
+                Ok(true) => out.text.push_str(&format!(
+                    "
+
+[{agent} worked in its own copy of the project. Its changes are on branch {}, not in the project's files until the user merges them.]",
+                    iso.branch
+                )),
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not save a helper's work");
+                    out.text.push_str(&format!(
+                        "
+
+[{agent}'s work could not be saved on its branch {}: {e}. It is still in {}.]",
+                        iso.branch, iso.folder
+                    ));
+                }
+            }
+        }
+
         if !log.is_empty() {
-            let agent = serde_json::from_str::<serde_json::Value>(&call.args)
-                .ok()
-                .and_then(|a| a.get("agent")?.as_str().map(str::to_owned))
-                .unwrap_or_default();
             let kind = EventKind::HelperLog {
                 dispatch: call.call_id.clone(),
                 agent,
@@ -1009,6 +1071,7 @@ impl Orchestrator {
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
         log: &mut Vec<HelperEntry>,
+        scope: Option<&Arc<dyn ToolHost>>,
     ) -> ToolOutput {
         use futures_util::StreamExt as _;
 
@@ -1307,7 +1370,7 @@ impl Orchestrator {
                 )
                 .await;
                 let out = self
-                    .run_call(conv, &scoped, events, cancel, Some(&me))
+                    .run_call(conv, &scoped, events, cancel, Some(&me), scope)
                     .await;
                 let _ = events
                     .send(TurnEvent::ToolResult {

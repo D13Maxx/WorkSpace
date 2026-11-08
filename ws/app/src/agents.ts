@@ -1,6 +1,6 @@
 // The agent view's model: which workers the latest turn started, and what
 // each is doing, from the saved thread plus what is streaming in now.
-import type { HelperEntry, HelperLog, Thread } from "./api";
+import type { HelperEntry, HelperLog, Thread, WorkerCopy } from "./api";
 
 export type WorkerStatus = "working" | "needs-you" | "retrying" | "done" | "failed" | "stopped";
 
@@ -14,6 +14,8 @@ export interface Worker {
   entries: HelperEntry[];
   /** The approval it is waiting on, if any. */
   waitingOn: { callId: string; name: string; args: string } | null;
+  /** Its own copy of the project, when it had one. */
+  copy: (WorkerCopy & { folder: string }) | null;
 }
 
 function arg(args: string, key: string): string {
@@ -58,6 +60,7 @@ export function latestWorkers(
     const open = new Set(entries.flatMap((e) => (e.kind === "call" && !answered.has(e.call_id) ? [e.call_id] : [])));
     const waitingOn = approvals.find((a) => open.has(a.callId)) ?? null;
     const switched = [...entries].reverse().find((e) => e.kind === "switch");
+    const isolated = entries.find((e) => e.kind === "isolated");
     const result = dispatch in liveResults ? liveResults[dispatch] : failed.get(dispatch);
 
     let status: WorkerStatus;
@@ -76,6 +79,10 @@ export function latestWorkers(
       steps: entries.filter((e) => e.kind === "call").length,
       entries,
       waitingOn,
+      copy:
+        isolated?.kind === "isolated"
+          ? { root: isolated.root, branch: isolated.branch, base: isolated.base, folder: isolated.folder }
+          : null,
     };
   });
 }

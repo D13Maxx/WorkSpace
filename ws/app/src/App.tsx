@@ -21,7 +21,7 @@ import { DebugPanel } from "./components/DebugPanel";
 import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
 import { TerminalPanel } from "./components/TerminalPanel";
-import { lineBlameEnabled, setLineBlameEnabled } from "./git";
+import { gitChanged, lineBlameEnabled, setLineBlameEnabled } from "./git";
 import { DEFAULT_KEYMAP, comboOf, keysFor, normalize, parseKeymap } from "./keymap";
 import { setVimEnabled, setWindowCommands, vimEnabled } from "./vim";
 
@@ -738,7 +738,15 @@ export default function App() {
           </div>
         )}
         {agentsOpen && (
-          <AgentView workers={workers} onAnswer={answer} onClose={() => setAgentsOpen(false)} />
+          <AgentView
+            workers={workers}
+            onAnswer={answer}
+            onMerged={() => {
+              setFileVersion((v) => v + 1);
+              gitChanged();
+            }}
+            onClose={() => setAgentsOpen(false)}
+          />
         )}
         <div className={`editor-groups ${splitDir}`} style={agentsOpen ? { display: "none" } : undefined}>
           {groups.map((g, gi) => (

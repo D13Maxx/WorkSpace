@@ -16,6 +16,10 @@ use ws_store::{BlobStore, Store};
 #[derive(Debug, Default)]
 struct FakeTools {
     calls: Mutex<Vec<(String, serde_json::Value)>>,
+    /// When set, helpers get this as their own copy of the tools.
+    copy: Mutex<Option<Arc<FakeTools>>>,
+    /// The messages helpers' work was sealed with.
+    sealed: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait::async_trait]
@@ -38,6 +42,21 @@ impl ToolHost for FakeTools {
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {
         self.calls.lock().unwrap().push((name.to_owned(), args));
         ToolOutput::ok(format!("{name} done"))
+    }
+    fn isolate(&self, id: &str) -> Option<Result<ws_core::Isolated, String>> {
+        let copy = self.copy.lock().unwrap().clone()?;
+        let sealed = self.sealed.clone();
+        Some(Ok(ws_core::Isolated {
+            host: copy as Arc<_>,
+            root: "/repo".to_owned(),
+            folder: format!("/repo/.git/ws-worktrees/{id}"),
+            branch: format!("ws/{id}"),
+            base: "abc123".to_owned(),
+            seal: Box::new(move |message| {
+                sealed.lock().unwrap().push(message.to_owned());
+                Ok(true)
+            }),
+        }))
     }
 }
 
@@ -828,4 +847,50 @@ async fn a_worker_whose_connection_drops_retries_the_same_model_before_falling_b
         .filter(|e| matches!(e, ws_context::HelperEntry::Retry { .. }))
         .count();
     assert_eq!(retries, 1);
+}
+
+#[tokio::test]
+async fn a_helper_works_in_its_own_copy_and_the_coordinator_is_told_where_its_changes_are() {
+    let h = harness_with(
+        vec![
+            dispatch("d1", "worker"),
+            Scripted::calls("w1", "write_file", r#"{"path":"a.rs"}"#),
+            Scripted::Text(vec!["wrote a.rs".to_owned()]),
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        worker_agents(),
+    );
+    let copy = Arc::new(FakeTools::default());
+    h.tools.copy.lock().unwrap().replace(copy.clone());
+    let conv = h.conversation();
+    // Approvals are refused: the copy's host is a FakeTools too, so write_file
+    // still asks; the call is recorded only if it went to the copy.
+    run(&h, conv, true).await;
+
+    assert!(
+        h.tools.calls.lock().unwrap().is_empty(),
+        "nothing ran in the project"
+    );
+    assert_eq!(
+        copy.calls.lock().unwrap().len(),
+        1,
+        "the helper's call ran in its copy"
+    );
+    assert_eq!(*h.tools.sealed.lock().unwrap(), ["worker: do it"]);
+
+    let requests = h.backend.requests();
+    assert!(heard(requests.last().unwrap(), "on branch ws/d1"));
+    let isolated = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .any(|e| matches!(e, ws_context::HelperEntry::Isolated { ref branch, .. } if branch == "ws/d1"));
+    assert!(isolated, "the log says where it worked");
 }

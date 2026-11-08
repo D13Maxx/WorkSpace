@@ -30,6 +30,14 @@ export function Step({ entry, result }: { entry: HelperEntry; result?: Extract<H
           <pre>{entry.error}</pre>
         </div>
       );
+    case "isolated":
+      return (
+        <div className="helper-note">
+          <span className="muted">
+            Working in its own copy of the project, on branch <code>{entry.branch}</code>. Nothing reaches your files until you merge it.
+          </span>
+        </div>
+      );
     case "received":
       return (
         <div className="helper-note received">

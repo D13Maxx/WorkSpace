@@ -196,6 +196,14 @@ pub enum HelperEntry {
     },
     /// Its connection dropped, so it tries the same model again after `wait_secs`.
     Retry { error: String, wait_secs: u64 },
+    /// It works in its own copy of the project, on `branch`, started from
+    /// `base`; its changes reach `root` only when the user merges them.
+    Isolated {
+        root: String,
+        folder: String,
+        branch: String,
+        base: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

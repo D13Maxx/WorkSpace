@@ -27,9 +27,21 @@ fn git(root: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn git_with_input(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<String, String> {
+    run(root, args, input, &[])
+}
+
+/// Run git in `root` with `env` set, feeding it `input`; its stdout, or its
+/// stderr as the error.
+pub(crate) fn run(
+    root: &str,
+    args: &[&str],
+    input: Option<&[u8]>,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
     let program = crate::find(&["git"]).ok_or("git is not installed or not on PATH")?;
     let mut cmd = Command::new(program);
     cmd.args(args)
+        .envs(env.iter().copied())
         .current_dir(root.trim())
         .stdin(if input.is_some() {
             Stdio::piped()

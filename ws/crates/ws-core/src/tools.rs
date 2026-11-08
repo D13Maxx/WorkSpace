@@ -53,6 +53,41 @@ pub trait ToolHost: Send + Sync + std::fmt::Debug {
     fn context(&self) -> Option<String> {
         None
     }
+
+    /// A private copy of the project for helper `id`, so helpers cannot
+    /// trample each other or the user's files. `None` when there is nothing to
+    /// copy (no project open, or one outside git).
+    fn isolate(&self, _id: &str) -> Option<Result<Isolated, String>> {
+        None
+    }
+}
+
+/// Commits a helper's work given a message; whether there was any.
+pub type Seal = Box<dyn Fn(&str) -> Result<bool, String> + Send + Sync>;
+
+/// A helper's private copy of the project, from [`ToolHost::isolate`].
+pub struct Isolated {
+    /// The same tools, working in the copy.
+    pub host: std::sync::Arc<dyn ToolHost>,
+    /// The open folder it copies, where the work is merged back.
+    pub root: String,
+    /// Where the helper works.
+    pub folder: String,
+    pub branch: String,
+    /// The snapshot it started from.
+    pub base: String,
+    /// Commit what the helper left, given a message; whether it changed
+    /// anything. A copy with no changes is removed.
+    pub seal: Seal,
+}
+
+impl std::fmt::Debug for Isolated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Isolated")
+            .field("folder", &self.folder)
+            .field("branch", &self.branch)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Several hosts offered as one: the skill loader alongside the MCP servers.
@@ -89,6 +124,21 @@ impl ToolHost for ToolSet {
     fn context(&self) -> Option<String> {
         let parts: Vec<String> = self.0.iter().filter_map(|h| h.context()).collect();
         (!parts.is_empty()).then(|| parts.join("\n\n"))
+    }
+
+    /// The first host that can make a copy does; the others (skills, tool
+    /// servers) are shared as they are.
+    fn isolate(&self, id: &str) -> Option<Result<Isolated, String>> {
+        self.0.iter().enumerate().find_map(|(i, h)| {
+            h.isolate(id).map(|made| {
+                made.map(|mut iso| {
+                    let mut hosts = self.0.clone();
+                    hosts[i] = iso.host;
+                    iso.host = std::sync::Arc::new(Self(hosts));
+                    iso
+                })
+            })
+        })
     }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {

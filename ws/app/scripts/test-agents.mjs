@@ -46,4 +46,12 @@ const live = new Map([["c", { dispatch: "c", agent: "worker", entries: [] }]]);
 w = latestWorkers(thread([msg("user")]), live, {}, [], true);
 assert.deepEqual(w.map((x) => [x.dispatch, x.status]), [["c", "working"]]);
 
+// A worker in its own copy carries where it is, for Merge and Discard.
+const copied = new Map([["a", { dispatch: "a", agent: "worker", entries: [
+  { kind: "isolated", root: "C:/p", folder: "C:/p/.git/ws-worktrees/a", branch: "ws/a", base: "abc1234" },
+] }]]);
+w = latestWorkers(t, copied, { a: false }, [], false);
+assert.deepEqual(w[0].copy, { root: "C:/p", branch: "ws/a", base: "abc1234", folder: "C:/p/.git/ws-worktrees/a" });
+assert.equal(w[1].copy, null);
+
 console.log("agent view: ok");

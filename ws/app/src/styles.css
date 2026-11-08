@@ -2571,3 +2571,37 @@ body.resizing-v {
   border-color: var(--accent);
   color: var(--accent);
 }
+.agent-copy {
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+.agent-changes {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.agent-changes p {
+  margin: 0 0 0.35rem;
+}
+.agent-changes ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+  max-height: 8rem;
+  overflow: auto;
+}
+.agent-changes .added {
+  color: var(--ok);
+}
+.agent-changes .removed {
+  color: var(--danger);
+}
+.agent-diff {
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre;
+  background: var(--bg);
+  padding: 0.5rem;
+  border-radius: 4px;
+}

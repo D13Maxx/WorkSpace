@@ -106,7 +106,23 @@ export type HelperEntry =
   /** Its model failed, so it carried on with the next fallback. */
   | { kind: "switch"; from: string; to: string; error: string }
   /** Its connection dropped, so it tries the same model again. */
-  | { kind: "retry"; error: string; wait_secs: number };
+  | { kind: "retry"; error: string; wait_secs: number }
+  /** It works in its own copy of the project, merged back only by the user. */
+  | { kind: "isolated"; root: string; folder: string; branch: string; base: string };
+
+/** Where a helper's own copy is, for the merge and discard commands. */
+export interface WorkerCopy {
+  root: string;
+  branch: string;
+  base: string;
+}
+
+export interface ChangedFile {
+  path: string;
+  /** null for a binary file. */
+  added: number | null;
+  removed: number | null;
+}
 
 export interface HelperLog {
   dispatch: string;
@@ -431,6 +447,11 @@ export const api = {
   gitUnstage: (root: string, path: string) => invoke<void>("git_unstage", { root, path }),
 
   gitCommit: (root: string, message: string) => invoke<string>("git_commit", { root, message }),
+  /** A helper's own copy of the project: what it changed (null once merged or discarded). */
+  workerChanges: (w: WorkerCopy) => invoke<ChangedFile[] | null>("worker_changes", { ...w }),
+  workerDiff: (w: WorkerCopy) => invoke<string>("worker_diff", { ...w }),
+  workerMerge: (w: WorkerCopy) => invoke<string>("worker_merge", { ...w }),
+  workerDiscard: (w: WorkerCopy) => invoke<void>("worker_discard", { ...w }),
 
   gitBlame: (root: string, path: string) => invoke<BlameLine[]>("git_blame", { root, path }),
 

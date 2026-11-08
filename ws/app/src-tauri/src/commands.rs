@@ -1136,6 +1136,50 @@ pub async fn git_commit(root: String, message: String) -> CmdResult<String> {
     git_task(move || ws_tools::git::commit(&root, &message)).await
 }
 
+/// Only a helper's own branch and a commit id, so these commands cannot be
+/// pointed at the user's branches.
+fn helper_work(branch: &str, base: &str) -> CmdResult<()> {
+    let ok = branch.starts_with("ws/")
+        && !branch.contains("..")
+        && base.len() >= 7
+        && base.chars().all(|c| c.is_ascii_hexdigit());
+    if ok {
+        Ok(())
+    } else {
+        Err(err("not a helper's branch"))
+    }
+}
+
+/// What a helper changed in its own copy, or null once merged or discarded.
+#[tauri::command]
+pub async fn worker_changes(
+    root: String,
+    branch: String,
+    base: String,
+) -> CmdResult<Option<Vec<ws_tools::worktree::Changed>>> {
+    helper_work(&branch, &base)?;
+    git_task(move || ws_tools::worktree::changes(&root, &base, &branch)).await
+}
+
+#[tauri::command]
+pub async fn worker_diff(root: String, branch: String, base: String) -> CmdResult<String> {
+    helper_work(&branch, &base)?;
+    git_task(move || ws_tools::worktree::diff(&root, &base, &branch)).await
+}
+
+/// Put a helper's changes into the project's files, uncommitted.
+#[tauri::command]
+pub async fn worker_merge(root: String, branch: String, base: String) -> CmdResult<String> {
+    helper_work(&branch, &base)?;
+    git_task(move || ws_tools::worktree::merge(&root, &base, &branch)).await
+}
+
+#[tauri::command]
+pub async fn worker_discard(root: String, branch: String, base: String) -> CmdResult<()> {
+    helper_work(&branch, &base)?;
+    git_task(move || ws_tools::worktree::discard(&root, &branch)).await
+}
+
 #[tauri::command]
 pub async fn git_blame(root: String, path: String) -> CmdResult<Vec<ws_tools::git::BlameLine>> {
     git_task(move || ws_tools::git::blame(&root, &path)).await

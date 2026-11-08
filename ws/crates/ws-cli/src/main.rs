@@ -548,6 +548,102 @@ mod tests {
         );
     }
 
+    /// In a git project the worker works in its own copy: nothing reaches the
+    /// project until its branch is merged.
+    #[tokio::test]
+    async fn in_a_git_project_a_workers_file_waits_on_its_branch_until_merged() {
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .status()
+                .is_ok_and(|s| s.success());
+            assert!(ok, "git {args:?}");
+        };
+        if ws_tools::find(&["git"]).is_none() {
+            return;
+        }
+        let (db, folder) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(folder.path().join("README.md"), "hello\n").unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "t@t"],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+            &["add", "."],
+            &["commit", "-q", "-m", "first"],
+        ] {
+            git(folder.path(), args);
+        }
+        let store = Arc::new(Mutex::new(Store::open(db.path().join("ws.db")).unwrap()));
+        let blobs = Arc::new(BlobStore::new(db.path().join("blobs")).unwrap());
+        let profiles = Arc::new(ProfileTable::new());
+        let backend = FakeBackend::new("fake", profiles.clone() as Arc<_>)
+            .scripted(Scripted::calls(
+                "d1",
+                "dispatch_agent",
+                r#"{"agent":"worker","prompt":"write hi.txt"}"#,
+            ))
+            .scripted(Scripted::calls(
+                "w1",
+                "write_file",
+                r#"{"path":"hi.txt","content":"hi\n"}"#,
+            ))
+            .scripted(Scripted::Text(vec!["wrote hi.txt".to_owned()]))
+            .scripted(Scripted::Text(vec!["all done".to_owned()]));
+        let workspace = Arc::new(ws_tools::workspace::Workspace::new(None));
+        let root = folder.path().to_string_lossy().into_owned();
+        workspace.set(Some(root.clone()), None);
+        let orch = Arc::new(
+            Orchestrator::new(store.clone(), blobs, profiles)
+                .with_agents(Arc::new(Agents::default().with_worker()))
+                .with_tools(Arc::new(ToolSet::new(vec![workspace as Arc<_>])))
+                .with_backend(Arc::new(backend) as Arc<_>),
+        );
+        let conv = orch
+            .create_conversation("t", ModelRef::new("fake", "fake-1"))
+            .unwrap();
+        orch.append_user_message(conv, vec![Part::text("make hi.txt")])
+            .unwrap();
+        // Approvals refused: the worker's file write must not need one.
+        drive(&orch, conv, false, false, CancellationToken::new())
+            .await
+            .unwrap();
+
+        assert!(
+            !folder.path().join("hi.txt").exists(),
+            "not in the project yet"
+        );
+        let copy = store
+            .lock()
+            .unwrap()
+            .list_events(conv)
+            .unwrap()
+            .into_iter()
+            .flat_map(|e| match e.kind {
+                ws_context::EventKind::HelperLog { entries, .. } => entries,
+                _ => Vec::new(),
+            })
+            .find_map(|e| match e {
+                HelperEntry::Isolated { branch, base, .. } => Some((branch, base)),
+                _ => None,
+            })
+            .expect("the worker had its own copy");
+        let changed = ws_tools::worktree::changes(&root, &copy.1, &copy.0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(changed[0].path, "hi.txt");
+
+        ws_tools::worktree::merge(&root, &copy.1, &copy.0).unwrap();
+        // Line endings follow the user's git settings (core.autocrlf), as a checkout's do.
+        assert_eq!(
+            std::fs::read_to_string(folder.path().join("hi.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "hi\n"
+        );
+    }
+
     fn provider(
         id: &str,
         kind: &str,
