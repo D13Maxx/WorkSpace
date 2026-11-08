@@ -3,6 +3,7 @@
 
 pub mod files;
 pub mod git;
+pub mod index;
 pub mod workspace;
 
 use std::path::PathBuf;

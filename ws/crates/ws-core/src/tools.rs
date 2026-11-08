@@ -47,6 +47,12 @@ pub trait ToolHost: Send + Sync + std::fmt::Debug {
     fn file_for(&self, _name: &str, _args: &serde_json::Value) -> Option<std::path::PathBuf> {
         None
     }
+
+    /// Background the model should start a turn with, such as an outline of
+    /// the open project. Added to the system prompt, once per turn.
+    fn context(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Several hosts offered as one: the skill loader alongside the MCP servers.
@@ -78,6 +84,11 @@ impl ToolHost for ToolSet {
 
     fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
         self.owner(name).and_then(|h| h.file_for(name, args))
+    }
+
+    fn context(&self) -> Option<String> {
+        let parts: Vec<String> = self.0.iter().filter_map(|h| h.context()).collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {

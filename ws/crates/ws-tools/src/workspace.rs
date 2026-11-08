@@ -16,6 +16,59 @@ const MAX_MATCHES: usize = 200;
 /// Files bigger than this are not searched (a knowledge graph is well under).
 const MAX_SEARCH_BYTES: u64 = 32 * 1024 * 1024;
 
+/// The project outline's size in the prompt: about 2,000 tokens.
+const OUTLINE_CHARS: usize = 8_000;
+
+/// Lines of uses `find_symbol` lists after the definitions.
+const MAX_USES: usize = 30;
+
+/// Definitions of `name` (exact, or else names containing it, ignoring
+/// case), then lines that use it as a whole word.
+fn find_symbol(index: &crate::index::Index, root: &str, name: &str) -> Result<String, String> {
+    let defs = index.scan(Path::new(root));
+    let mut found: Vec<_> = defs.iter().filter(|d| d.name == name).collect();
+    if found.is_empty() {
+        let lower = name.to_lowercase();
+        found = defs
+            .iter()
+            .filter(|d| d.name.to_lowercase().contains(&lower))
+            .take(MAX_USES)
+            .collect();
+    }
+    if found.is_empty() {
+        return Ok(format!(
+            "No definition named like {name}. Try search_files for text, or check the spelling."
+        ));
+    }
+    let mut out = String::from("Defined at:\n");
+    for d in &found {
+        out.push_str(&format!("{}:{} {} {}\n", d.path, d.line, d.kind, d.name));
+    }
+    let whole_word = |text: &str| {
+        text.match_indices(name).any(|(at, _)| {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            !text[..at].ends_with(word) && !text[at + name.len()..].starts_with(word)
+        })
+    };
+    let uses: Vec<_> = search_matches(root, "", name)
+        .map(|(m, _)| m)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| whole_word(&m.text))
+        .filter(|m| !found.iter().any(|d| d.path == m.path && d.line == m.line))
+        .take(MAX_USES)
+        .collect();
+    if uses.is_empty() {
+        out.push_str("No other lines use it.\n");
+    } else {
+        out.push_str("Used at:\n");
+        for m in uses {
+            out.push_str(&format!("{}:{}: {}\n", m.path, m.line, m.text.trim()));
+        }
+    }
+    Ok(out)
+}
+
 /// A command still running after this is stopped.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -42,6 +95,8 @@ pub struct Workspace {
     /// Folders the user picked when asked. The agent may write inside these
     /// too, by absolute path, until the app closes.
     chosen: Mutex<Vec<PathBuf>>,
+    /// Definitions in the open project, for its outline and find_symbol.
+    index: Arc<crate::index::Index>,
     /// Git for Windows' bash, when installed. Skills written for Claude Code
     /// (Understand-Anything's) give their steps as bash, so commands run in it.
     bash: Option<std::path::PathBuf>,
@@ -69,6 +124,7 @@ impl Workspace {
             plugin_root,
             chooser: None,
             chosen: Mutex::default(),
+            index: Arc::default(),
         }
     }
 
@@ -412,6 +468,12 @@ impl ToolHost for Workspace {
                 &[],
             ),
             spec(
+                "find_symbol",
+                "Where a function, type, class or constant is defined in the open project, and the lines that use it. Faster and more exact than search_files for code names.",
+                json!({"name": {"type": "string", "description": "The name, e.g. run_agent or Composer. Exact first; otherwise names containing it."}}),
+                &["name"],
+            ),
+            spec(
                 "search_files",
                 "Find lines containing some text (case-insensitive) in the open project, or in one file or folder of it. Returns path:line: text. Skips .git, node_modules and target. Understand-Anything's graph is .ua/knowledge-graph.json.",
                 json!({"query": {"type": "string"}, "path": {"type": "string", "description": "File or folder to search; empty for the whole project."}}),
@@ -472,8 +534,26 @@ impl ToolHost for Workspace {
         !matches!(
             name,
             // choose_location asks the user itself; a second prompt adds nothing.
-            "get_open_file" | "list_dir" | "read_file" | "search_files" | "choose_location"
+            "get_open_file"
+                | "list_dir"
+                | "read_file"
+                | "search_files"
+                | "find_symbol"
+                | "choose_location"
         )
+    }
+
+    /// The open project's outline, so the agent starts knowing where things are.
+    fn context(&self) -> Option<String> {
+        let root = self.folder()?;
+        let defs = self.index.scan(Path::new(&root));
+        if defs.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "Outline of the open project ({root}): files and what they define. find_symbol gives exact lines.\n{}",
+            crate::index::repo_map(&defs, OUTLINE_CHARS)
+        ))
     }
 
     fn file_for(&self, name: &str, args: &Value) -> Option<std::path::PathBuf> {
@@ -501,6 +581,15 @@ impl ToolHost for Workspace {
                     None => format!("Folder: {root}\nNo file is open."),
                 })
             }
+            "find_symbol" => match arg(&args, "name") {
+                Ok(n) => {
+                    let (index, root, name) = (self.index.clone(), root.clone(), n.to_owned());
+                    tokio::task::spawn_blocking(move || find_symbol(&index, &root, &name))
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                }
+                Err(e) => return e,
+            },
             "search_files" => match arg(&args, "query") {
                 Ok(q) => {
                     let (root, q) = (root.clone(), q.to_owned());
@@ -966,5 +1055,53 @@ mod tests {
             .call("choose_location", json!({"reason": "x", "name": "../up"}))
             .await;
         assert!(out.is_error, "a name cannot climb out: {}", out.text);
+    }
+
+    #[tokio::test]
+    async fn find_symbol_gives_definitions_then_uses_and_the_outline_names_them() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/cube.rs"),
+            "pub fn solve(c: &Cube) {}\npub struct Cube;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/main.rs"),
+            "fn main() {\n    solve(&c);\n    let resolve = 1;\n}\n",
+        )
+        .unwrap();
+        let ws = Workspace::new(None);
+        assert!(ws.context().is_none(), "no folder, no outline");
+        ws.set(Some(dir.path().display().to_string()), None);
+
+        let out = ws.call("find_symbol", json!({"name": "solve"})).await;
+        assert!(!out.is_error, "{}", out.text);
+        assert!(out.text.contains("src/cube.rs:1 fn solve"), "{}", out.text);
+        assert!(
+            out.text.contains("src/main.rs:2: solve(&c);"),
+            "{}",
+            out.text
+        );
+        assert!(
+            !out.text.contains("resolve"),
+            "whole words only: {}",
+            out.text
+        );
+
+        let partial = ws.call("find_symbol", json!({"name": "cub"})).await;
+        assert!(partial.text.contains("struct Cube"), "{}", partial.text);
+        let none = ws
+            .call("find_symbol", json!({"name": "nothing_here"}))
+            .await;
+        assert!(none.text.contains("No definition"), "{}", none.text);
+        assert!(!ws.needs_approval("find_symbol"));
+
+        let outline = ws.context().unwrap();
+        assert!(
+            outline.contains("src/cube.rs: fn solve, struct Cube"),
+            "{outline}"
+        );
+        assert!(outline.contains("src/main.rs: fn main"), "{outline}");
     }
 }

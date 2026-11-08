@@ -32,6 +32,9 @@ impl ToolHost for FakeTools {
     fn needs_approval(&self, name: &str) -> bool {
         name == "write_file"
     }
+    fn context(&self) -> Option<String> {
+        Some("OUTLINE: src/main.rs: fn main".to_owned())
+    }
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {
         self.calls.lock().unwrap().push((name.to_owned(), args));
         ToolOutput::ok(format!("{name} done"))
@@ -331,6 +334,15 @@ Read what you are told.
     );
     let system = requests[1].view.system.clone().unwrap();
     assert!(system.starts_with("Read what you are told."), "{system}");
+    assert!(
+        system.ends_with("OUTLINE: src/main.rs: fn main"),
+        "workers get the outline: {system}"
+    );
+    let main = requests[0].view.system.clone().unwrap_or_default();
+    assert!(
+        main.contains("OUTLINE: src/main.rs: fn main"),
+        "so does the main model: {main}"
+    );
     assert_eq!(requests[1].view.messages.len(), 1, "a helper starts fresh");
 
     // The helper's report is the dispatch call's result in the main turn.

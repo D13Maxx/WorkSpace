@@ -566,6 +566,7 @@ impl Orchestrator {
         target: &ModelRef,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
+        context: Option<&str>,
     ) -> Result<(ContextView, RenderedView)> {
         let mut caps = self.profiles.capabilities(target);
         caps.tools = self.tools_enabled(target);
@@ -588,6 +589,11 @@ impl Orchestrator {
             if path.is_empty() {
                 return Err(CoreError::EmptyConversation);
             }
+            // Through the view builder, so the budget counts it.
+            let system = match (system, context) {
+                (Some(s), Some(c)) => Some(format!("{s}\n\n{c}")),
+                (s, c) => s.or_else(|| c.map(str::to_owned)),
+            };
 
             let plan = build_view(BuildViewParams {
                 path: &path,
@@ -741,8 +747,13 @@ impl Orchestrator {
         events: mpsc::Sender<TurnEvent>,
         cancel: CancellationToken,
     ) -> Result<MsgId> {
+        // Once per turn, so it stays the same across rounds and the provider's
+        // prompt cache keeps working; find_symbol covers what changes meanwhile.
+        let context = self.tools.as_ref().and_then(|t| t.context());
         for _ in 0..MAX_TOOL_ROUNDS {
-            let (reply, calls) = self.run_step(conv, &events, &cancel).await?;
+            let (reply, calls) = self
+                .run_step(conv, &events, &cancel, context.as_deref())
+                .await?;
             if calls.is_empty() {
                 return Ok(reply);
             }
@@ -1028,7 +1039,13 @@ impl Orchestrator {
         tools.push(post_spec());
         let me = format!("{agent} ({})", call.call_id);
         let mut seen = 0;
-        let system = format!("{}\n\n{AGENT_NOTE}", def.body.trim());
+        let mut system = format!("{}\n\n{AGENT_NOTE}", def.body.trim());
+        // A worker starts with only its brief: the project outline saves it
+        // exploring folder by folder.
+        if let Some(context) = self.tools.as_ref().and_then(|t| t.context()) {
+            system.push_str("\n\n");
+            system.push_str(&context);
+        }
         let limits = |target: &ModelRef| {
             let caps = self.profiles.capabilities(target);
             let max_output = caps.max_output_tokens;
@@ -1364,6 +1381,7 @@ impl Orchestrator {
         conv: ConvId,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
+        context: Option<&str>,
     ) -> Result<(MsgId, Vec<PendingCall>)> {
         let (events, cancel) = (events.clone(), cancel.clone());
         let (target, parent) = self.with_store(|s| {
@@ -1379,7 +1397,9 @@ impl Orchestrator {
             })
             .await;
 
-        let (view, rendered) = self.prepare_view(conv, &target, &events, &cancel).await?;
+        let (view, rendered) = self
+            .prepare_view(conv, &target, &events, &cancel, context)
+            .await?;
         let caps = self.profiles.capabilities(&target);
         let request = self.assemble_request(&target, &view, rendered, caps.max_output_tokens)?;
 
