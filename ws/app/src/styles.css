@@ -2312,3 +2312,78 @@ button.danger {
   font-size: 0.85rem;
   line-height: 1;
 }
+
+/* The terminal panel: shells in tabs along the bottom of the middle pane. */
+.terminal-panel {
+  flex: 0 0 auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.terminal-panel[hidden] {
+  display: none;
+}
+.splitter-h {
+  flex: 0 0 5px;
+  cursor: row-resize;
+  background: var(--border);
+  touch-action: none;
+}
+.splitter-h:hover,
+.splitter-h:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+body.resizing-v {
+  cursor: row-resize;
+  user-select: none;
+}
+.terminal-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 0.85rem;
+}
+.terminal-tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+.terminal-tab.active {
+  background: var(--border);
+}
+.terminal-tab button,
+.terminal-panel header .actions button {
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+}
+.terminal-panel header .actions {
+  display: flex;
+  gap: 2px;
+}
+.terminal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.terminal-body .terminal {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0 0 8px;
+}
+.terminal-body .terminal[hidden] {
+  display: none;
+}

@@ -57,6 +57,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 bridge::stop_all();
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state.terminals.close_all();
+                }
                 window.app_handle().exit(0);
             }
         })
@@ -120,7 +123,10 @@ pub fn run() {
             commands::create_dir,
             commands::rename_path,
             commands::delete_path,
-            commands::open_terminal,
+            commands::terminal_open,
+            commands::terminal_input,
+            commands::terminal_resize,
+            commands::terminal_close,
             commands::pip_install,
             commands::set_workspace,
             commands::workspace_folder,

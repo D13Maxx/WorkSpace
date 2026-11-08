@@ -1,5 +1,5 @@
-// The output panel: a real terminal for a program being built and run, a
-// shell, or a pip install.
+// The output panel: a real terminal for a program being built and run, or a
+// pip install. Shells have their own panel (TerminalPanel).
 //
 // It is a terminal, not a log: what the user types here goes to the program,
 // so `input()`, `scanf` and an interactive shell all work.
@@ -9,11 +9,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api, type RunEvent } from "../api";
-import { baseName } from "./Explorer";
 
 export type RunTask =
   | { kind: "file"; root: string; path: string }
-  | { kind: "terminal"; root: string }
   | { kind: "pip"; root: string; package: string };
 
 /** Import names whose pip package is called something else. */
@@ -40,8 +38,6 @@ function label(task: RunTask): string {
   switch (task.kind) {
     case "file":
       return task.path;
-    case "terminal":
-      return `Terminal in ${baseName(task.root)}`;
     case "pip":
       return `pip install ${task.package}`;
   }
@@ -51,8 +47,6 @@ function start(task: RunTask, onEvent: (e: RunEvent) => void): Promise<void> {
   switch (task.kind) {
     case "file":
       return api.runFile(task.root, task.path, onEvent);
-    case "terminal":
-      return api.openTerminal(task.root, onEvent);
     case "pip":
       return api.pipInstall(task.root, task.package, onEvent);
   }

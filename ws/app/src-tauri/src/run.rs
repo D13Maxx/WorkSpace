@@ -9,6 +9,7 @@
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -408,6 +409,64 @@ impl Runner {
     }
 }
 
+/// The shells in the terminal panel, each in a pseudo-terminal of its own and
+/// apart from the output panel, so running a file never touches them.
+#[derive(Debug, Default)]
+pub struct Terminals {
+    live: Mutex<HashMap<u64, Runner>>,
+    next_id: AtomicU64,
+}
+
+impl Terminals {
+    /// Start the user's shell in `root`; returns the id the others take.
+    ///
+    /// # Errors
+    /// No shell was found, or the pseudo-terminal could not be opened.
+    pub fn open(&self, root: &Path, on_event: Channel<RunEvent>) -> Result<u64, String> {
+        let runner = Runner::default();
+        runner.start(terminal(root)?, on_event)?;
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        self.live
+            .lock()
+            .map_err(|_| "terminals unavailable")?
+            .insert(id, runner);
+        Ok(id)
+    }
+
+    fn with(&self, id: u64, f: impl FnOnce(&Runner)) {
+        if let Some(r) = self.live.lock().ok().as_ref().and_then(|m| m.get(&id)) {
+            f(r);
+        }
+    }
+
+    pub fn input(&self, id: u64, data: &str) {
+        self.with(id, |r| r.input(data));
+    }
+
+    pub fn resize(&self, id: u64, cols: u16, rows: u16) {
+        self.with(id, |r| r.resize(cols, rows));
+    }
+
+    /// Stop the shell and forget it.
+    pub fn close(&self, id: u64) {
+        if let Some(r) = self.live.lock().ok().and_then(|mut m| m.remove(&id)) {
+            r.stop();
+        }
+    }
+
+    /// Stop every shell, as the app quits.
+    pub fn close_all(&self) {
+        let all: Vec<Runner> = self
+            .live
+            .lock()
+            .map(|mut m| m.drain().map(|(_, r)| r).collect())
+            .unwrap_or_default();
+        for r in all {
+            r.stop();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Spec s14 permits unwrap/expect in tests.
@@ -499,5 +558,63 @@ mod tests {
         buf.extend_from_slice(&"é".as_bytes()[1..]);
         assert_eq!(take_utf8(&mut buf), "é");
         assert!(buf.is_empty());
+    }
+
+    /// A channel that collects a terminal's output and notes its exit.
+    fn collect() -> (Channel<RunEvent>, Arc<Mutex<String>>) {
+        let out = Arc::new(Mutex::new(String::new()));
+        let keep = out.clone();
+        let channel = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                keep.lock().unwrap().push_str(&json);
+            }
+            Ok(())
+        });
+        (channel, out)
+    }
+
+    fn wait_for(out: &Mutex<String>, text: &str) -> bool {
+        for _ in 0..150 {
+            if out.lock().unwrap().contains(text) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        false
+    }
+
+    #[test]
+    fn terminals_run_side_by_side_take_input_and_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let terminals = Terminals::default();
+        let (a_events, a) = collect();
+        let (b_events, b) = collect();
+        let first = terminals.open(dir.path(), a_events).unwrap();
+        let second = terminals.open(dir.path(), b_events).unwrap();
+        assert_ne!(first, second);
+
+        // ConPTY asks where the cursor is and waits for the answer; xterm.js
+        // answers in the app, so the test answers here.
+        for (id, out) in [(first, &a), (second, &b)] {
+            if wait_for(out, "[6n") {
+                terminals.input(id, "\u{1b}[1;1R");
+            }
+        }
+
+        terminals.input(first, "echo first-shell-ok\r");
+        terminals.input(second, "echo second-shell-ok\r");
+        assert!(wait_for(&a, "first-shell-ok"), "{}", a.lock().unwrap());
+        assert!(wait_for(&b, "second-shell-ok"), "{}", b.lock().unwrap());
+        assert!(
+            !a.lock().unwrap().contains("second-shell-ok"),
+            "each shell keeps its own output"
+        );
+
+        terminals.resize(first, 120, 30);
+        terminals.close(first);
+        assert!(wait_for(&a, "\"exit\""), "a closed shell reports its exit");
+        terminals.input(first, "echo gone\r");
+        terminals.close_all();
+        assert!(wait_for(&b, "\"exit\""), "closing all stops the rest");
     }
 }

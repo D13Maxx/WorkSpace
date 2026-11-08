@@ -17,6 +17,7 @@ import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
 import { setFileOpener, stopLanguageServers } from "./lsp";
 import { Finder, type Command } from "./components/Finder";
+import { TerminalPanel } from "./components/TerminalPanel";
 import { setVimEnabled, setWindowCommands, vimEnabled } from "./vim";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
@@ -126,6 +127,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
+      // By key position: Shift turns ` into ~ on most layouts.
+      if (e.code === "Backquote") {
+        e.preventDefault();
+        if (e.shiftKey) terminalRef.current.newTerminal();
+        else terminalRef.current.toggleTerminal();
+        return;
+      }
       const k = e.key.toLowerCase();
       if (k === "\\" && !e.shiftKey) {
         e.preventDefault();
@@ -183,6 +191,19 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("ws.chatWidth")) || 420);
 
   useEffect(() => writePref("ws.chatWidth", String(chatWidth)), [chatWidth]);
+  // The terminal panel: shown or not (its shells run either way), a counter
+  // that asks it for another shell, and its height.
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [newShell, setNewShell] = useState(0);
+  const [termHeight, setTermHeight] = useState(() => Number(readPref("ws.termHeight")) || 240);
+  useEffect(() => writePref("ws.termHeight", String(termHeight)), [termHeight]);
+  const toggleTerminal = () => setTerminalOpen((o) => !o);
+  const newTerminal = () => {
+    setTerminalOpen(true);
+    setNewShell((n) => n + 1);
+  };
+  const terminalRef = useRef({ toggleTerminal, newTerminal });
+  terminalRef.current = { toggleTerminal, newTerminal };
   const [sideWidth, setSideWidth] = useState(() => Number(readPref("ws.sideWidth")) || 260);
   useEffect(() => writePref("ws.sideWidth", String(sideWidth)), [sideWidth]);
   const clampSide = (w: number) =>
@@ -276,6 +297,7 @@ export default function App() {
         close: () => splitsRef.current.closeSplit(),
         focus: (by) => splitsRef.current.focusSplit(by),
         only: () => splitsRef.current.onlySplit(),
+        terminal: () => terminalRef.current.newTerminal(),
       }),
     [],
   );
@@ -304,6 +326,8 @@ export default function App() {
     { label: "Search in files", run: () => setFinder("/") },
     { label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
     ...(openFile ? [{ label: "Close tab", run: () => closeTab(openFile) }] : []),
+    { label: terminalOpen ? "Hide terminal" : "Show terminal", run: toggleTerminal },
+    ...(project ? [{ label: "New terminal", run: newTerminal }] : []),
     { label: "Split editor right", run: () => splitEditor("row") },
     { label: "Split editor down", run: () => splitEditor("column") },
     ...(groups.length > 1
@@ -626,7 +650,7 @@ export default function App() {
           }}
           onGraph={setGraphFor}
           onNewBlueprint={() => api.openBlueprintWindow(null, null, project || null).catch((e) => setError(String(e)))}
-          onTerminal={project ? () => startTask({ kind: "terminal", root: project }) : undefined}
+          onTerminal={project ? () => (terminalOpen ? newTerminal() : setTerminalOpen(true)) : undefined}
           onRenamed={(root, from, to) => {
             moveDrafts(root, from, to);
             const moved = (t: OpenFile) =>
@@ -750,6 +774,14 @@ export default function App() {
             onClose={() => setRun(null)}
           />
         )}
+        <TerminalPanel
+          open={terminalOpen}
+          root={project}
+          newKey={newShell}
+          height={termHeight}
+          onResize={(h) => setTermHeight(Math.max(120, Math.min(window.innerHeight - 200, h)))}
+          onHide={() => setTerminalOpen(false)}
+        />
       </section>
 
       <div

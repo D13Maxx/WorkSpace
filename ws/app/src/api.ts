@@ -444,10 +444,11 @@ export const api = {
   /** The inventory of parts and connectors every blueprint shares, as JSON. */
   readPartsLibrary: () => invoke<string>("read_parts_library"),
   writePartsLibrary: (text: string) => invoke<void>("write_parts_library", { text }),
-  openTerminal: (root: string, onEvent: (e: RunEvent) => void) => {
+  /** A new shell in the terminal panel; returns its id. */
+  terminalOpen: (root: string, onEvent: (e: RunEvent) => void) => {
     const channel = new Channel<RunEvent>();
     channel.onmessage = onEvent;
-    return invoke<void>("open_terminal", { root, onEvent: channel });
+    return invoke<number>("terminal_open", { root, onEvent: channel });
   },
   pipInstall: (root: string, pkg: string, onEvent: (e: RunEvent) => void) => {
     const channel = new Channel<RunEvent>();
@@ -467,6 +468,10 @@ export const api = {
     channel.onmessage = onEvent;
     return invoke<void>("run_file", { root, path, onEvent: channel });
   },
+  terminalInput: (id: number, data: string) => invoke<void>("terminal_input", { id, data }),
+  terminalResize: (id: number, cols: number, rows: number) => invoke<void>("terminal_resize", { id, cols, rows }),
+  terminalClose: (id: number) => invoke<void>("terminal_close", { id }),
+
   runInput: (data: string) => invoke<void>("run_input", { data }),
   runResize: (cols: number, rows: number) => invoke<void>("run_resize", { cols, rows }),
   stopRun: () => invoke<void>("stop_run"),

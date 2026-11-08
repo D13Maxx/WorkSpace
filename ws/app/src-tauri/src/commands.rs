@@ -1121,17 +1121,34 @@ pub fn delete_path(root: String, path: String) -> CmdResult<()> {
     crate::files::delete(&root, &path)
 }
 
-/// A shell in the output panel, in `root`, for pip, npm, cargo and the rest.
+/// A new shell in the terminal panel, in `root`. Returns its id.
 #[tauri::command]
-pub fn open_terminal(
+pub fn terminal_open(
     state: State<'_, AppState>,
     root: String,
     on_event: Channel<crate::run::RunEvent>,
-) -> CmdResult<()> {
+) -> CmdResult<u64> {
     let root = std::path::Path::new(root.trim())
         .canonicalize()
         .map_err(err)?;
-    state.runner.start(crate::run::terminal(&root)?, on_event)
+    state.terminals.open(&root, on_event)
+}
+
+/// Keystrokes for one shell in the terminal panel.
+#[tauri::command]
+pub fn terminal_input(state: State<'_, AppState>, id: u64, data: String) {
+    state.terminals.input(id, &data);
+}
+
+#[tauri::command]
+pub fn terminal_resize(state: State<'_, AppState>, id: u64, cols: u16, rows: u16) {
+    state.terminals.resize(id, cols, rows);
+}
+
+/// Stop a shell whose tab was closed.
+#[tauri::command]
+pub fn terminal_close(state: State<'_, AppState>, id: u64) {
+    state.terminals.close(id);
 }
 
 /// `pip install` one package for the Python that runs `.py` files.

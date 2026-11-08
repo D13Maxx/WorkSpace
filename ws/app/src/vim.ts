@@ -53,6 +53,8 @@ export interface WindowCommands {
   close: () => void;
   focus: (by: number) => void;
   only: () => void;
+  /** A new shell in the terminal panel. */
+  terminal: () => void;
 }
 let windows: WindowCommands | null = null;
 export function setWindowCommands(commands: WindowCommands): void {
@@ -80,3 +82,4 @@ Vim.defineEx("vsplit", "vs", () => windows?.split("row"));
 Vim.defineEx("split", "sp", () => windows?.split("column"));
 Vim.defineEx("close", "clo", () => windows?.close());
 Vim.defineEx("only", "on", () => windows?.only());
+Vim.defineEx("terminal", "ter", () => windows?.terminal());

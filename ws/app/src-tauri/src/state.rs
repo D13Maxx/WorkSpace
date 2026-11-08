@@ -111,6 +111,8 @@ pub struct AppState {
     pub workspace: Arc<crate::workspace::Workspace>,
     /// The program running in the output panel, if any.
     pub runner: crate::run::Runner,
+    /// The shells in the terminal panel.
+    pub terminals: crate::run::Terminals,
     /// Cancellation handles for turns currently streaming, by conversation.
     /// A conversation can have at most one turn in flight.
     running: Mutex<HashMap<ConvId, CancellationToken>>,
@@ -222,6 +224,7 @@ impl AppState {
             viewer: std::sync::Mutex::new(None),
             workspace,
             runner: crate::run::Runner::default(),
+            terminals: crate::run::Terminals::default(),
             mcp: {
                 let late = mcp.clone();
                 tauri::async_runtime::spawn(async move { late.connect().await });
