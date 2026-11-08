@@ -2469,3 +2469,105 @@ body.resizing-v {
 .keymap-problems span {
   flex: 1;
 }
+
+/* The agent view: the latest turn's workers side by side. */
+.agent-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.agent-bar {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.6rem;
+  padding-left: 0.75rem;
+}
+.agent-bar .group-actions {
+  margin-left: auto;
+}
+.agent-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  overflow: auto;
+}
+.agent-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.agent-pane.needs-you {
+  border-color: var(--accent);
+}
+.agent-pane > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.agent-meta {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+.agent-status {
+  font-size: 0.75rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.agent-status.working,
+.agent-status.retrying {
+  color: var(--text);
+}
+.agent-status.needs-you {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.agent-status.done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.agent-status.failed {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.agent-pane > .helper-brief {
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.agent-pane > .helper-brief pre {
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.agent-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem 0.75rem;
+}
+.agent-log pre {
+  white-space: pre-wrap;
+  max-height: 14rem;
+  overflow: auto;
+}
+.agent-approval {
+  margin: 0.5rem;
+}
+.agents-btn.needs-you {
+  border-color: var(--accent);
+  color: var(--accent);
+}

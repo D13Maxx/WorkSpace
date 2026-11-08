@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ToolArgs } from "./components/ToolArgs";
+import { AgentView } from "./components/AgentView";
+import { latestWorkers } from "./agents";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, ask, claudeFirst, pickFolder, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type Thread, type TurnEvent } from "./api";
@@ -54,32 +57,6 @@ function writePref(key: string, value: string) {
   }
 }
 
-/** Tool arguments as readable fields: code in blocks with real line breaks. */
-function ToolArgs({ args }: { args: string }) {
-  let fields: [string, unknown][];
-  try {
-    const parsed: unknown = JSON.parse(args);
-    if (typeof parsed !== "object" || parsed === null) return <pre>{args}</pre>;
-    fields = Object.entries(parsed);
-  } catch {
-    return <pre>{args}</pre>;
-  }
-  return (
-    <dl className="tool-args">
-      {fields.map(([key, value]) => {
-        const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-        const block = text.includes("\n") || text.length > 80;
-        return (
-          <div key={key}>
-            <dt>{key}</dt>
-            <dd>{block ? <pre>{text}</pre> : <code>{text}</code>}</dd>
-          </div>
-        );
-      })}
-    </dl>
-  );
-}
-
 const ANTHROPIC = "anthropic";
 
 export default function App() {
@@ -95,6 +72,9 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   // Helpers' work as it streams in; the saved logs replace it once they finish.
   const [liveHelpers, setLiveHelpers] = useState<Record<string, HelperLog>>({});
+  // Tool results seen this turn (by call id: failed?), so a worker shows done the moment it is.
+  const [liveResults, setLiveResults] = useState<Record<string, boolean>>({});
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const helperLogs = useMemo(() => {
     const logs = new Map(Object.entries(liveHelpers));
     for (const log of thread?.helpers ?? []) logs.set(log.dispatch, log);
@@ -320,6 +300,11 @@ export default function App() {
   };
 
   const busy = streaming !== null;
+  const workers = useMemo(
+    () => latestWorkers(thread, helperLogs, liveResults, approvals, busy),
+    [thread, helperLogs, liveResults, approvals, busy],
+  );
+  const needYou = workers.filter((w) => w.status === "needs-you").length;
 
   const commandList: Command[] = [
     { id: "folder.open", label: "Open folder", run: () => void pickFolder().then((f) => f && addFolder(f)) },
@@ -344,6 +329,7 @@ export default function App() {
     { id: "split.next", label: "Focus next split", run: () => focusSplit(1), when: groups.length > 1 },
     { id: "split.only", label: "Keep only this split", run: () => onlySplit(), when: groups.length > 1 },
     { id: "keymap.open", label: "Open keymap file", run: () => void openKeymap() },
+    { id: "agents.toggle", label: agentsOpen ? "Hide agents" : "Show agents", run: () => setAgentsOpen((o) => !o) },
   ];
   const commands = commandList.map((c) => ({ ...c, keys: keysFor(keymap, c.id) }));
   const commandsRef = useRef(commands);
@@ -433,6 +419,7 @@ export default function App() {
       setStatus(null);
       setPrefill(null);
       setLiveHelpers({});
+      setLiveResults({});
 
       let text = "";
       let reasoned = "";
@@ -492,6 +479,7 @@ export default function App() {
               });
               break;
             case "tool_result":
+              setLiveResults((r) => ({ ...r, [event.call_id]: event.is_error }));
               setStatus(null);
               setFileVersion((v) => v + 1);
               if (choosing.has(event.call_id) && !event.is_error) {
@@ -749,7 +737,10 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className={`editor-groups ${splitDir}`}>
+        {agentsOpen && (
+          <AgentView workers={workers} onAnswer={answer} onClose={() => setAgentsOpen(false)} />
+        )}
+        <div className={`editor-groups ${splitDir}`} style={agentsOpen ? { display: "none" } : undefined}>
           {groups.map((g, gi) => (
             <div
               key={g.id}
@@ -877,6 +868,16 @@ export default function App() {
           {/* The chat list has its own New button. */}
           {!showChats && (
             <button onClick={() => void onNewConversation()}>New chat</button>
+          )}
+          {!showChats && workers.length > 0 && (
+            <button
+              className={needYou ? "agents-btn needs-you" : "agents-btn"}
+              onClick={() => setAgentsOpen((o) => !o)}
+              aria-pressed={agentsOpen}
+              title={needYou ? `${needYou} waiting for you` : "See each agent's work side by side"}
+            >
+              Agents ({workers.length}){needYou ? ` · ${needYou} need you` : ""}
+            </button>
           )}
         </div>
         {showChats ? (

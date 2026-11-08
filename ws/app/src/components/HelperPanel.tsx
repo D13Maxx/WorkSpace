@@ -10,7 +10,7 @@ function arg(args: string, key: string): string {
   }
 }
 
-function Step({ entry, result }: { entry: HelperEntry; result?: Extract<HelperEntry, { kind: "result" }> }) {
+export function Step({ entry, result }: { entry: HelperEntry; result?: Extract<HelperEntry, { kind: "result" }> }) {
   switch (entry.kind) {
     case "text":
       return <div className="helper-text">{entry.text}</div>;
