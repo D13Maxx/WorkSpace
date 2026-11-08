@@ -6,17 +6,25 @@
 use ws_core::ToolHost as _;
 use ws_mcp::{McpConfig, McpTools};
 
-fn config(extra: &str) -> McpConfig {
+fn config(fake_extra: &str, extra: &str) -> McpConfig {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_server.py").replace('\\', "/");
     McpConfig::parse(&format!(
-        r#"{{"mcpServers": {{"fake": {{"command": "python", "args": ["{script}"]}}{extra}}}}}"#
+        r#"{{"mcpServers": {{"fake": {{"command": "python", "args": ["{script}"]{fake_extra}}}{extra}}}}}"#
     ))
     .unwrap()
 }
 
 #[tokio::test]
-async fn tools_are_listed_called_and_gated_by_their_annotations() {
-    let (host, status) = McpTools::connect(&config("")).await;
+async fn tools_are_listed_called_and_ask_unless_the_user_approved_them() {
+    // find_symbol says it is read-only; that alone must not skip approval.
+    let (host, _) = McpTools::connect(&config("", "")).await;
+    assert!(
+        host.needs_approval("fake__find_symbol"),
+        "a server's claim is not enough"
+    );
+
+    let (host, status) =
+        McpTools::connect(&config(r#", "autoApprove": ["find_symbol"]"#, "")).await;
     assert_eq!(status.len(), 1);
     assert_eq!(status[0].error, None, "{status:?}");
     assert_eq!(status[0].tools, 2);
@@ -26,11 +34,11 @@ async fn tools_are_listed_called_and_gated_by_their_annotations() {
 
     assert!(
         !host.needs_approval("fake__find_symbol"),
-        "read-only runs freely"
+        "the user's list runs freely"
     );
     assert!(
         host.needs_approval("fake__replace_symbol_body"),
-        "edits ask"
+        "unlisted asks"
     );
     assert!(host.needs_approval("fake__no_such_tool"), "unknown asks");
 
@@ -46,8 +54,11 @@ async fn tools_are_listed_called_and_gated_by_their_annotations() {
 
 #[tokio::test]
 async fn a_server_that_will_not_start_is_reported_not_fatal() {
-    let (host, status) =
-        McpTools::connect(&config(r#", "broken": {"command": "no-such-binary-ws"}"#)).await;
+    let (host, status) = McpTools::connect(&config(
+        "",
+        r#", "broken": {"command": "no-such-binary-ws"}"#,
+    ))
+    .await;
     let broken = status.iter().find(|s| s.id == "broken").unwrap();
     assert!(broken.error.is_some());
     let fake = status.iter().find(|s| s.id == "fake").unwrap();
@@ -69,11 +80,6 @@ async fn an_editing_call_names_its_file_inside_the_project() {
     assert_eq!(
         host.file_for("fake__replace_symbol_body", &args),
         Some(std::path::Path::new("C:/repo").join("src/a.rs"))
-    );
-    assert_eq!(
-        host.file_for("fake__find_symbol", &args),
-        None,
-        "read-only: nothing to undo"
     );
     let escape = serde_json::json!({"relative_path": "../outside.rs"});
     assert_eq!(host.file_for("fake__replace_symbol_body", &escape), None);

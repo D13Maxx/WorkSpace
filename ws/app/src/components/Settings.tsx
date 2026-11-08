@@ -368,8 +368,8 @@ function McpSection() {
       <h3>Tool servers (MCP)</h3>
       <p className="muted">
         Configured in <code>{status.config_path}</code> using the same <code>mcpServers</code>{" "}
-        format as Claude Code. Changes apply on the next launch. Tools that can edit files or run
-        commands always ask before running.
+        format as Claude Code. Changes apply on the next launch. Every tool asks before running unless
+        you list it in that server's <code>autoApprove</code>; tools that run commands always ask.
       </p>
       {status.servers.length === 0 ? (
         <p className="muted">No tool servers configured.</p>

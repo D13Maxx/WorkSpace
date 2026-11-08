@@ -25,12 +25,17 @@ pub struct McpConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// Tools that run without asking. Only the user's list counts: a server
+    /// calling its own tool read-only is a claim, not a promise.
+    #[serde(default)]
+    pub auto_approve: Vec<String>,
 }
 
 impl McpConfig {
@@ -49,7 +54,8 @@ struct Offered {
     spec: ToolSpec,
     server: usize,
     tool_name: String,
-    read_only: bool,
+    /// The user listed it in `autoApprove`.
+    approved: bool,
 }
 
 struct Server {
@@ -119,10 +125,21 @@ impl McpTools {
     }
 
     async fn add(&mut self, id: &str, cfg: &ServerConfig) -> Result<usize, String> {
-        let mut cmd = tokio::process::Command::new(&cfg.command);
-        cmd.args(&cfg.args).envs(&cfg.env);
-        let transport = TokioChildProcess::new(cmd)
-            .map_err(|e| format!("could not run `{}`: {e}", cfg.command))?;
+        let spawn = |program: &str| {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.args(&cfg.args).envs(&cfg.env);
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000); // no console window
+            TokioChildProcess::new(cmd)
+        };
+        // `npx` is `npx.cmd` on Windows, which a bare name does not find.
+        let transport = match spawn(&cfg.command) {
+            Err(e) if cfg!(windows) && e.kind() == std::io::ErrorKind::NotFound => {
+                spawn(&format!("{}.cmd", cfg.command))
+            }
+            other => other,
+        }
+        .map_err(|e| format!("could not run `{}`: {e}", cfg.command))?;
         let service = ().serve(transport).await.map_err(|e| e.to_string())?;
         let peer = service.peer().clone();
         let listed = peer.list_all_tools().await.map_err(|e| e.to_string())?;
@@ -130,7 +147,8 @@ impl McpTools {
         let server = self.servers.len();
         let prefix = sanitise(id);
         for tool in &listed {
-            self.tools.push(offered(&prefix, server, tool));
+            let approved = cfg.auto_approve.iter().any(|n| *n == *tool.name);
+            self.tools.push(offered(&prefix, server, tool, approved));
         }
         self.servers.push(Server {
             id: id.to_owned(),
@@ -142,12 +160,7 @@ impl McpTools {
     }
 }
 
-fn offered(prefix: &str, server: usize, tool: &Tool) -> Offered {
-    let read_only = tool
-        .annotations
-        .as_ref()
-        .and_then(|a| a.read_only_hint)
-        .unwrap_or(false);
+fn offered(prefix: &str, server: usize, tool: &Tool, approved: bool) -> Offered {
     Offered {
         spec: ToolSpec {
             // Prefixed so two servers can both have a `read_file`.
@@ -157,7 +170,7 @@ fn offered(prefix: &str, server: usize, tool: &Tool) -> Offered {
         },
         server,
         tool_name: tool.name.to_string(),
-        read_only,
+        approved,
     }
 }
 
@@ -215,16 +228,13 @@ impl ToolHost for McpTools {
         self.tools
             .iter()
             .find(|t| t.spec.name == name)
-            .is_none_or(|t| !t.read_only || runs_commands(&t.tool_name))
+            .is_none_or(|t| !t.approved || runs_commands(&t.tool_name))
     }
 
     /// Serena's editing tools name their file as `relative_path`.
     // shortcut: one file per call, so a multi-file rename only snapshots the file named; upgrade with a VCS-level snapshot.
     fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
-        let tool = self
-            .tools
-            .iter()
-            .find(|t| t.spec.name == name && !t.read_only)?;
+        let tool = self.tools.iter().find(|t| t.spec.name == name)?;
         let root = self.servers[tool.server].root.as_deref()?;
         inside(root, args.get("relative_path")?.as_str()?)
     }
@@ -273,6 +283,37 @@ mod tests {
         assert_eq!(serena.command, "serena");
         assert_eq!(serena.args, ["start-mcp-server"]);
         assert_eq!(serena.env["X"], "1");
+        assert!(
+            serena.auto_approve.is_empty(),
+            "nothing runs unasked by default"
+        );
+
+        let cfg = McpConfig::parse(
+            r#"{"mcpServers": {"c7": {"command": "npx", "autoApprove": ["query-docs"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.mcp_servers["c7"].auto_approve, ["query-docs"]);
+    }
+
+    /// Starts the servers in the file named by `WS_MCP_CONFIG` and lists what
+    /// asks first: `WS_MCP_CONFIG=mcp.json cargo test -p ws-mcp -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "starts real tool servers"]
+    async fn real_servers_start() {
+        let path = std::env::var("WS_MCP_CONFIG").unwrap();
+        let cfg = McpConfig::parse(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let (host, status) = McpTools::connect(&cfg).await;
+        for s in &status {
+            println!("{}: {} tools {:?}", s.id, s.tools, s.error);
+            assert!(s.error.is_none(), "{} failed", s.id);
+        }
+        for t in &host.tools {
+            println!(
+                "  {} asks={}",
+                t.spec.name,
+                host.needs_approval(&t.spec.name)
+            );
+        }
     }
 
     #[test]
