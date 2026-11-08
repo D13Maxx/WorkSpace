@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node scripts/test-blueprint.mjs && node scripts/test-builder.mjs && node scripts/test-markdown.mjs",
+    "test": "node scripts/test-blueprint.mjs && node scripts/test-builder.mjs && node scripts/test-markdown.mjs && node scripts/test-fuzzy.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

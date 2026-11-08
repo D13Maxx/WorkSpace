@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, ask, claudeFirst, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type Thread, type TurnEvent } from "./api";
+import { api, ask, claudeFirst, pickFolder, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
@@ -16,6 +16,8 @@ import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
 import { stopLanguageServers } from "./lsp";
+import { Finder, type Command } from "./components/Finder";
+import { setVimEnabled, vimEnabled } from "./vim";
 
 /** The chat pane's width is the user's; these only keep the panes usable. */
 const MIN_CHAT = 300;
@@ -110,6 +112,23 @@ export default function App() {
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // The finder, open with what its box starts with ("", "@", "/" or ">").
+  const [finder, setFinder] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const start =
+        k === "p" ? (e.shiftKey ? ">" : "") : k === "t" && !e.shiftKey ? "@" : k === "f" && e.shiftKey ? "/" : null;
+      if (start === null) return;
+      // Before the editor: Vim's own Ctrl+P must not swallow it.
+      e.preventDefault();
+      e.stopPropagation();
+      setFinder(start);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   // The chat pane shows either the open conversation or the list of them.
   const [showChats, setShowChats] = useState(false);
   // The folders open on the left. Every launch starts with none: folders and
@@ -176,6 +195,17 @@ export default function App() {
   };
 
   const busy = streaming !== null;
+
+  const commands: Command[] = [
+    { label: "Open folder", run: () => void pickFolder().then((f) => f && addFolder(f)) },
+    { label: "New chat", run: () => void onNewConversation() },
+    { label: "Settings", run: () => setShowSettings(true) },
+    { label: "Find file", run: () => setFinder("") },
+    { label: "Go to symbol", run: () => setFinder("@") },
+    { label: "Search in files", run: () => setFinder("/") },
+    { label: vimEnabled() ? "Turn off Vim keys" : "Turn on Vim keys", run: () => setVimEnabled(!vimEnabled()) },
+    ...(openFile ? [{ label: "Close tab", run: () => closeTab(openFile) }] : []),
+  ];
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const refreshModels = useCallback(() => {
@@ -770,6 +800,16 @@ export default function App() {
           onClose={() => setInspecting(null)}
         />
       )}
+      {finder !== null && (
+        <Finder
+          folders={folders}
+          initial={finder}
+          commands={commands}
+          onOpen={openAny}
+          onClose={() => setFinder(null)}
+        />
+      )}
+
       {showSettings && (
         <Settings
           onClose={() => setShowSettings(false)}

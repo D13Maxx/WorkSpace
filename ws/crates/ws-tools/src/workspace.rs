@@ -226,6 +226,12 @@ impl Workspace {
         }
     }
 
+    /// Every definition under `root`, from the same index the agent uses.
+    #[must_use]
+    pub fn symbols(&self, root: &Path) -> Vec<crate::index::Def> {
+        self.index.scan(root)
+    }
+
     /// The folder open in Workspace, if any.
     pub fn folder(&self) -> Option<String> {
         self.open.lock().ok().and_then(|o| o.0.clone())

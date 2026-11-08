@@ -110,6 +110,8 @@ pub fn run() {
             commands::bridge_send,
             commands::bridge_stop,
             commands::search_project,
+            commands::project_files,
+            commands::project_symbols,
             commands::git_status,
             commands::git_diff,
             commands::read_text_file,

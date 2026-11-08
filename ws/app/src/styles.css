@@ -2183,3 +2183,60 @@ button.danger {
   font: 0.8rem/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
   white-space: pre-wrap;
 }
+
+/* The finder (Ctrl+P): a box near the top, results under it. */
+.finder-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.35);
+}
+.finder {
+  width: min(640px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.finder input {
+  margin: 8px;
+  font-size: 0.95rem;
+}
+.finder-hint {
+  margin: 0 12px 8px;
+  font-size: 0.85rem;
+}
+.finder-results {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  overflow-y: auto;
+}
+.finder-results li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.finder-results li.active {
+  background: var(--border);
+}
+.finder-main {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.finder-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

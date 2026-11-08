@@ -263,6 +263,15 @@ export interface SandboxReport {
 export type BridgeEvent = { type: "message"; text: string } | { type: "exit"; code: number | null; stderr: string };
 
 /** One line of the project that contains the searched text. */
+/** A function, type, class or constant, and where it is defined. */
+export interface SymbolDef {
+  name: string;
+  kind: string;
+  path: string;
+  /** 1-based. */
+  line: number;
+}
+
 export interface SearchMatch {
   path: string;
   /** 1-based. */
@@ -369,6 +378,12 @@ export const api = {
 
   readTextFile: (root: string, path: string) =>
     invoke<string>("read_text_file", { root, path }),
+
+  /** Every file in the folder, relative, for the finder. */
+  projectFiles: (root: string) => invoke<string[]>("project_files", { root }),
+
+  /** Every definition in the folder, for the finder's symbol search. */
+  projectSymbols: (root: string) => invoke<SymbolDef[]>("project_symbols", { root }),
 
   searchProject: (root: string, query: string) =>
     invoke<{ matches: SearchMatch[]; truncated: boolean }>("search_project", { root, query }),

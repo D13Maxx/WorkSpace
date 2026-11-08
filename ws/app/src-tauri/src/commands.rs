@@ -1054,6 +1054,37 @@ pub async fn search_project(root: String, query: String) -> CmdResult<SearchResu
     .map_err(err)?
 }
 
+/// Every file in the folder, relative and with `/`, for the finder.
+#[tauri::command]
+pub async fn project_files(root: String) -> CmdResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = std::path::Path::new(&root);
+        ws_tools::index::project_files(base)
+            .iter()
+            .map(|p| {
+                p.strip_prefix(base)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect()
+    })
+    .await
+    .map_err(err)
+}
+
+/// Every definition in the folder, for the finder's symbol search.
+#[tauri::command]
+pub async fn project_symbols(
+    state: State<'_, AppState>,
+    root: String,
+) -> CmdResult<Vec<ws_tools::index::Def>> {
+    let workspace = state.workspace.clone();
+    tauri::async_runtime::spawn_blocking(move || workspace.symbols(std::path::Path::new(&root)))
+        .await
+        .map_err(err)
+}
+
 /// What differs from the last commit, for the changes panel.
 #[tauri::command]
 pub async fn git_status(root: String) -> CmdResult<Vec<ws_tools::git::Change>> {
