@@ -853,6 +853,7 @@ impl Store {
         let tag = match kind {
             EventKind::ModelSwitch { .. } => "model_switch",
             EventKind::HelperLog { .. } => "helper_log",
+            EventKind::Team(_) => "team",
         };
         self.conn.execute(
             "INSERT INTO conversation_events

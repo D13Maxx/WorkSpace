@@ -2605,3 +2605,89 @@ body.resizing-v {
   padding: 0.5rem;
   border-radius: 4px;
 }
+
+/* Team chat: the lead's briefs, workers' messages and reports, in order. */
+.agent-tabs {
+  display: inline-flex;
+  gap: 2px;
+}
+.agent-tabs button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.agent-tabs button.active {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--raised);
+}
+.team-chat {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.team-line {
+  border-left: 3px solid var(--border-strong);
+  padding: 4px 0 4px 10px;
+}
+.team-line.lead {
+  border-left-color: var(--accent);
+}
+.team-line.report {
+  border-left-color: var(--ok);
+}
+.team-line.failed {
+  border-left-color: var(--danger);
+}
+.team-line header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.team-line time {
+  margin-left: auto;
+  font-size: 0.85em;
+}
+.team-who {
+  font-weight: 600;
+}
+.team-what {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.team-what.report {
+  color: var(--ok);
+}
+.team-what.failed {
+  color: var(--danger);
+}
+.team-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+.team-typing {
+  font-style: italic;
+}
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+.linklike:hover {
+  text-decoration: underline;
+}

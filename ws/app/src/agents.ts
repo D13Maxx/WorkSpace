@@ -1,6 +1,6 @@
 // The agent view's model: which workers the latest turn started, and what
 // each is doing, from the saved thread plus what is streaming in now.
-import type { HelperEntry, HelperLog, Thread, WorkerCopy } from "./api";
+import type { HelperEntry, HelperLog, TeamLine, Thread, WorkerCopy } from "./api";
 
 export type WorkerStatus = "working" | "needs-you" | "retrying" | "done" | "failed" | "stopped";
 
@@ -85,4 +85,58 @@ export function latestWorkers(
           : null,
     };
   });
+}
+
+export interface TeamItem {
+  id: string;
+  at: string;
+  what: TeamLine["what"];
+  /** "Lead", or the worker's label, numbered when several share a name. */
+  from: string;
+  /** The worker it is from (or, for a brief, for); opens its pane. */
+  dispatch: string;
+  to: string;
+  text: string;
+}
+
+/** Each worker's name in the team chat: "worker 1", "worker 2" when names repeat. */
+export function workerLabels(workers: Worker[]): Map<string, string> {
+  const count = new Map<string, number>();
+  for (const w of workers) count.set(w.agent, (count.get(w.agent) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const out = new Map<string, string>();
+  for (const w of workers) {
+    const n = (seen.get(w.agent) ?? 0) + 1;
+    seen.set(w.agent, n);
+    out.set(w.dispatch, count.get(w.agent)! > 1 ? `${w.agent} ${n}` : w.agent);
+  }
+  return out;
+}
+
+/**
+ * The latest turn's team chat: saved lines for its workers, then lines only
+ * streamed so far (`live`, all from this turn), oldest first, with names.
+ */
+export function teamChat(saved: TeamLine[], live: TeamLine[], workers: Worker[]): TeamItem[] {
+  const labels = workerLabels(workers);
+  const kept = saved.filter((l) => labels.has(l.dispatch));
+  const ids = new Set(kept.map((l) => l.id));
+  const lines = [...kept, ...live.filter((l) => !ids.has(l.id))];
+  const name = (dispatch: string, fallback: string) => labels.get(dispatch) ?? fallback;
+  // A note's `to` is whatever the worker wrote: a name, an id, or "name (id)".
+  const target = (to: string | null) => {
+    if (to === null) return "everyone";
+    if (to === "lead") return "Lead";
+    for (const [dispatch, label] of labels) if (to.includes(dispatch)) return label;
+    return to;
+  };
+  return lines.map((l) => ({
+    id: l.id,
+    at: l.at,
+    what: l.what,
+    from: l.what === "brief" ? "Lead" : name(l.dispatch, l.from),
+    dispatch: l.dispatch,
+    to: l.what === "brief" ? name(l.dispatch, l.to ?? "worker") : target(l.to),
+    text: l.text,
+  }));
 }

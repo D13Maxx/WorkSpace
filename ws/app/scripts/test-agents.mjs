@@ -1,7 +1,7 @@
 // Checks the agent view's worker statuses: `node scripts/test-agents.mjs`.
 import assert from "node:assert/strict";
 
-const { latestWorkers } = await import("../src/agents.ts");
+const { latestWorkers, teamChat } = await import("../src/agents.ts");
 
 const msg = (role, extra = {}) => ({ role, tool_calls: [], tool_results: [], ...extra });
 const dispatch = (id, agent) => ({ call_id: id, name: "dispatch_agent", args: JSON.stringify({ agent, prompt: `job ${id}` }) });
@@ -53,5 +53,32 @@ const copied = new Map([["a", { dispatch: "a", agent: "worker", entries: [
 w = latestWorkers(t, copied, { a: false }, [], false);
 assert.deepEqual(w[0].copy, { root: "C:/p", branch: "ws/a", base: "abc1234", folder: "C:/p/.git/ws-worktrees/a" });
 assert.equal(w[1].copy, null);
+
+// The team chat: this turn's lines only, saved then live, named and numbered.
+const two = latestWorkers(
+  thread([msg("user"), msg("assistant", { tool_calls: [dispatch("a", "worker"), dispatch("b", "worker")] })]),
+  new Map(), {}, [], true,
+);
+const line = (id, what, from, d, to, text) => ({ id, at: "2026-11-10T10:00:00Z", what, from, dispatch: d, to, text });
+const saved = [
+  line("0", "report", "worker", "old", "lead", "an older turn's"),
+  line("1", "brief", "lead", "a", "worker", "do a"),
+  line("2", "note", "worker", "a", null, "I own units.py"),
+];
+const streamed = [
+  line("2", "note", "worker", "a", null, "I own units.py"), // saved already: shown once
+  line("3", "note", "worker", "b", "worker (a)", "ok, cli.py is mine"),
+  line("4", "report", "worker", "b", "lead", "done"),
+];
+const chat = teamChat(saved, streamed, two);
+assert.deepEqual(
+  chat.map((m) => [m.id, m.from, m.to]),
+  [
+    ["1", "Lead", "worker 1"],
+    ["2", "worker 1", "everyone"],
+    ["3", "worker 2", "worker 1"],
+    ["4", "worker 2", "Lead"],
+  ],
+);
 
 console.log("agent view: ok");

@@ -168,6 +168,31 @@ pub enum EventKind {
         agent: String,
         entries: Vec<HelperEntry>,
     },
+    /// A line of the team chat, saved as it happens so the order survives.
+    Team(TeamPost),
+}
+
+/// The lead briefing a helper, helpers messaging one another, or a helper's
+/// report: what the team said, for the user to follow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TeamPost {
+    pub what: TeamWhat,
+    /// `lead`, or the helper's agent name.
+    pub from: String,
+    /// The `dispatch_agent` call of the helper it is from, or for.
+    pub dispatch: String,
+    /// A helper's name or id, or `lead`; none means everyone.
+    pub to: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeamWhat {
+    Brief,
+    Note,
+    Report,
+    Failed,
 }
 
 /// One thing a helper agent did, kept so the user can follow its work.

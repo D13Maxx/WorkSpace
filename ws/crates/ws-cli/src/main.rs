@@ -334,6 +334,14 @@ async fn drive(
                 agent,
                 entry: HelperEntry::Text { text },
             } => eprintln!("\n[{agent} ({dispatch})] {}", text.trim()),
+            // Briefs and reports already show as the calls and texts above.
+            TurnEvent::Team { post, .. } if post.what == ws_context::TeamWhat::Note => eprintln!(
+                "\n[team] {} ({}) to {}: {}",
+                post.from,
+                post.dispatch,
+                post.to.as_deref().unwrap_or("everyone"),
+                post.text.trim()
+            ),
             TurnEvent::Failed { error, .. } => eprintln!("\nfailed: {error}"),
             _ => {}
         }

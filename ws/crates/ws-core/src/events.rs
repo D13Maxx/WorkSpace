@@ -5,7 +5,7 @@
 //! replay care about.
 
 use serde::{Deserialize, Serialize};
-use ws_context::{ContextView, HelperEntry, ModelRef, MsgId, StopReason};
+use ws_context::{ContextView, HelperEntry, ModelRef, MsgId, StopReason, TeamPost};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -79,6 +79,14 @@ pub enum TurnEvent {
         dispatch: String,
         agent: String,
         entry: HelperEntry,
+    },
+
+    /// A line of the team chat, already saved as event `id`.
+    Team {
+        id: String,
+        at: chrono::DateTime<chrono::Utc>,
+        #[serde(flatten)]
+        post: TeamPost,
     },
 
     /// The reply is persisted. `message` is the row that was written.

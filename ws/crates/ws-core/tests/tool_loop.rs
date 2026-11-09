@@ -469,6 +469,57 @@ async fn workers_dispatched_together_can_message_each_other() {
     );
     assert!(matches!(&b[3], E::Text { text } if text == "B done"));
 
+    // The team chat is saved line by line, in order, and each line streams too.
+    use ws_context::TeamWhat as W;
+    let team: Vec<(String, ws_context::TeamPost)> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            ws_context::EventKind::Team(p) => Some((e.id.to_string(), p)),
+            _ => None,
+        })
+        .collect();
+    let said: Vec<(W, &str, &str, &str)> = team
+        .iter()
+        .map(|(_, p)| {
+            (
+                p.what,
+                p.from.as_str(),
+                p.dispatch.as_str(),
+                p.text.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        vec![
+            (W::Brief, "lead", "d1", "part a"),
+            (W::Note, "worker", "d1", "hello from A"),
+            (W::Report, "worker", "d1", "A done"),
+            (W::Brief, "lead", "d2", "part b"),
+            (W::Note, "worker", "d2", "hello from B"),
+            (W::Report, "worker", "d2", "B done"),
+        ]
+    );
+    assert_eq!(team[0].1.to.as_deref(), Some("worker"));
+    assert_eq!(team[1].1.to, None, "a note for everyone");
+    let streamed: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            TurnEvent::Team { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        streamed,
+        team.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+        "live lines carry the saved ids"
+    );
+
     let requests = h.backend.requests();
     assert_eq!(requests.len(), 6);
     let has_tool = |i: usize| requests[i].tools.iter().any(|t| t.name == "post_message");

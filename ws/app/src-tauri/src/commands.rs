@@ -104,6 +104,17 @@ pub struct Thread {
     pub messages: Vec<ThreadMessage>,
     /// What each helper agent did, keyed by the `dispatch_agent` call it ran for.
     pub helpers: Vec<HelperLog>,
+    /// The team chat, oldest first.
+    pub team: Vec<TeamLine>,
+}
+
+/// A saved line of the team chat; shaped like the live `team` event.
+#[derive(Debug, Serialize)]
+pub struct TeamLine {
+    pub id: String,
+    pub at: chrono::DateTime<chrono::Utc>,
+    #[serde(flatten)]
+    pub post: ws_context::TeamPost,
 }
 
 #[derive(Debug, Serialize)]
@@ -315,23 +326,27 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
         });
     }
 
-    let helpers = store
-        .list_events(id)
-        .map_err(err)?
-        .into_iter()
-        .filter_map(|e| match e.kind {
+    let mut helpers = Vec::new();
+    let mut team = Vec::new();
+    for e in store.list_events(id).map_err(err)? {
+        match e.kind {
             EventKind::HelperLog {
                 dispatch,
                 agent,
                 entries,
-            } => Some(HelperLog {
+            } => helpers.push(HelperLog {
                 dispatch,
                 agent,
                 entries,
             }),
-            EventKind::ModelSwitch { .. } => None,
-        })
-        .collect();
+            EventKind::Team(post) => team.push(TeamLine {
+                id: e.id.to_string(),
+                at: e.at,
+                post,
+            }),
+            EventKind::ModelSwitch { .. } => {}
+        }
+    }
 
     Ok(Thread {
         conversation_id: id.to_string(),
@@ -340,6 +355,7 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
         model_id: conv.current_model.model_id,
         messages,
         helpers,
+        team,
     })
 }
 

@@ -14,7 +14,8 @@
 //!   partial text under a status that says what happened.
 
 use crate::agents::{
-    Agents, Channel, DISPATCH_AGENT, MAX_POSTS_PER_HELPER, Note, POST_MESSAGE, post_spec,
+    Agents, Channel, DISPATCH_AGENT, MAX_NOTE_CHARS, MAX_POSTS_PER_HELPER, Note, POST_MESSAGE,
+    post_spec,
 };
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
@@ -28,10 +29,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use ws_context::{
     BackendError, BackendEvent, BackendId, BackendRequest, BuildViewParams, ByteEstimateCounter,
-    ChatBackend, ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventKind,
-    HelperEntry, InlineBlob, Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part,
+    ChatBackend, ContextConfig, ContextSummary, ContextView, ConvId, Conversation, EventId,
+    EventKind, HelperEntry, InlineBlob, Message, ModelProfiles, ModelRef, MsgId, MsgStatus, Part,
     ProviderOpaque, RenderedMessage, RenderedView, Role, StopReason, SummaryId, SummaryRequest,
-    ViewMode, ViewPlan, build_view, summary_prompt,
+    TeamPost, TeamWhat, ViewMode, ViewPlan, build_view, summary_prompt,
 };
 use ws_store::{BlobStore, Draft, FileEdit, NewMessage, Store};
 
@@ -892,10 +893,26 @@ impl Orchestrator {
             let to = args["to"].as_str().map(str::to_owned);
             let note = Note {
                 from: from.to_owned(),
-                to,
+                to: to.clone(),
                 text: text.to_owned(),
             };
             return if self.channel.post(conv, note) {
+                // `from` is "agent (dispatch id)", as run_agent_steps names it.
+                let (agent, dispatch) = from
+                    .rsplit_once(" (")
+                    .map_or((from, ""), |(a, d)| (a, d.trim_end_matches(')')));
+                self.team(
+                    conv,
+                    events,
+                    TeamPost {
+                        what: TeamWhat::Note,
+                        from: agent.to_owned(),
+                        dispatch: dispatch.to_owned(),
+                        to,
+                        text: text.chars().take(MAX_NOTE_CHARS).collect(),
+                    },
+                )
+                .await;
                 ToolOutput::ok("sent")
             } else {
                 ToolOutput::error(format!(
@@ -970,6 +987,23 @@ impl Orchestrator {
         out
     }
 
+    /// Save a line of the team chat and show it live. Saving can fail without
+    /// losing the run: the line then shows only until the app reloads.
+    async fn team(&self, conv: ConvId, events: &mpsc::Sender<TurnEvent>, post: TeamPost) {
+        let kind = EventKind::Team(post.clone());
+        let id = self
+            .with_store(|s| Ok(s.record_event(conv, None, &kind)?))
+            .inspect_err(|e| tracing::warn!(error = %e, "could not save a team message"))
+            .unwrap_or_else(|_| EventId::new());
+        let _ = events
+            .send(TurnEvent::Team {
+                id: id.to_string(),
+                at: Utc::now(),
+                post,
+            })
+            .await;
+    }
+
     /// Run one helper agent to the end, in memory, and return its report.
     ///
     /// Its own tool calls go through `run_call`, so they ask for approval and
@@ -991,6 +1025,18 @@ impl Orchestrator {
                 .unwrap_or_default()
         };
         let agent = field("agent").to_owned();
+        self.team(
+            conv,
+            events,
+            TeamPost {
+                what: TeamWhat::Brief,
+                from: "lead".to_owned(),
+                dispatch: call.call_id.clone(),
+                to: Some(agent.clone()),
+                text: field("prompt").to_owned(),
+            },
+        )
+        .await;
 
         let isolated = match self.tools.as_ref().and_then(|t| t.isolate(&call.call_id)) {
             Some(Ok(iso)) => {
@@ -1050,6 +1096,23 @@ impl Orchestrator {
                 }
             }
         }
+
+        self.team(
+            conv,
+            events,
+            TeamPost {
+                what: if out.is_error {
+                    TeamWhat::Failed
+                } else {
+                    TeamWhat::Report
+                },
+                from: agent.clone(),
+                dispatch: call.call_id.clone(),
+                to: Some("lead".to_owned()),
+                text: out.text.clone(),
+            },
+        )
+        .await;
 
         if !log.is_empty() {
             let kind = EventKind::HelperLog {

@@ -95,6 +95,23 @@ export interface Thread {
   messages: ThreadMessage[];
   /** What each helper agent did, keyed by the dispatch_agent call it ran for. */
   helpers: HelperLog[];
+  /** The team chat, oldest first. */
+  team: TeamLine[];
+}
+
+/** One line of the team chat: the lead's brief, a helper's message, or its report. */
+export interface TeamLine {
+  id: string;
+  /** RFC 3339. */
+  at: string;
+  what: "brief" | "note" | "report" | "failed";
+  /** "lead", or the helper's agent name. */
+  from: string;
+  /** The dispatch_agent call of the helper it is from, or for. */
+  dispatch: string;
+  /** A helper's name or id, or "lead"; null means everyone. */
+  to: string | null;
+  text: string;
 }
 
 export type HelperEntry =
@@ -221,6 +238,7 @@ export type TurnEvent =
   | { type: "approval_required"; call_id: string; name: string; args: string }
   | { type: "tool_result"; call_id: string; is_error: boolean; text: string }
   | { type: "helper_step"; dispatch: string; agent: string; entry: HelperEntry }
+  | ({ type: "team" } & TeamLine)
   | { type: "completed"; message: string; stop_reason: unknown }
   /** The connection dropped (as when the laptop slept); the step starts again as a new reply. */
   | { type: "retrying"; error: string; wait_secs: number }

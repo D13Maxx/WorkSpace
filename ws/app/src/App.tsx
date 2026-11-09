@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ToolArgs } from "./components/ToolArgs";
 import { AgentView } from "./components/AgentView";
-import { latestWorkers } from "./agents";
+import { latestWorkers, teamChat } from "./agents";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, ask, claudeFirst, pickFolder, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type Thread, type TurnEvent } from "./api";
+import { api, ask, claudeFirst, pickFolder, preferredModel, rememberModel, type ContextView, type HelperLog, type ModelOption, type TeamLine, type Thread, type TurnEvent } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList } from "./components/MessageList";
@@ -74,6 +74,8 @@ export default function App() {
   const [liveHelpers, setLiveHelpers] = useState<Record<string, HelperLog>>({});
   // Tool results seen this turn (by call id: failed?), so a worker shows done the moment it is.
   const [liveResults, setLiveResults] = useState<Record<string, boolean>>({});
+  // Team chat lines streamed this turn; each is saved too, under the same id.
+  const [liveTeam, setLiveTeam] = useState<TeamLine[]>([]);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const helperLogs = useMemo(() => {
     const logs = new Map(Object.entries(liveHelpers));
@@ -300,11 +302,20 @@ export default function App() {
   };
 
   const busy = streaming !== null;
+  // A worker's report reaches the team chat before its batch's results do.
+  const finished = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const l of [...(thread?.team ?? []), ...liveTeam]) {
+      if (l.what === "report" || l.what === "failed") out[l.dispatch] = l.what === "failed";
+    }
+    return { ...out, ...liveResults };
+  }, [thread, liveTeam, liveResults]);
   const workers = useMemo(
-    () => latestWorkers(thread, helperLogs, liveResults, approvals, busy),
-    [thread, helperLogs, liveResults, approvals, busy],
+    () => latestWorkers(thread, helperLogs, finished, approvals, busy),
+    [thread, helperLogs, finished, approvals, busy],
   );
   const needYou = workers.filter((w) => w.status === "needs-you").length;
+  const team = useMemo(() => teamChat(thread?.team ?? [], liveTeam, workers), [thread, liveTeam, workers]);
 
   const commandList: Command[] = [
     { id: "folder.open", label: "Open folder", run: () => void pickFolder().then((f) => f && addFolder(f)) },
@@ -420,6 +431,7 @@ export default function App() {
       setPrefill(null);
       setLiveHelpers({});
       setLiveResults({});
+      setLiveTeam([]);
 
       let text = "";
       let reasoned = "";
@@ -478,6 +490,11 @@ export default function App() {
                 return { ...all, [event.dispatch]: { ...log, entries: [...log.entries, event.entry] } };
               });
               break;
+            case "team": {
+              const { type: _, ...line } = event;
+              setLiveTeam((lines) => [...lines, line]);
+              break;
+            }
             case "tool_result":
               setLiveResults((r) => ({ ...r, [event.call_id]: event.is_error }));
               setStatus(null);
@@ -745,6 +762,7 @@ export default function App() {
         {agentsOpen && (
           <AgentView
             workers={workers}
+            team={team}
             onAnswer={answer}
             onMerged={() => {
               setFileVersion((v) => v + 1);

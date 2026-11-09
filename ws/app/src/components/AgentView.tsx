@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Worker, WorkerStatus } from "../agents";
+import { workerLabels, type TeamItem, type Worker, type WorkerStatus } from "../agents";
 import { api, ask, type ChangedFile, type WorkerCopy } from "../api";
 import { Step } from "./HelperPanel";
 import { ToolArgs } from "./ToolArgs";
@@ -13,23 +13,47 @@ const LABEL: Record<WorkerStatus, string> = {
   stopped: "Stopped",
 };
 
-/** The latest turn's workers side by side, each with its live log. */
+/** The latest turn's team: its chat, or its workers side by side, each with its live log. */
 export function AgentView({
   workers,
+  team,
   onAnswer,
   onMerged,
   onClose,
 }: {
   workers: Worker[];
+  team: TeamItem[];
   onAnswer: (callId: string, approved: boolean) => void;
   /** A helper's changes reached the project's files. */
   onMerged: () => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<"team" | "workers">("team");
+  const labels = workerLabels(workers);
+  const openPane = (dispatch: string) => {
+    setTab("workers");
+    // After the grid renders.
+    requestAnimationFrame(() =>
+      document.getElementById(`pane-${dispatch}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+    );
+  };
   return (
     <div className="agent-view">
       <div className="group-bar agent-bar">
         <strong>Agents</strong>
+        <span className="agent-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === "team"} className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}>
+            Team chat
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === "workers"}
+            className={tab === "workers" ? "active" : ""}
+            onClick={() => setTab("workers")}
+          >
+            Workers
+          </button>
+        </span>
         <span className="muted">
           {workers.length ? `${workers.length} from the latest message` : ""}
         </span>
@@ -43,10 +67,12 @@ export function AgentView({
         <div className="empty">
           <p>No agents yet. When the chat hands work to helpers, each one shows here as it runs.</p>
         </div>
+      ) : tab === "team" ? (
+        <TeamChat items={team} workers={workers} labels={labels} onAnswer={onAnswer} onOpen={openPane} />
       ) : (
         <div className="agent-grid">
           {workers.map((w) => (
-            <Pane key={w.dispatch} worker={w} onAnswer={onAnswer} onMerged={onMerged} />
+            <Pane key={w.dispatch} worker={w} label={labels.get(w.dispatch) ?? w.agent} onAnswer={onAnswer} onMerged={onMerged} />
           ))}
         </div>
       )}
@@ -54,12 +80,120 @@ export function AgentView({
   );
 }
 
+const WHAT: Record<TeamItem["what"], string> = { brief: "brief", note: "", report: "report", failed: "failed" };
+
+/** What the team said, in order, following new lines unless the user scrolled up. */
+function TeamChat({
+  items,
+  workers,
+  labels,
+  onAnswer,
+  onOpen,
+}: {
+  items: TeamItem[];
+  workers: Worker[];
+  labels: Map<string, string>;
+  onAnswer: (callId: string, approved: boolean) => void;
+  onOpen: (dispatch: string) => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  const waiting = workers.filter((w) => w.waitingOn);
+  useEffect(() => {
+    const el = box.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [items.length, waiting.length]);
+  const working = workers.filter((w) => w.status === "working" || w.status === "retrying");
+
+  return (
+    <div
+      className="team-chat"
+      ref={box}
+      aria-live="polite"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+    >
+      {items.length === 0 && <p className="muted">Nothing said yet. Briefs, messages and reports show here as they happen.</p>}
+      {items.map((m) => (
+        <article key={m.id} className={`team-line ${m.what} ${m.from === "Lead" ? "lead" : ""}`}>
+          <header>
+            <button className="linklike team-who" onClick={() => onOpen(m.dispatch)} title="Open this worker's pane">
+              {m.from}
+            </button>
+            <span className="muted">→ {m.to}</span>
+            {WHAT[m.what] && <span className={`team-what ${m.what}`}>{WHAT[m.what]}</span>}
+            <time className="muted" dateTime={m.at}>
+              {new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </time>
+          </header>
+          <TeamText text={m.text} />
+        </article>
+      ))}
+      {waiting.map((w) => (
+        <Approval key={w.dispatch} worker={w} label={labels.get(w.dispatch) ?? w.agent} onAnswer={onAnswer} />
+      ))}
+      {working.length > 0 && (
+        <p className="muted team-typing">
+          {working.map((w) => labels.get(w.dispatch) ?? w.agent).join(", ")} {working.length === 1 ? "is" : "are"} working…
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Long briefs and reports start folded. */
+function TeamText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 600;
+  return (
+    <>
+      <pre className="team-text">{long && !open ? `${text.slice(0, 600)}…` : text}</pre>
+      {long && (
+        <button className="linklike" onClick={() => setOpen(!open)}>
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </>
+  );
+}
+
+function Approval({
+  worker: w,
+  label,
+  onAnswer,
+}: {
+  worker: Worker;
+  label: string;
+  onAnswer: (callId: string, approved: boolean) => void;
+}) {
+  if (!w.waitingOn) return null;
+  const { callId, name, args } = w.waitingOn;
+  return (
+    <div className="approval agent-approval" role="alertdialog" aria-label={`Approve ${label}'s tool call`}>
+      <p>
+        {label} wants to run <code>{name}</code>:
+      </p>
+      <ToolArgs args={args} />
+      <div className="row">
+        <button className="primary" onClick={() => onAnswer(callId, true)}>
+          Allow
+        </button>
+        <button onClick={() => onAnswer(callId, false)}>Deny</button>
+      </div>
+    </div>
+  );
+}
+
 function Pane({
   worker: w,
+  label,
   onAnswer,
   onMerged,
 }: {
   worker: Worker;
+  label: string;
   onAnswer: (callId: string, approved: boolean) => void;
   onMerged: () => void;
 }) {
@@ -73,9 +207,9 @@ function Pane({
 
   const results = new Map(w.entries.flatMap((e) => (e.kind === "result" ? [[e.call_id, e] as const] : [])));
   return (
-    <section className={`agent-pane ${w.status}`} aria-label={`${w.agent}: ${LABEL[w.status]}`}>
+    <section id={`pane-${w.dispatch}`} className={`agent-pane ${w.status}`} aria-label={`${label}: ${LABEL[w.status]}`}>
       <header>
-        <strong>{w.agent}</strong>
+        <strong>{label}</strong>
         <span className={`agent-status ${w.status}`}>{LABEL[w.status]}</span>
         <span className="muted agent-meta">
           {w.model} · {w.steps} step{w.steps === 1 ? "" : "s"}
@@ -106,20 +240,7 @@ function Pane({
       {w.copy && (w.status === "done" || w.status === "failed" || w.status === "stopped") && (
         <CopyChanges copy={w.copy} agent={w.agent} onMerged={onMerged} />
       )}
-      {w.waitingOn && (
-        <div className="approval agent-approval" role="alertdialog" aria-label={`Approve ${w.agent}'s tool call`}>
-          <p>
-            Wants to run <code>{w.waitingOn.name}</code>:
-          </p>
-          <ToolArgs args={w.waitingOn.args} />
-          <div className="row">
-            <button className="primary" onClick={() => onAnswer(w.waitingOn!.callId, true)}>
-              Allow
-            </button>
-            <button onClick={() => onAnswer(w.waitingOn!.callId, false)}>Deny</button>
-          </div>
-        </div>
-      )}
+      <Approval worker={w} label={label} onAnswer={onAnswer} />
     </section>
   );
 }
