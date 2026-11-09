@@ -1248,14 +1248,18 @@ impl Orchestrator {
             trim_history(&mut messages, budget);
             // Between steps only, so it follows a tool result and never splits the prompt.
             if messages.last().is_some_and(|m| m.role == Role::Tool) {
-                let notes = self.channel.unread(conv, &me, agent, &mut seen);
+                let notes = self.channel.unread(conv, &me, &mut seen);
                 if !notes.is_empty() {
                     let text: String = notes
                         .iter()
                         .map(|n| {
+                            let to =
+                                n.to.as_deref()
+                                    .map(|t| format!(" (to {t})"))
+                                    .unwrap_or_default();
                             format!(
                                 "
-- from {}: {}",
+- from {}{to}: {}",
                                 n.from, n.text
                             )
                         })

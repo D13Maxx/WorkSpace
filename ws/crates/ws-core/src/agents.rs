@@ -211,7 +211,7 @@ pub fn post_spec() -> ToolSpec {
             "type": "object",
             "properties": {
                 "text": {"type": "string"},
-                "to": {"type": "string", "description": "A helper's name or id; leave out to tell everyone."}
+                "to": {"type": "string", "description": "Who it is mainly for, shown with the message; everyone running now reads it."}
             },
             "required": ["text"]
         }),
@@ -256,15 +256,10 @@ impl Channel {
             .remove(&conv);
     }
 
-    /// Notes past `cursor` from others and for `me` (an id) or `agent` (its name) or everyone.
-    /// Moves `cursor` to the end.
-    pub fn unread(
-        &self,
-        conv: ws_context::ConvId,
-        me: &str,
-        agent: &str,
-        cursor: &mut usize,
-    ) -> Vec<Note> {
+    /// Notes past `cursor` from the others. Every helper reads every note: they
+    /// cannot know one another's names, and a note sent to a guessed one would
+    /// be lost (seen in a live run). Moves `cursor` to the end.
+    pub fn unread(&self, conv: ws_context::ConvId, me: &str, cursor: &mut usize) -> Vec<Note> {
         let map = self
             .0
             .lock()
@@ -274,7 +269,7 @@ impl Channel {
             .get(*cursor..)
             .unwrap_or_default()
             .iter()
-            .filter(|n| n.from != me && n.to.as_deref().is_none_or(|t| t == me || t == agent))
+            .filter(|n| n.from != me)
             .cloned()
             .collect();
         *cursor = all.len();
@@ -348,19 +343,16 @@ mine",
         };
         ch.post(conv, note("a#1", None));
         ch.post(conv, note("b#2", Some("a")));
-        ch.post(conv, note("b#2", Some("c")));
+        ch.post(conv, note("b#2", Some("cli developer")));
         ch.post(conv, note("a#1", None));
         let mut cursor = 0;
-        let got = ch.unread(conv, "a#1", "a", &mut cursor);
+        let got = ch.unread(conv, "a#1", &mut cursor);
         assert_eq!(
             got.len(),
-            1,
-            "own and other helpers' private notes are skipped"
+            2,
+            "its own notes are skipped; one to a guessed name still arrives"
         );
-        assert!(
-            ch.unread(conv, "a#1", "a", &mut cursor).is_empty(),
-            "only once"
-        );
+        assert!(ch.unread(conv, "a#1", &mut cursor).is_empty(), "only once");
     }
 
     #[test]
@@ -376,12 +368,12 @@ mine",
         }
         assert!(!ch.post(conv, note("one too many".to_owned())));
         let mut cursor = 0;
-        let got = ch.unread(conv, "b#2", "b", &mut cursor);
+        let got = ch.unread(conv, "b#2", &mut cursor);
         assert_eq!(got.len(), MAX_POSTS_PER_HELPER);
         assert_eq!(got[0].text.chars().count(), MAX_NOTE_CHARS);
 
         ch.clear(conv);
-        assert!(ch.unread(conv, "b#2", "b", &mut 0).is_empty());
+        assert!(ch.unread(conv, "b#2", &mut 0).is_empty());
         assert!(
             ch.post(conv, note("again".to_owned())),
             "a cleared channel starts over"
