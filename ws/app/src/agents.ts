@@ -31,8 +31,12 @@ function arg(args: string, key: string): string {
 export function latestWorkers(
   thread: Thread | null,
   logs: Map<string, HelperLog>,
-  /** Tool results seen while the turn streams, by call id. */
-  liveResults: Record<string, boolean>,
+  /**
+   * How each dispatch ended (failed?), as the stream or the team chat says;
+   * null: still running, whatever its tool result says (a coordinated turn's
+   * dispatch returns "Started" at once).
+   */
+  liveResults: Record<string, boolean | null>,
   approvals: { callId: string; name: string; args: string }[],
   busy: boolean,
 ): Worker[] {
@@ -62,7 +66,7 @@ export function latestWorkers(
     // Its latest model: a switch, else the model it started on, else the chat's.
     const switched = [...entries].reverse().find((e) => e.kind === "switch" || e.kind === "model");
     const isolated = entries.find((e) => e.kind === "isolated");
-    const result = dispatch in liveResults ? liveResults[dispatch] : failed.get(dispatch);
+    const result = dispatch in liveResults ? (liveResults[dispatch] ?? undefined) : failed.get(dispatch);
 
     let status: WorkerStatus;
     if (result !== undefined) status = result ? "failed" : "done";
@@ -120,7 +124,9 @@ export function workerLabels(workers: Worker[]): Map<string, string> {
  */
 export function teamChat(saved: TeamLine[], live: TeamLine[], workers: Worker[]): TeamItem[] {
   const labels = workerLabels(workers);
-  const kept = saved.filter((l) => labels.has(l.dispatch));
+  // The lead's own messages belong to no worker: kept from this turn's first line on.
+  const first = saved.find((l) => labels.has(l.dispatch))?.at;
+  const kept = saved.filter((l) => labels.has(l.dispatch) || (l.from === "lead" && first !== undefined && l.at >= first));
   const ids = new Set(kept.map((l) => l.id));
   const lines = [...kept, ...live.filter((l) => !ids.has(l.id))];
   const name = (dispatch: string, fallback: string) => labels.get(dispatch) ?? fallback;
@@ -135,7 +141,7 @@ export function teamChat(saved: TeamLine[], live: TeamLine[], workers: Worker[])
     id: l.id,
     at: l.at,
     what: l.what,
-    from: l.what === "brief" ? "Lead" : name(l.dispatch, l.from),
+    from: l.what === "brief" || l.from === "lead" ? "Lead" : name(l.dispatch, l.from),
     dispatch: l.dispatch,
     to: l.what === "brief" ? name(l.dispatch, l.to ?? "worker") : target(l.to),
     text: l.text,

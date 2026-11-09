@@ -33,6 +33,11 @@ pub enum Scripted {
     },
     /// Stop to call tools: `(call_id, name, args_json)` each.
     CallsTools(Vec<(String, String, String)>),
+    /// `then`, after a pause before anything streams: a model taking its time.
+    Delayed {
+        delay: std::time::Duration,
+        then: Box<Scripted>,
+    },
 }
 
 impl Scripted {
@@ -57,6 +62,9 @@ pub struct FakeBackend {
     /// look like that provider's. Cross-provider tests need this to be real.
     provider: ProviderKind,
     script: Arc<Mutex<Vec<Scripted>>>,
+    /// Replies for one model id, taken before the shared script: a lead and
+    /// its workers running at once each follow their own.
+    by_model: Arc<Mutex<std::collections::HashMap<String, Vec<Scripted>>>>,
     pub recorder: Arc<Mutex<Recorder>>,
     profiles: Arc<dyn ModelProfiles>,
     tools: bool,
@@ -75,6 +83,7 @@ impl FakeBackend {
             id: id.into(),
             provider: ProviderKind::Anthropic,
             script: Arc::new(Mutex::new(Vec::new())),
+            by_model: Arc::default(),
             recorder: Arc::new(Mutex::new(Recorder::default())),
             profiles,
             tools: true,
@@ -104,6 +113,13 @@ impl FakeBackend {
         self
     }
 
+    /// Queue a reply for requests to `model_id` only; works on a shared fake.
+    pub fn script_for(&self, model_id: &str, reply: Scripted) {
+        if let Ok(mut m) = self.by_model.lock() {
+            m.entry(model_id.to_owned()).or_default().push(reply);
+        }
+    }
+
     /// Convenience: a one-delta text reply.
     #[must_use]
     pub fn says(self, text: &str) -> Self {
@@ -119,7 +135,14 @@ impl FakeBackend {
             .unwrap_or_default()
     }
 
-    fn next_reply(&self) -> Scripted {
+    fn next_reply(&self, model_id: &str) -> Scripted {
+        let own = self.by_model.lock().ok().and_then(|mut m| {
+            let queue = m.get_mut(model_id)?;
+            (!queue.is_empty()).then(|| queue.remove(0))
+        });
+        if let Some(reply) = own {
+            return reply;
+        }
         self.script
             .lock()
             .ok()
@@ -179,7 +202,12 @@ impl ChatBackend for FakeBackend {
         }
 
         let mut events: Vec<BackendEvent> = Vec::new();
-        match self.next_reply() {
+        let mut reply = self.next_reply(&model_id);
+        while let Scripted::Delayed { delay, then } = reply {
+            tokio::time::sleep(delay).await;
+            reply = *then;
+        }
+        match reply {
             Scripted::Text(deltas) => {
                 let whole = deltas.concat();
                 events.extend(deltas.into_iter().map(BackendEvent::TextDelta));
@@ -221,6 +249,8 @@ impl ChatBackend for FakeBackend {
                 }));
             }
             Scripted::RefusesToStart { error } => return Err(error),
+            // Unwrapped above.
+            Scripted::Delayed { .. } => {}
             Scripted::CallsTools(calls) => {
                 let mut content = Vec::new();
                 for (call_id, name, args) in calls {

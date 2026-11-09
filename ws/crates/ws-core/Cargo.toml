@@ -25,7 +25,7 @@ tokio-util.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 
 [features]
 # Exposes the in-memory fake backend so integration tests (and the app's own

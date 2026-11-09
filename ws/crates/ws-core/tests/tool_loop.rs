@@ -1065,3 +1065,204 @@ async fn a_helper_works_in_its_own_copy_and_the_coordinator_is_told_where_its_ch
         .any(|e| matches!(e, ws_context::HelperEntry::Isolated { ref branch, .. } if branch == "ws/d1"));
     assert!(isolated, "the log says where it worked");
 }
+
+// ---- a coordinated turn: workers in the background, the lead in the chat ----
+
+/// Run a coordinated turn, approving everything.
+async fn run_team(h: &Harness, conv: ws_context::ConvId) -> Vec<TurnEvent> {
+    let (tx, mut rx) = mpsc::channel(256);
+    let orch = h.orch.clone();
+    let turn =
+        tokio::spawn(async move { orch.run_team_turn(conv, tx, CancellationToken::new()).await });
+    let mut seen = Vec::new();
+    while let Some(e) = rx.recv().await {
+        if let TurnEvent::ApprovalRequired { call_id, .. } = &e {
+            h.orch.resolve_approval(call_id, true);
+        }
+        seen.push(e);
+    }
+    turn.await.unwrap().unwrap();
+    seen
+}
+
+/// The requests one model got, in order.
+fn to_model(h: &Harness, model: &str) -> Vec<ws_context::BackendRequest> {
+    h.backend
+        .requests()
+        .into_iter()
+        .filter(|r| r.model.model_id == model)
+        .collect()
+}
+
+fn later(secs: u64, then: Scripted) -> Scripted {
+    Scripted::Delayed {
+        delay: std::time::Duration::from_secs(secs),
+        then: Box::new(then),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_worker_asks_the_lead_mid_task_and_works_on_with_its_answer() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    let worker = |s| h.backend.script_for("fake-2", s);
+    lead(dispatch("d1", "worker"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::calls(
+        "p1",
+        "post_message",
+        r#"{"text":"use km","to":"worker"}"#,
+    ));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["all done".to_owned()]));
+    worker(Scripted::calls(
+        "q1",
+        "post_message",
+        r#"{"text":"km or mi?","to":"lead"}"#,
+    ));
+    worker(later(
+        10,
+        Scripted::calls("r1", "read_file", r#"{"path":"a.rs"}"#),
+    ));
+    worker(Scripted::Text(vec!["used km".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let (lead, worker) = (to_model(&h, "fake-1"), to_model(&h, "fake-2"));
+    assert_eq!((lead.len(), worker.len()), (5, 3));
+    assert!(
+        lead[0].tools.iter().any(|t| t.name == "wait_for_team"),
+        "the lead is offered wait_for_team"
+    );
+    assert!(
+        heard(&lead[1], "Started worker (d1)"),
+        "dispatch returns at once"
+    );
+    assert!(heard(&lead[2], "km or mi?"), "the lead hears the question");
+    assert!(
+        heard(&worker[2], "from lead (to worker): use km"),
+        "the worker hears the answer before its next step"
+    );
+    assert!(heard(&lead[4], "used km"), "the lead gets the report");
+    assert!(heard(&lead[4], "No one is working now."));
+
+    let lead_said = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .any(|e| matches!(e.kind, ws_context::EventKind::Team(p) if p.from == "lead" && p.text == "use km"));
+    assert!(lead_said, "the lead's message is in the team chat");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_worker_that_finishes_early_frees_the_lead_to_start_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("coder.md"),
+        "---\nname: coder\ndescription: slow\nmodel: fake/fake-9\n---\nYou code.",
+    )
+    .unwrap();
+    let h = harness_with(
+        Vec::new(),
+        Some(Arc::new(ws_core::Agents::load(dir.path()).with_worker())),
+    );
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let start = |id: &str, agent: &str| {
+        (
+            id.to_owned(),
+            "dispatch_agent".to_owned(),
+            serde_json::json!({ "agent": agent, "prompt": "go" }).to_string(),
+        )
+    };
+    let lead = |s| h.backend.script_for("fake-1", s);
+    lead(Scripted::CallsTools(vec![
+        start("d1", "worker"),
+        start("d2", "coder"),
+    ]));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(dispatch("d3", "worker"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::calls("w3", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["all done".to_owned()]));
+    h.backend
+        .script_for("fake-2", Scripted::Text(vec!["d1 done".to_owned()]));
+    h.backend
+        .script_for("fake-2", Scripted::Text(vec!["d3 done".to_owned()]));
+    h.backend.script_for(
+        "fake-9",
+        later(30, Scripted::Text(vec!["d2 done".to_owned()])),
+    );
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let lead = to_model(&h, "fake-1");
+    assert_eq!(lead.len(), 6);
+    assert!(heard(&lead[2], "d1 done") && heard(&lead[2], "Still working: coder (d2)"));
+    assert!(!heard(&lead[2], "d2 done"), "the slow one is still going");
+    assert!(heard(&lead[4], "d3 done") && heard(&lead[4], "Still working: coder (d2)"));
+    assert!(heard(&lead[5], "d2 done") && heard(&lead[5], "No one is working now."));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_lead_that_stops_early_still_waits_for_its_workers() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    h.backend.script_for("fake-1", dispatch("d1", "worker"));
+    h.backend
+        .script_for("fake-1", Scripted::Text(vec!["done already".to_owned()]));
+    h.backend.script_for(
+        "fake-2",
+        later(5, Scripted::Text(vec!["late report".to_owned()])),
+    );
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let reported = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .any(|e| matches!(e.kind, ws_context::EventKind::Team(p) if p.text == "late report"));
+    assert!(
+        reported,
+        "the worker ran to its end, and its report reached the chat"
+    );
+}
+
+#[tokio::test]
+async fn a_coordinated_message_runs_as_a_team() {
+    let h = harness_with(vec![Scripted::Text(vec!["ok".to_owned()])], worker_agents());
+    let conv = h
+        .orch
+        .create_conversation("t", ModelRef::new("fake", "fake-1"))
+        .unwrap();
+    h.orch
+        .append_user_message(
+            conv,
+            vec![
+                Part::text(ws_core::skills::envelope("coordinate", "built-in", "lead")),
+                Part::text("build it"),
+            ],
+        )
+        .unwrap();
+    run(&h, conv, true).await;
+    let first = &h.backend.requests()[0];
+    assert!(first.tools.iter().any(|t| t.name == "wait_for_team"));
+
+    // A plain message to the same chat does not.
+    h.orch
+        .append_user_message(conv, vec![Part::text("thanks")])
+        .unwrap();
+    run(&h, conv, true).await;
+    let second = &h.backend.requests()[1];
+    assert!(!second.tools.iter().any(|t| t.name == "wait_for_team"));
+}

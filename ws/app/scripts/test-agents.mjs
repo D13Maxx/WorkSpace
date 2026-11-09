@@ -92,4 +92,20 @@ assert.deepEqual(
   ],
 );
 
+// A coordinated turn: the dispatch says "Started" at once; null keeps it running.
+w = latestWorkers(t, new Map(), { a: null, b: false }, [], true);
+assert.deepEqual(w.map((x) => x.status), ["working", "done"]);
+
+// The lead's own messages are part of this turn's chat, as "Lead".
+const withLead = teamChat(
+  [
+    { ...line("0", "note", "lead", "", null, "an older turn's"), at: "2026-11-09T10:00:00Z" },
+    line("1", "brief", "lead", "a", "worker", "do a"),
+    { ...line("2", "note", "lead", "", "worker", "use km"), at: "2026-11-10T10:01:00Z" },
+  ],
+  [],
+  two,
+);
+assert.deepEqual(withLead.map((m) => [m.id, m.from]), [["1", "Lead"], ["2", "Lead"]]);
+
 console.log("agent view: ok");

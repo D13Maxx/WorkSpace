@@ -7,6 +7,7 @@ pub mod error;
 pub mod events;
 pub mod profiles;
 pub mod skills;
+mod team;
 pub mod tools;
 pub mod turn;
 

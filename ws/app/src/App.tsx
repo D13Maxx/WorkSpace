@@ -303,12 +303,17 @@ export default function App() {
 
   const busy = streaming !== null;
   // A worker's report reaches the team chat before its batch's results do.
+  // A worker is done when its report lands: in a coordinated turn its
+  // dispatch's tool result only says it started.
   const finished = useMemo(() => {
-    const out: Record<string, boolean> = {};
+    const out: Record<string, boolean | null> = { ...liveResults };
+    for (const l of [...(thread?.team ?? []), ...liveTeam]) {
+      if (l.what === "brief") out[l.dispatch] = null;
+    }
     for (const l of [...(thread?.team ?? []), ...liveTeam]) {
       if (l.what === "report" || l.what === "failed") out[l.dispatch] = l.what === "failed";
     }
-    return { ...out, ...liveResults };
+    return out;
   }, [thread, liveTeam, liveResults]);
   const workers = useMemo(
     () => latestWorkers(thread, helperLogs, finished, approvals, busy),

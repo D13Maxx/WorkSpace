@@ -64,7 +64,7 @@ pub fn save_worker_fallbacks(data_dir: &Path, models: &[ModelRef]) -> std::io::R
 /// root, so a run that stops can be picked up again.
 pub const PLAN_FILE: &str = ".ws/plan.md";
 
-const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part in ONE reply so they run at the same time. Give each worker the full task, its files, and the interfaces it must keep. Workers dispatched in the same reply can message one another with post_message (you cannot), so tell them who else is working and what to settle between themselves. When they report, check the result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch workers again for anything that is wrong. Keep the plan current after every round: it is how a stopped run resumes. Finish with a short summary for the user.";
+const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part: dispatch_agent starts it in the background and returns at once, so they run at the same time. Give each worker the full task, its files, the interfaces it must keep, and who else is working on what. You lead a team chat: workers message one another and you with post_message, and you answer questions, settle disagreements and correct course with post_message too; every running worker reads every message. Call wait_for_team to hear from them: it returns their messages, and their reports as they finish. When a worker reports, check its result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch a worker again for anything that is wrong. Keep the plan current: it is how a stopped run resumes. Do not finish while anyone is still working: keep calling wait_for_team until every worker has reported. Finish with a short summary for the user.";
 
 /// What makes the model the coordinator, with the plan a previous run left.
 #[must_use]
@@ -152,7 +152,7 @@ impl Agents {
             self.list.push(AgentDef {
                 name: WORKER.to_owned(),
                 description: "General coding worker: reads, edits and checks code for one self-contained task.".to_owned(),
-                body: "You are a coding worker. Do exactly the task you were given, in the files it names, and stay out of other files. Read before you edit; check your work (build or run the tests) before you report. Other workers are editing this project at the same time: post_message what you are changing if it touches shared code, and act on messages you receive. Finish with a short report: what you changed, what you checked, and anything left open.".to_owned(),
+                body: "You are a coding worker. Do exactly the task you were given, in the files it names, and stay out of other files. Read before you edit; check your work (build or run the tests) before you report. Other workers are editing this project at the same time: post_message what you are changing if it touches shared code, and act on messages you receive. If you are stuck or a decision is not yours to make, ask the lead with post_message (to: lead) and go on with what you can meanwhile; its answer arrives on its own. Finish with a short report: what you changed, what you checked, and anything left open.".to_owned(),
                 model: None,
             });
             self.list.sort_by(|a, b| a.name.cmp(&b.name));
@@ -218,6 +218,27 @@ pub fn post_spec() -> ToolSpec {
     }
 }
 
+/// The lead's tool for hearing from the workers it started in the background.
+pub const WAIT_FOR_TEAM: &str = "wait_for_team";
+
+#[must_use]
+pub fn wait_spec() -> ToolSpec {
+    ToolSpec {
+        name: WAIT_FOR_TEAM.to_owned(),
+        description: "Wait for news from the workers you started: their messages, questions and reports. Returns as soon as a worker reports or writes to you (to: lead), otherwise after about a minute with whatever they said. Keep calling it until every worker has reported.".to_owned(),
+        input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+    }
+}
+
+/// `post_message` as the lead sees it.
+#[must_use]
+pub fn lead_post_spec() -> ToolSpec {
+    ToolSpec {
+        description: "Message the workers that are running: answer a question, correct a course, or tell everyone something. Every running worker reads it before its next step.".to_owned(),
+        ..post_spec()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
     /// Sender's id: the agent name and the call that started it.
@@ -254,6 +275,23 @@ impl Channel {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&conv);
+    }
+
+    /// Whether a note past `cursor`, not from `me`, matches `pred`; reads nothing.
+    pub fn any_since(
+        &self,
+        conv: ws_context::ConvId,
+        me: &str,
+        cursor: usize,
+        pred: impl Fn(&Note) -> bool,
+    ) -> bool {
+        let map = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        map.get(&conv)
+            .and_then(|all| all.get(cursor..))
+            .is_some_and(|new| new.iter().any(|n| n.from != me && pred(n)))
     }
 
     /// Notes past `cursor` from the others. Every helper reads every note: they

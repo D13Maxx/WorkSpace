@@ -15,14 +15,15 @@
 
 use crate::agents::{
     Agents, Channel, DISPATCH_AGENT, MAX_NOTE_CHARS, MAX_POSTS_PER_HELPER, Note, POST_MESSAGE,
-    post_spec,
+    WAIT_FOR_TEAM, lead_post_spec, post_spec, wait_spec,
 };
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
+use crate::team::{Report, TEAM_WAIT, Team};
 use crate::tools::{ToolHost, ToolOutput};
 use chrono::Utc;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -74,6 +75,9 @@ const MAX_AGENT_ROUNDS: usize = 50;
 /// Helpers dispatched in one reply run side by side, at most this many at a
 /// time (Understand-Anything asks for five).
 const MAX_PARALLEL_AGENTS: usize = 5;
+
+/// The lead's name in the team's messages.
+const LEAD: &str = "lead";
 
 /// Appended to every helper's instructions.
 const AGENT_NOTE: &str = "You are a helper agent dispatched by Workspace. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Change files only with write_file and edit_file, never through shell commands such as sed, so edits stay safe and undoable. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
@@ -218,6 +222,9 @@ pub struct Orchestrator {
     /// How long to wait before each retry of a step whose connection dropped,
     /// as when the laptop sleeps mid-reply. Empty: never retry.
     reconnect_waits: Vec<Duration>,
+    /// Conversations whose turn runs as a team, so the lead is offered
+    /// wait_for_team and post_message.
+    team_convs: Mutex<HashSet<ConvId>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -251,6 +258,7 @@ impl Orchestrator {
             worker_fallbacks: std::sync::RwLock::default(),
             worker_model: std::sync::RwLock::default(),
             reconnect_waits: Vec::new(),
+            team_convs: Mutex::default(),
         }
     }
 
@@ -531,6 +539,7 @@ impl Orchestrator {
         view: &ContextView,
         rendered: RenderedView,
         max_output: u32,
+        team: bool,
     ) -> Result<BackendRequest> {
         let mut blobs = BTreeMap::new();
         for part in rendered.messages.iter().flat_map(|m| &m.parts) {
@@ -586,6 +595,10 @@ impl Orchestrator {
                     let mut specs = host.specs();
                     if let Some(agents) = self.agents.as_ref().filter(|a| !a.is_empty()) {
                         specs.push(agents.spec());
+                        if team {
+                            specs.push(wait_spec());
+                            specs.push(lead_post_spec());
+                        }
                     }
                     specs
                 }
@@ -782,6 +795,66 @@ impl Orchestrator {
         events: mpsc::Sender<TurnEvent>,
         cancel: CancellationToken,
     ) -> Result<MsgId> {
+        // A message sent with Coordinate on, or a reply to it regenerated.
+        if self.coordinated(conv) {
+            return Box::pin(self.run_team_turn(conv, events, cancel)).await;
+        }
+        self.turn_loop(conv, &events, &cancel, None).await
+    }
+
+    /// Whether the latest user message carries the coordinator's instructions.
+    fn coordinated(&self, conv: ConvId) -> bool {
+        self.with_store(|s| Ok(s.load_active_path(conv)?))
+            .ok()
+            .and_then(|path| {
+                let user = path.into_iter().rev().find(|m| m.role == Role::User)?;
+                let first = user.parts.first()?.as_text()?.to_owned();
+                Some(
+                    crate::skills::unwrap_envelope(&first)
+                        .is_some_and(|(name, _)| name == "coordinate"),
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    /// A coordinated turn: the lead's workers run in the background while it
+    /// goes on, it hears from them with `wait_for_team` and writes to them
+    /// with `post_message`. Returns once the lead is done and every worker has
+    /// reported, so a lead that finishes early leaves no work cut off.
+    ///
+    /// # Errors
+    /// As [`Orchestrator::run_turn`].
+    pub async fn run_team_turn(
+        &self,
+        conv: ConvId,
+        events: mpsc::Sender<TurnEvent>,
+        cancel: CancellationToken,
+    ) -> Result<MsgId> {
+        let team = Team::new(&cancel);
+        if let Ok(mut t) = self.team_convs.lock() {
+            t.insert(conv);
+        }
+        let lead = async {
+            let result = self.turn_loop(conv, &events, &cancel, Some(&team)).await;
+            team.close();
+            result
+        };
+        let (result, ()) = tokio::join!(lead, team.drive());
+        if let Ok(mut t) = self.team_convs.lock() {
+            t.remove(&conv);
+        }
+        self.channel.clear(conv);
+        result
+    }
+
+    async fn turn_loop<'s>(
+        &'s self,
+        conv: ConvId,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+        team: Option<&Team<'s>>,
+    ) -> Result<MsgId> {
+        let (events, cancel) = (events.clone(), cancel.clone());
         // Once per turn, so it stays the same across rounds and the provider's
         // prompt cache keeps working; find_symbol covers what changes meanwhile.
         let context = self.tools.as_ref().and_then(|t| t.context());
@@ -794,7 +867,7 @@ impl Orchestrator {
             }
             // Every call gets a result, even after a cancel: a tool call with
             // no result is a request the provider rejects on the next turn.
-            let results = self.run_tools(conv, calls, &events, &cancel).await;
+            let results = self.run_tools(conv, calls, &events, &cancel, team).await;
             self.insert(
                 conv,
                 Some(reply),
@@ -819,18 +892,30 @@ impl Orchestrator {
     }
 
     /// Run each requested tool, asking the user first where the host says to.
-    async fn run_tools(
-        &self,
+    async fn run_tools<'s>(
+        &'s self,
         conv: ConvId,
         calls: Vec<PendingCall>,
         events: &mpsc::Sender<TurnEvent>,
         cancel: &CancellationToken,
+        team: Option<&Team<'s>>,
     ) -> Vec<Part> {
         use futures_util::StreamExt as _;
         // A batch of helpers runs side by side; anything else runs in order,
         // since two edits to one file must not race.
         let helpers = calls.len() > 1 && calls.iter().all(|c| c.name == DISPATCH_AGENT);
-        let outs: Vec<ToolOutput> = if helpers {
+        let outs: Vec<ToolOutput> = if let Some(team) = team {
+            let mut outs = Vec::with_capacity(calls.len());
+            for call in &calls {
+                outs.push(match call.name.as_str() {
+                    DISPATCH_AGENT => self.start_worker(conv, call, events, team),
+                    WAIT_FOR_TEAM => self.wait_for_team(conv, team).await,
+                    POST_MESSAGE => self.lead_post(conv, call, events).await,
+                    _ => self.run_call(conv, call, events, cancel, None, None).await,
+                });
+            }
+            outs
+        } else if helpers {
             // Built up front: a closure inside the stream trips the borrow
             // checker's higher-ranked lifetimes once this future must be Send.
             let runs: Vec<_> = calls
@@ -848,8 +933,11 @@ impl Orchestrator {
             }
             outs
         };
-        // Whatever the helpers said to one another is of no use to the next batch.
-        self.channel.clear(conv);
+        // Whatever the helpers said to one another is of no use to the next
+        // batch. A team's workers outlive a batch: run_team_turn clears it.
+        if team.is_none() {
+            self.channel.clear(conv);
+        }
         let mut parts = Vec::with_capacity(calls.len());
         for (call, out) in calls.into_iter().zip(outs) {
             let _ = events
@@ -866,6 +954,145 @@ impl Orchestrator {
             });
         }
         parts
+    }
+
+    /// Start a worker in the background for the lead, and say so at once.
+    fn start_worker<'s>(
+        &'s self,
+        conv: ConvId,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+        team: &Team<'s>,
+    ) -> ToolOutput {
+        if team.cancel.is_cancelled() {
+            return ToolOutput::error("cancelled by the user before it ran");
+        }
+        let agent = serde_json::from_str::<serde_json::Value>(&call.args)
+            .ok()
+            .and_then(|a| a.get("agent")?.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        if self.agents.as_ref().and_then(|a| a.get(&agent)).is_none() {
+            return ToolOutput::error(format!("there is no agent called {agent}"));
+        }
+        if team.running().len() >= MAX_PARALLEL_AGENTS {
+            return ToolOutput::error(format!(
+                "{MAX_PARALLEL_AGENTS} workers are already running; call wait_for_team until one reports"
+            ));
+        }
+        let id = call.call_id.clone();
+        let (call, events, cancel) = (call.clone(), events.clone(), team.cancel.clone());
+        let name = agent.clone();
+        team.start(
+            id.clone(),
+            agent.clone(),
+            Box::pin(async move {
+                let out = self.run_agent(conv, &call, &events, &cancel).await;
+                Report {
+                    dispatch: call.call_id,
+                    agent: name,
+                    text: out.text,
+                    is_error: out.is_error,
+                }
+            }),
+        );
+        ToolOutput::ok(format!(
+            "Started {agent} ({id}). It works in the background while you go on: call wait_for_team for its messages and its report."
+        ))
+    }
+
+    /// What the team said and reported since the lead last asked, once
+    /// something needs it or a while has passed.
+    async fn wait_for_team(&self, conv: ConvId, team: &Team<'_>) -> ToolOutput {
+        let for_lead = |n: &Note| {
+            n.to.as_deref().is_some_and(|t| {
+                let t = t.to_lowercase();
+                t.contains(LEAD) || t.contains("coordinator")
+            })
+        };
+        let cursor = *team
+            .cursor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        team.settle(TEAM_WAIT, || {
+            self.channel.any_since(conv, LEAD, cursor, for_lead)
+        })
+        .await;
+        let notes = {
+            let mut c = team
+                .cursor
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.channel.unread(conv, LEAD, &mut c)
+        };
+        let reports = team.take_reports();
+        let running = team.running();
+
+        let mut out = String::new();
+        if notes.is_empty() && reports.is_empty() && !running.is_empty() {
+            out.push_str("Nothing new yet. ");
+        }
+        if !notes.is_empty() {
+            out.push_str("Messages:");
+            for n in &notes {
+                let to =
+                    n.to.as_deref()
+                        .map(|t| format!(" (to {t})"))
+                        .unwrap_or_default();
+                out.push_str(&format!("\n- from {}{to}: {}", n.from, n.text));
+            }
+            out.push_str("\n\n");
+        }
+        for r in &reports {
+            let how = if r.is_error { "failed" } else { "reported" };
+            out.push_str(&format!(
+                "{} ({}) {how}:\n{}\n\n",
+                r.agent, r.dispatch, r.text
+            ));
+        }
+        if running.is_empty() {
+            out.push_str("No one is working now.");
+        } else {
+            let names: Vec<String> = running.iter().map(|(d, a)| format!("{a} ({d})")).collect();
+            out.push_str(&format!("Still working: {}.", names.join(", ")));
+        }
+        ToolOutput::ok(out)
+    }
+
+    /// The lead writing to its running workers.
+    async fn lead_post(
+        &self,
+        conv: ConvId,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+    ) -> ToolOutput {
+        let args: serde_json::Value = serde_json::from_str(&call.args).unwrap_or_default();
+        let Some(text) = args["text"].as_str() else {
+            return ToolOutput::error("post_message needs \"text\"");
+        };
+        let to = args["to"].as_str().map(str::to_owned);
+        let note = Note {
+            from: LEAD.to_owned(),
+            to: to.clone(),
+            text: text.to_owned(),
+        };
+        if !self.channel.post(conv, note) {
+            return ToolOutput::error(format!(
+                "you have already posted {MAX_POSTS_PER_HELPER} messages this turn"
+            ));
+        }
+        self.team(
+            conv,
+            events,
+            TeamPost {
+                what: TeamWhat::Note,
+                from: LEAD.to_owned(),
+                dispatch: String::new(),
+                to,
+                text: text.chars().take(MAX_NOTE_CHARS).collect(),
+            },
+        )
+        .await;
+        ToolOutput::ok("sent")
     }
 
     /// Run one call. `helper` is the id of the dispatched agent making it, which
@@ -1663,7 +1890,9 @@ impl Orchestrator {
             .prepare_view(conv, &target, &events, &cancel, context)
             .await?;
         let caps = self.profiles.capabilities(&target);
-        let request = self.assemble_request(&target, &view, rendered, caps.max_output_tokens)?;
+        let team = self.team_convs.lock().is_ok_and(|t| t.contains(&conv));
+        let request =
+            self.assemble_request(&target, &view, rendered, caps.max_output_tokens, team)?;
 
         let _ = events
             .send(TurnEvent::ContextReady {

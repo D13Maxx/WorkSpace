@@ -316,7 +316,7 @@ async fn drive(
     let (tx, mut rx) = mpsc::channel(256);
     let turn = {
         let orch = orch.clone();
-        tokio::spawn(async move { orch.run_turn(conv, tx, cancel).await })
+        tokio::spawn(async move { orch.run_team_turn(conv, tx, cancel).await })
     };
     while let Some(event) = rx.recv().await {
         match event {
@@ -521,30 +521,44 @@ mod tests {
         );
     }
 
+    /// A lead (fake-1) that may write first, starts a worker to write hi.txt,
+    /// waits for it and finishes; the worker (fake-2) writes and reports. Each
+    /// has its own script, since they run at the same time.
+    fn team_script(first: Option<Scripted>, profiles: &Arc<ProfileTable>) -> FakeBackend {
+        let backend = FakeBackend::new("fake", profiles.clone() as Arc<_>);
+        let lead = |s| backend.script_for("fake-1", s);
+        if let Some(s) = first {
+            lead(s);
+        }
+        lead(Scripted::calls(
+            "d1",
+            "dispatch_agent",
+            r#"{"agent":"worker","prompt":"write hi.txt"}"#,
+        ));
+        lead(Scripted::calls("t1", "wait_for_team", "{}"));
+        lead(Scripted::Text(vec!["all done".to_owned()]));
+        backend.script_for(
+            "fake-2",
+            Scripted::calls("w1", "write_file", r#"{"path":"hi.txt","content":"hi\n"}"#),
+        );
+        backend.script_for("fake-2", Scripted::Text(vec!["wrote hi.txt".to_owned()]));
+        backend
+    }
+
     #[tokio::test]
     async fn a_coordinator_run_writes_its_plan_and_has_a_worker_write_a_file() {
         let (db, folder) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let store = Arc::new(Mutex::new(Store::open(db.path().join("ws.db")).unwrap()));
         let blobs = Arc::new(BlobStore::new(db.path().join("blobs")).unwrap());
         let profiles = Arc::new(ProfileTable::new());
-        let backend = FakeBackend::new("fake", profiles.clone() as Arc<_>)
-            .scripted(Scripted::calls(
+        let backend = team_script(
+            Some(Scripted::calls(
                 "p1",
                 "write_file",
                 r#"{"path":".ws/plan.md","content":"- [ ] hi.txt\n"}"#,
-            ))
-            .scripted(Scripted::calls(
-                "d1",
-                "dispatch_agent",
-                r#"{"agent":"worker","prompt":"write hi.txt"}"#,
-            ))
-            .scripted(Scripted::calls(
-                "w1",
-                "write_file",
-                r#"{"path":"hi.txt","content":"hi\n"}"#,
-            ))
-            .scripted(Scripted::Text(vec!["wrote hi.txt".to_owned()]))
-            .scripted(Scripted::Text(vec!["all done".to_owned()]));
+            )),
+            &profiles,
+        );
         let workspace = Arc::new(ws_tools::workspace::Workspace::new(None));
         workspace.set(Some(folder.path().to_string_lossy().into_owned()), None);
         let orch = Arc::new(
@@ -553,6 +567,7 @@ mod tests {
                 .with_tools(Arc::new(ToolSet::new(vec![workspace as Arc<_>])))
                 .with_backend(Arc::new(backend) as Arc<_>),
         );
+        orch.set_worker_model(Some(ModelRef::new("fake", "fake-2")));
         let conv = orch
             .create_conversation("t", ModelRef::new("fake", "fake-1"))
             .unwrap();
@@ -606,19 +621,7 @@ mod tests {
         let store = Arc::new(Mutex::new(Store::open(db.path().join("ws.db")).unwrap()));
         let blobs = Arc::new(BlobStore::new(db.path().join("blobs")).unwrap());
         let profiles = Arc::new(ProfileTable::new());
-        let backend = FakeBackend::new("fake", profiles.clone() as Arc<_>)
-            .scripted(Scripted::calls(
-                "d1",
-                "dispatch_agent",
-                r#"{"agent":"worker","prompt":"write hi.txt"}"#,
-            ))
-            .scripted(Scripted::calls(
-                "w1",
-                "write_file",
-                r#"{"path":"hi.txt","content":"hi\n"}"#,
-            ))
-            .scripted(Scripted::Text(vec!["wrote hi.txt".to_owned()]))
-            .scripted(Scripted::Text(vec!["all done".to_owned()]));
+        let backend = team_script(None, &profiles);
         let workspace = Arc::new(ws_tools::workspace::Workspace::new(None));
         let root = folder.path().to_string_lossy().into_owned();
         workspace.set(Some(root.clone()), None);
@@ -628,6 +631,7 @@ mod tests {
                 .with_tools(Arc::new(ToolSet::new(vec![workspace as Arc<_>])))
                 .with_backend(Arc::new(backend) as Arc<_>),
         );
+        orch.set_worker_model(Some(ModelRef::new("fake", "fake-2")));
         let conv = orch
             .create_conversation("t", ModelRef::new("fake", "fake-1"))
             .unwrap();
