@@ -154,7 +154,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args> {
 /// Whether a tool call goes ahead without asking: `--yes` covers the agent's
 /// own file edits, which can be undone; anything that runs code needs `--yes-all`.
 fn auto_approved(tool: &str, yes: bool, yes_all: bool) -> bool {
-    yes_all || (yes && matches!(tool, "write_file" | "edit_file"))
+    yes_all || (yes && matches!(tool, "write_file" | "edit_file" | "create_folder"))
 }
 
 /// The coordinator and its workers act only through tools, so a model that
@@ -381,6 +381,7 @@ mod tests {
     fn yes_covers_file_edits_but_not_commands() {
         assert!(auto_approved("write_file", true, false));
         assert!(auto_approved("edit_file", true, false));
+        assert!(auto_approved("create_folder", true, false));
         assert!(
             !auto_approved("run_command", true, false),
             "commands still ask"
