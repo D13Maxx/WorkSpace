@@ -963,6 +963,63 @@ async fn a_worker_whose_connection_drops_retries_the_same_model_before_falling_b
     assert_eq!(retries, 1);
 }
 
+/// The worker's models when its first reply is rate limited, with these fallbacks.
+async fn rate_limited_worker(fallbacks: Vec<ModelRef>) -> (Vec<String>, usize) {
+    let h = harness_full(
+        vec![
+            dispatch("d1", "worker"),
+            Scripted::RefusesToStart {
+                error: ws_context::BackendError::Http {
+                    backend: "fake".into(),
+                    status: 429,
+                    message: "Rate limit reached on tokens per minute".to_owned(),
+                },
+            },
+            Scripted::Text(vec!["done".to_owned()]),
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        worker_agents(),
+        vec![std::time::Duration::ZERO],
+    );
+    h.orch.set_worker_fallbacks(fallbacks);
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+    let models = h
+        .backend
+        .requests()
+        .iter()
+        .map(|r| r.model.model_id.clone())
+        .collect();
+    let retries = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .filter(|e| matches!(e, ws_context::HelperEntry::Retry { .. }))
+        .count();
+    (models, retries)
+}
+
+#[tokio::test]
+async fn a_rate_limited_worker_waits_and_retries_when_it_has_nowhere_else_to_go() {
+    let (models, retries) = rate_limited_worker(Vec::new()).await;
+    assert_eq!(models, ["fake-1", "fake-1", "fake-1", "fake-1"]);
+    assert_eq!(retries, 1);
+}
+
+#[tokio::test]
+async fn a_rate_limited_worker_with_a_fallback_moves_on_at_once() {
+    let (models, retries) = rate_limited_worker(vec![ModelRef::new("fake", "fake-2")]).await;
+    assert_eq!(models, ["fake-1", "fake-1", "fake-2", "fake-1"]);
+    assert_eq!(retries, 0);
+}
+
 #[tokio::test]
 async fn a_helper_works_in_its_own_copy_and_the_coordinator_is_told_where_its_changes_are() {
     let h = harness_with(

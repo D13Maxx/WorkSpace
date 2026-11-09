@@ -514,7 +514,7 @@ export default function App() {
               // The cut-off text is kept as a failed sibling; the retry streams fresh.
               text = "";
               setStreaming("");
-              setStatus(`Connection lost. Trying again in ${event.wait_secs} s…`);
+              setStatus(`${event.error.includes("(429)") ? "Rate limited" : "Connection lost"}. Trying again in ${event.wait_secs} s…`);
               void refreshThread(conversation);
               break;
             case "failed":

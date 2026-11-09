@@ -1301,10 +1301,12 @@ impl Orchestrator {
             let mut stop = StopReason::EndTurn;
             let mut failed = None;
             let mut dropped = false;
+            let mut limited = false;
             let mut stream = match backend.stream(request, cancel.clone()).await {
                 Ok(s) => Some(s),
                 Err(e) => {
                     dropped = matches!(e, BackendError::Transport { .. });
+                    limited = e.is_rate_limit();
                     failed = Some(format!("could not start: {e}"));
                     None
                 }
@@ -1339,6 +1341,7 @@ impl Orchestrator {
                     }
                     BackendEvent::Error(e) => {
                         dropped = matches!(e, BackendError::Transport { .. });
+                        limited = e.is_rate_limit();
                         failed = Some(format!("failed: {e}"));
                         break;
                     }
@@ -1350,8 +1353,10 @@ impl Orchestrator {
                     return ToolOutput::error("cancelled by the user");
                 }
                 // A dropped connection is not the model's fault: wait and try
-                // the round again on the same one before falling back.
-                if let Some(&wait) = self.reconnect_waits.get(reconnects).filter(|_| dropped) {
+                // the round again on the same one before falling back. A rate
+                // limit is waited out too, unless a fallback can go on now.
+                let wait_out = dropped || (limited && models.is_empty());
+                if let Some(&wait) = self.reconnect_waits.get(reconnects).filter(|_| wait_out) {
                     reconnects += 1;
                     step(
                         events,
@@ -1602,7 +1607,7 @@ impl Orchestrator {
             {
                 Ok(Step::Done(reply, calls)) => return Ok((reply, calls)),
                 Ok(Step::Dropped { reply, error }) => (error, Ok(reply)),
-                Err(CoreError::Backend(e @ BackendError::Transport { .. })) if may_retry => {
+                Err(CoreError::Backend(e)) if may_retry && e.is_temporary() => {
                     (e.to_string(), Err(e))
                 }
                 Err(e) => return Err(e),
@@ -1669,7 +1674,7 @@ impl Orchestrator {
         let backend = self.backend(&target.backend)?;
         let stream = match backend.stream(request, cancel.clone()).await {
             Ok(s) => s,
-            Err(e @ BackendError::Transport { .. }) if may_retry => return Err(e.into()),
+            Err(e) if may_retry && e.is_temporary() => return Err(e.into()),
             Err(e) => {
                 // Nothing streamed, so nothing to preserve: report and stop.
                 let _ = events
@@ -1753,7 +1758,7 @@ impl Orchestrator {
                     break;
                 }
                 BackendEvent::Error(e) => {
-                    dropped = matches!(e, BackendError::Transport { .. });
+                    dropped = e.is_temporary();
                     failure = Some(e.to_string());
                     break;
                 }

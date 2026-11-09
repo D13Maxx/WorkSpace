@@ -845,3 +845,29 @@ async fn a_refused_request_is_not_retried() {
     );
     assert_eq!(h.backend.requests().len(), 1);
 }
+
+#[tokio::test]
+async fn a_rate_limited_request_is_waited_out_and_tried_again() {
+    let h = retrying(vec![
+        Scripted::RefusesToStart {
+            error: ws_context::BackendError::Http {
+                backend: BACKEND.into(),
+                status: 429,
+                message: "Rate limit reached on tokens per minute".into(),
+            },
+        },
+        Scripted::Text(vec!["answer".into()]),
+    ]);
+    let conv = h.orch.create_conversation("test", model()).unwrap();
+    h.orch
+        .append_user_message(conv, vec![Part::text("hi")])
+        .unwrap();
+    let events = run(&h, conv, CancellationToken::new()).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, TurnEvent::Retrying { error, .. } if error.contains("429")))
+    );
+    assert!(matches!(events.last(), Some(TurnEvent::Completed { .. })));
+    assert_eq!(h.backend.requests().len(), 2);
+}

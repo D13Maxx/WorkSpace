@@ -7,7 +7,7 @@ import { ToolArgs } from "./ToolArgs";
 const LABEL: Record<WorkerStatus, string> = {
   working: "Working",
   "needs-you": "Needs you",
-  retrying: "Reconnecting",
+  retrying: "Waiting to retry",
   done: "Done",
   failed: "Failed",
   stopped: "Stopped",

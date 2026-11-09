@@ -34,7 +34,9 @@ export function Step({ entry, result }: { entry: HelperEntry; result?: Extract<H
     case "retry":
       return (
         <div className="helper-note switched">
-          <span className="muted">Connection lost, trying again in {entry.wait_secs} s</span>
+          <span className="muted">
+            {entry.error.includes("(429)") ? "Rate limited" : "Connection lost"}, trying again in {entry.wait_secs} s
+          </span>
           <pre>{entry.error}</pre>
         </div>
       );

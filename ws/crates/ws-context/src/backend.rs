@@ -140,6 +140,23 @@ impl BackendError {
             Self::MissingApiKey { .. } | Self::Protocol { .. } | Self::Engine(_) => false,
         }
     }
+
+    /// Worth waiting out and trying again later, after the provider's own
+    /// quick retries gave up: the connection dropped (as when a laptop
+    /// sleeps), or the provider is rate limiting (a cheap model's tokens per
+    /// minute run out with a few workers at once; seen in a live run).
+    #[must_use]
+    pub fn is_temporary(&self) -> bool {
+        matches!(
+            self,
+            Self::Transport { .. } | Self::Http { status: 429, .. }
+        )
+    }
+
+    #[must_use]
+    pub fn is_rate_limit(&self) -> bool {
+        matches!(self, Self::Http { status: 429, .. })
+    }
 }
 
 /// One event in a reply stream.
