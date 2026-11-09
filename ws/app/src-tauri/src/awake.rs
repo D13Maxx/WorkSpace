@@ -17,6 +17,10 @@ pub fn hold() -> Awake {
             // Shown by `powercfg /requests`.
             held.1 = keepawake::Builder::default()
                 .idle(true)
+                // Modern Standby laptops enter standby when the idle timer turns
+                // the screen off, whatever system-required says (seen in the
+                // event log mid-turn): only a display request stops that.
+                .display(true)
                 .reason("Agents are working")
                 .app_name("Workspace")
                 .app_reverse_domain("dev.debargha.friday")
