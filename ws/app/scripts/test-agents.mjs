@@ -54,6 +54,17 @@ w = latestWorkers(t, copied, { a: false }, [], false);
 assert.deepEqual(w[0].copy, { root: "C:/p", branch: "ws/a", base: "abc1234", folder: "C:/p/.git/ws-worktrees/a" });
 assert.equal(w[1].copy, null);
 
+// A worker on the worker model shows that model, and a later switch wins.
+const onOwn = new Map([
+  ["a", { dispatch: "a", agent: "worker", entries: [{ kind: "model", name: "groq/llama" }] }],
+  ["b", { dispatch: "b", agent: "reviewer", entries: [
+    { kind: "model", name: "groq/llama" },
+    { kind: "switch", from: "groq/llama", to: "m2", error: "down" },
+  ] }],
+]);
+w = latestWorkers(t, onOwn, {}, [], true);
+assert.deepEqual(w.map((x) => x.model), ["groq/llama", "m2"]);
+
 // The team chat: this turn's lines only, saved then live, named and numbered.
 const two = latestWorkers(
   thread([msg("user"), msg("assistant", { tool_calls: [dispatch("a", "worker"), dispatch("b", "worker")] })]),

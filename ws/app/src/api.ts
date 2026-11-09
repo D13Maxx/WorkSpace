@@ -120,6 +120,8 @@ export type HelperEntry =
   | { kind: "result"; call_id: string; is_error: boolean; text: string }
   /** Notes the other helpers sent it. */
   | { kind: "received"; text: string }
+  /** It works on this model rather than the chat's. */
+  | { kind: "model"; name: string }
   /** Its model failed, so it carried on with the next fallback. */
   | { kind: "switch"; from: string; to: string; error: string }
   /** Its connection dropped, so it tries the same model again. */
@@ -391,6 +393,11 @@ export const api = {
   workerFallbacks: () => invoke<ModelChoice[]>("worker_fallbacks"),
 
   setWorkerFallbacks: (models: ModelChoice[]) => invoke<void>("set_worker_fallbacks", { models }),
+
+  /** The model workers start on; null means the chat's. */
+  workerModel: () => invoke<ModelChoice | null>("worker_model"),
+
+  setWorkerModel: (model: ModelChoice | null) => invoke<void>("set_worker_model", { model }),
 
   listBackends: () => invoke<BackendInfo[]>("list_backends"),
 

@@ -59,7 +59,8 @@ export function latestWorkers(
     const answered = new Set(entries.flatMap((e) => (e.kind === "result" ? [e.call_id] : [])));
     const open = new Set(entries.flatMap((e) => (e.kind === "call" && !answered.has(e.call_id) ? [e.call_id] : [])));
     const waitingOn = approvals.find((a) => open.has(a.callId)) ?? null;
-    const switched = [...entries].reverse().find((e) => e.kind === "switch");
+    // Its latest model: a switch, else the model it started on, else the chat's.
+    const switched = [...entries].reverse().find((e) => e.kind === "switch" || e.kind === "model");
     const isolated = entries.find((e) => e.kind === "isolated");
     const result = dispatch in liveResults ? liveResults[dispatch] : failed.get(dispatch);
 
@@ -74,7 +75,7 @@ export function latestWorkers(
       dispatch,
       agent: log?.agent || arg(args, "agent") || "worker",
       brief: arg(args, "prompt") || args,
-      model: switched?.kind === "switch" ? switched.to : model,
+      model: switched?.kind === "switch" ? switched.to : switched?.kind === "model" ? switched.name : model,
       status,
       steps: entries.filter((e) => e.kind === "call").length,
       entries,

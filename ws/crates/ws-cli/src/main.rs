@@ -13,7 +13,7 @@
 //! A worker whose model fails moves to the next model in the fallback list
 //! set in the app's Settings (`worker-fallbacks.json` in the data folder).
 //!
-//! usage: ws [--yes | --yes-all] [--dir FOLDER] [--model BACKEND/MODEL] [--context TOKENS] [--max-output TOKENS] [--data-dir FOLDER] [TASK...]
+//! usage: ws [--yes | --yes-all] [--dir FOLDER] [--model BACKEND/MODEL] [--worker-model BACKEND/MODEL] [--context TOKENS] [--max-output TOKENS] [--data-dir FOLDER] [TASK...]
 
 // A binary: its own output is the point.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -106,6 +106,8 @@ struct Args {
     dir: std::path::PathBuf,
     data_dir: std::path::PathBuf,
     model: Option<String>,
+    /// What workers start on; else the app's worker model setting, else `model`.
+    worker_model: Option<String>,
     context: Option<u32>,
     max_output: Option<u32>,
     task: String,
@@ -118,6 +120,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args> {
         dir: std::env::current_dir()?,
         data_dir: default_data_dir(),
         model: None,
+        worker_model: None,
         context: None,
         max_output: None,
         task: String::new(),
@@ -144,6 +147,9 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args> {
                 )
             }
             "--model" => out.model = Some(args.next().context("--model needs BACKEND/MODEL")?),
+            "--worker-model" => {
+                out.worker_model = Some(args.next().context("--worker-model needs BACKEND/MODEL")?)
+            }
             _ => task.push(a),
         }
     }
@@ -218,7 +224,7 @@ async fn main() -> Result<()> {
     let plan = std::fs::read_to_string(cli.dir.join(PLAN_FILE)).ok();
     if cli.task.trim().is_empty() && plan.is_none() {
         bail!(
-            "usage: ws [--yes | --yes-all] [--dir FOLDER] [--model BACKEND/MODEL] [--context TOKENS] [--max-output TOKENS] [--data-dir FOLDER] [TASK...]
+            "usage: ws [--yes | --yes-all] [--dir FOLDER] [--model BACKEND/MODEL] [--worker-model BACKEND/MODEL] [--context TOKENS] [--max-output TOKENS] [--data-dir FOLDER] [TASK...]
 (no task given, and no {PLAN_FILE} to continue)"
         );
     }
@@ -265,6 +271,16 @@ async fn main() -> Result<()> {
     }
     // The same list the app's Settings edit; only workers use it.
     orch.set_worker_fallbacks(ws_core::load_worker_fallbacks(&cli.data_dir));
+    let worker_model = match cli.worker_model.as_deref() {
+        Some(m) => {
+            let (b, m) = m
+                .split_once('/')
+                .context("--worker-model must look like BACKEND/MODEL")?;
+            Some(ModelRef::new(b, m))
+        }
+        None => ws_core::load_worker_model(&cli.data_dir),
+    };
+    orch.set_worker_model(worker_model);
     let orch = Arc::new(orch);
 
     let target = ModelRef::new(backend, model);
@@ -372,6 +388,8 @@ mod tests {
             "--yes",
             "--model",
             "groq/x",
+            "--worker-model",
+            "groq/small",
             "--context",
             "9000",
             "add",
@@ -381,6 +399,7 @@ mod tests {
         .unwrap();
         assert!(a.yes);
         assert_eq!(a.model.as_deref(), Some("groq/x"));
+        assert_eq!(a.worker_model.as_deref(), Some("groq/small"));
         assert_eq!(a.context, Some(9000));
         assert_eq!(a.task, "add a readme");
     }

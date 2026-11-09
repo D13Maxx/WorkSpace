@@ -452,6 +452,20 @@ pub fn set_worker_fallbacks(state: State<'_, AppState>, models: Vec<ModelRef>) -
     Ok(())
 }
 
+/// The model workers start on; none means the chat's.
+#[tauri::command]
+pub fn worker_model(state: State<'_, AppState>) -> Option<ModelRef> {
+    ws_core::load_worker_model(&state.data_dir)
+}
+
+/// Save the worker model and use it from the next worker on.
+#[tauri::command]
+pub fn set_worker_model(state: State<'_, AppState>, model: Option<ModelRef>) -> CmdResult<()> {
+    ws_core::save_worker_model(&state.data_dir, model.as_ref()).map_err(err)?;
+    state.orchestrator.set_worker_model(model);
+    Ok(())
+}
+
 /// Regenerate an assistant message as a new sibling (master spec s5.1).
 #[tauri::command]
 pub async fn regenerate(

@@ -15,7 +15,7 @@ pub mod testing;
 
 pub use agents::{
     Agents, PLAN_FILE, coordinator_instructions, coordinator_message, load_worker_fallbacks,
-    save_worker_fallbacks,
+    load_worker_model, save_worker_fallbacks, save_worker_model,
 };
 pub use error::{CoreError, Result};
 pub use events::TurnEvent;

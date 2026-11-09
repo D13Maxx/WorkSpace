@@ -213,6 +213,8 @@ pub enum HelperEntry {
     },
     /// Notes the other helpers sent it.
     Received { text: String },
+    /// It works on this model rather than the chat's.
+    Model { name: String },
     /// Its model failed, so it carried on with the next fallback.
     Switch {
         from: String,

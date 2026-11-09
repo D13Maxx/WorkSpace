@@ -23,6 +23,14 @@ export function Step({ entry, result }: { entry: HelperEntry; result?: Extract<H
           <pre>{entry.error}</pre>
         </div>
       );
+    case "model":
+      return (
+        <div className="helper-note">
+          <span className="muted">
+            Working on <code>{entry.name}</code>
+          </span>
+        </div>
+      );
     case "retry":
       return (
         <div className="helper-note switched">

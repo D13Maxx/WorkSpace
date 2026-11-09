@@ -213,6 +213,8 @@ pub struct Orchestrator {
     /// Models a helper switches to, in order, when its own fails. Never used
     /// for the main turn.
     worker_fallbacks: std::sync::RwLock<Vec<ModelRef>>,
+    /// What helpers start on, unless their agent names a model; none: the chat's.
+    worker_model: std::sync::RwLock<Option<ModelRef>>,
     /// How long to wait before each retry of a step whose connection dropped,
     /// as when the laptop sleeps mid-reply. Empty: never retry.
     reconnect_waits: Vec<Duration>,
@@ -247,6 +249,7 @@ impl Orchestrator {
             file_locks: Mutex::new(HashMap::new()),
             channel: Channel::default(),
             worker_fallbacks: std::sync::RwLock::default(),
+            worker_model: std::sync::RwLock::default(),
             reconnect_waits: Vec::new(),
         }
     }
@@ -292,6 +295,14 @@ impl Orchestrator {
     pub fn set_worker_fallbacks(&self, models: Vec<ModelRef>) {
         if let Ok(mut f) = self.worker_fallbacks.write() {
             *f = models;
+        }
+    }
+
+    /// Set the model helpers start on, so a large model can lead and smaller
+    /// ones do the parts. None: they use the chat's model.
+    pub fn set_worker_model(&self, model: Option<ModelRef>) {
+        if let Ok(mut m) = self.worker_model.write() {
+            *m = model;
         }
     }
 
@@ -1146,11 +1157,17 @@ impl Orchestrator {
         let Some(def) = self.agents.as_ref().and_then(|a| a.get(agent)).cloned() else {
             return ToolOutput::error(format!("there is no agent called {agent}"));
         };
-        let first = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
+        let chat = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
             Ok(Some(c)) => c.current_model,
             _ => return ToolOutput::error("the conversation is gone"),
         };
-        // The chat's model, then the fallbacks: a helper whose model fails in a
+        // Its agent's own model, else the worker model setting, else the chat's.
+        let first = def
+            .model
+            .clone()
+            .or_else(|| self.worker_model.read().ok().and_then(|m| m.clone()))
+            .unwrap_or(chat.clone());
+        // That model, then the fallbacks: a helper whose model fails in a
         // way its provider's retries could not fix moves down this list.
         let mut models: VecDeque<ModelRef> = self
             .worker_fallbacks
@@ -1167,6 +1184,19 @@ impl Orchestrator {
                 first.backend
             ));
         };
+        if target == first && first != chat {
+            // So the user sees which model each helper is on.
+            step(
+                events,
+                call,
+                agent,
+                log,
+                HelperEntry::Model {
+                    name: model_name(&first),
+                },
+            )
+            .await;
+        }
         if target != first {
             step(
                 events,

@@ -245,6 +245,48 @@ function EditorSection() {
   );
 }
 
+/** What workers start on, so a big model can lead and cheaper ones do the parts. */
+function WorkerModelSection({ models }: { models: ModelOption[] }) {
+  const [model, setModel] = useState<ModelChoice | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
+
+  useEffect(() => {
+    api
+      .workerModel()
+      .then(setModel)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const save = (value: string) => {
+    const m = models.find((o) => key(o) === value);
+    const next = m ? { backend: m.backend, model_id: m.model_id } : null;
+    setModel(next);
+    api.setWorkerModel(next).then(() => setError(null), (e) => setError(String(e)));
+  };
+  const known = model === null || models.some((o) => key(o) === key(model));
+
+  return (
+    <section>
+      <h3>Worker model</h3>
+      <p className="muted">
+        The model workers start on when the chat hands them parts of a task. The model you chat
+        with stays the lead. An agent file can name its own with <code>model: backend/model</code>.
+      </p>
+      <select value={model ? key(model) : ""} onChange={(e) => save(e.target.value)} aria-label="Worker model">
+        <option value="">Same as the chat</option>
+        {!known && model && <option value={key(model)}>{key(model)} (not available now)</option>}
+        {models.map((m) => (
+          <option key={key(m)} value={key(m)}>
+            {m.backend} / {m.display_name}
+          </option>
+        ))}
+      </select>
+      {error && <p className="failure">{error}</p>}
+    </section>
+  );
+}
+
 /** Where a worker goes when its model fails: an ordered list, workers only. */
 function FallbackSection({ models }: { models: ModelOption[] }) {
   const [list, setList] = useState<ModelChoice[]>([]);
@@ -534,6 +576,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
+      <WorkerModelSection models={models} />
       <FallbackSection models={models} />
       <CompatSection onChanged={refreshBackends} />
     </aside>

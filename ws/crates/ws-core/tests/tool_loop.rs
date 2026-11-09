@@ -835,6 +835,69 @@ async fn a_worker_whose_model_fails_moves_down_the_fallbacks_and_the_coordinator
 }
 
 #[tokio::test]
+async fn workers_start_on_the_worker_model_and_an_agent_can_name_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("coder.md"),
+        "---\nname: coder\ndescription: writes code\nmodel: fake/fake-9\n---\nYou code.",
+    )
+    .unwrap();
+    let call = |id: &str, agent: &str| {
+        (
+            id.to_owned(),
+            "dispatch_agent".to_owned(),
+            serde_json::json!({ "agent": agent, "prompt": "do it" }).to_string(),
+        )
+    };
+    let h = harness_with(
+        vec![
+            Scripted::CallsTools(vec![call("d1", "worker"), call("d2", "coder")]),
+            Scripted::Text(vec!["worker done".to_owned()]),
+            Scripted::Text(vec!["coder done".to_owned()]),
+            Scripted::Text(vec!["all done".to_owned()]),
+        ],
+        Some(Arc::new(ws_core::Agents::load(dir.path()).with_worker())),
+    );
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let conv = h.conversation();
+    run(&h, conv, true).await;
+
+    let models: Vec<String> = h
+        .backend
+        .requests()
+        .iter()
+        .map(|r| r.model.model_id.clone())
+        .collect();
+    assert_eq!(
+        models,
+        ["fake-1", "fake-2", "fake-9", "fake-1"],
+        "the lead stays on the chat's model; the coder's own model beats the setting"
+    );
+    let shown: Vec<String> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .filter_map(|e| match e {
+            ws_context::HelperEntry::Model { name } => Some(name),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        ["fake/fake-2", "fake/fake-9"],
+        "each worker says which model it is on"
+    );
+}
+
+#[tokio::test]
 async fn the_coordinator_itself_never_falls_back() {
     let h = harness(vec![Scripted::RefusesToStart {
         error: ws_context::BackendError::Http {

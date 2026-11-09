@@ -19,6 +19,27 @@ pub const WORKER: &str = "worker";
 /// the app and the `ws` CLI share them.
 pub const WORKER_FALLBACKS_FILE: &str = "worker-fallbacks.json";
 
+/// The model workers start on instead of the chat's, shared like the fallbacks.
+pub const WORKER_MODEL_FILE: &str = "worker-model.json";
+
+/// The saved worker model; none if unset or unreadable (workers then use the chat's).
+#[must_use]
+pub fn load_worker_model(data_dir: &Path) -> Option<ModelRef> {
+    let path = data_dir.join(WORKER_MODEL_FILE);
+    let text = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&text)
+        .inspect_err(|e| tracing::warn!(error = %e, path = %path.display(), "worker model unreadable; using the chat's"))
+        .ok()
+        .flatten()
+}
+
+/// # Errors
+/// The file cannot be written.
+pub fn save_worker_model(data_dir: &Path, model: Option<&ModelRef>) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(&model).map_err(std::io::Error::other)?;
+    std::fs::write(data_dir.join(WORKER_MODEL_FILE), json)
+}
+
 /// The saved fallback list; empty if there is none or it cannot be read.
 #[must_use]
 pub fn load_worker_fallbacks(data_dir: &Path) -> Vec<ModelRef> {
@@ -79,6 +100,17 @@ pub struct AgentDef {
     pub description: String,
     /// The helper's instructions: its system prompt.
     pub body: String,
+    /// `model: backend/model` in its frontmatter: what it starts on, ahead of
+    /// the worker model setting.
+    pub model: Option<ModelRef>,
+}
+
+/// A frontmatter `model`, if it names one here. Claude Code's `sonnet`,
+/// `opus` or `inherit` name no backend, so they leave the choice to Settings.
+fn agent_model(text: &str) -> Option<ModelRef> {
+    let value = crate::skills::frontmatter_field(text, "model")?;
+    let (backend, model) = value.split_once('/')?;
+    (!backend.is_empty() && !model.is_empty()).then(|| ModelRef::new(backend, model))
 }
 
 #[derive(Debug, Default)]
@@ -98,13 +130,14 @@ impl Agents {
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "md"))
             .filter_map(|p| {
-                let (name, description, body) =
-                    crate::skills::parse(&std::fs::read_to_string(&p).ok()?)?;
+                let text = std::fs::read_to_string(&p).ok()?;
+                let (name, description, body) = crate::skills::parse(&text)?;
                 let stem = p.file_stem()?.to_string_lossy().into_owned();
                 Some(AgentDef {
                     name: name.unwrap_or(stem),
                     description,
                     body,
+                    model: agent_model(&text),
                 })
             })
             .collect();
@@ -120,6 +153,7 @@ impl Agents {
                 name: WORKER.to_owned(),
                 description: "General coding worker: reads, edits and checks code for one self-contained task.".to_owned(),
                 body: "You are a coding worker. Do exactly the task you were given, in the files it names, and stay out of other files. Read before you edit; check your work (build or run the tests) before you report. Other workers are editing this project at the same time: post_message what you are changing if it touches shared code, and act on messages you receive. Finish with a short report: what you changed, what you checked, and anything left open.".to_owned(),
+                model: None,
             });
             self.list.sort_by(|a, b| a.name.cmp(&b.name));
         }
@@ -270,6 +304,38 @@ mine",
         .unwrap();
         let agents = Agents::load(dir.path()).with_worker();
         assert_eq!(agents.get(WORKER).unwrap().body, "mine");
+    }
+
+    #[test]
+    fn an_agent_names_its_model_as_backend_slash_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = |file: &str, model: &str| {
+            std::fs::write(
+                dir.path().join(file),
+                format!("---\nname: {file}\ndescription: d\nmodel: {model}\n---\nbody"),
+            )
+            .unwrap();
+        };
+        agent("coder.md", "openrouter/qwen/qwen3-coder");
+        agent("claude-style.md", "sonnet");
+        let agents = Agents::load(dir.path());
+        assert_eq!(
+            agents.get("coder.md").unwrap().model,
+            Some(ModelRef::new("openrouter", "qwen/qwen3-coder"))
+        );
+        assert_eq!(agents.get("claude-style.md").unwrap().model, None);
+        assert_eq!(agents.get("claude-style.md").unwrap().body, "body");
+    }
+
+    #[test]
+    fn the_worker_model_is_saved_and_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(load_worker_model(dir.path()), None);
+        let m = ModelRef::new("groq", "llama");
+        save_worker_model(dir.path(), Some(&m)).unwrap();
+        assert_eq!(load_worker_model(dir.path()), Some(m));
+        save_worker_model(dir.path(), None).unwrap();
+        assert_eq!(load_worker_model(dir.path()), None);
     }
 
     #[test]

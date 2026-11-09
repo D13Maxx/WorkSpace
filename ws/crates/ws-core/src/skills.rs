@@ -204,6 +204,16 @@ pub(crate) fn parse(text: &str) -> Option<(Option<String>, String, String)> {
     None
 }
 
+/// One frontmatter value of `text`, if it has frontmatter and the key.
+pub(crate) fn frontmatter_field(text: &str, key: &str) -> Option<String> {
+    let mut lines = text.trim_start_matches('\u{feff}').lines();
+    if lines.next()?.trim_end() != "---" {
+        return None;
+    }
+    let front: Vec<&str> = lines.take_while(|l| l.trim_end() != "---").collect();
+    field(&front, key)
+}
+
 fn field(front: &[&str], key: &str) -> Option<String> {
     let start = front.iter().position(|l| {
         l.strip_prefix(key)
