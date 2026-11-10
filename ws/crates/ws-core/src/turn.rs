@@ -14,12 +14,13 @@
 //!   partial text under a status that says what happened.
 
 use crate::agents::{
-    Agents, Channel, DISPATCH_AGENT, MAX_NOTE_CHARS, MAX_POSTS_PER_HELPER, Note, POST_MESSAGE,
-    WAIT_FOR_TEAM, lead_post_spec, post_spec, wait_spec,
+    ASK_USER, Agents, Channel, DISPATCH_AGENT, MAX_NOTE_CHARS, MAX_POSTS_PER_HELPER, Note,
+    POST_MESSAGE, WAIT_FOR_TEAM, ask_spec, lead_post_spec, post_spec, wait_spec,
 };
 use crate::error::{CoreError, Result};
 use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
+use crate::rules::ApprovalRules;
 use crate::team::{Report, TEAM_WAIT, Team};
 use crate::tools::{ToolHost, ToolOutput};
 use chrono::Utc;
@@ -78,6 +79,9 @@ const MAX_PARALLEL_AGENTS: usize = 5;
 
 /// The lead's name in the team's messages.
 const LEAD: &str = "lead";
+
+/// The user's name in the team's messages.
+const USER: &str = "you";
 
 /// Appended to every helper's instructions.
 const AGENT_NOTE: &str = "You are a helper agent dispatched by Workspace. Do the task with your tools, then reply with your final report as plain text; that reply is all the dispatcher sees. Change files only with write_file and edit_file, never through shell commands such as sed, so edits stay safe and undoable. Tools in your instructions may have other names here: Read is read_file, Write is write_file, Edit is edit_file, Grep is search_files, Glob and LS are list_dir, Bash is run_command.";
@@ -225,6 +229,10 @@ pub struct Orchestrator {
     /// Conversations whose turn runs as a team, so the lead is offered
     /// wait_for_team and post_message.
     team_convs: Mutex<HashSet<ConvId>>,
+    /// Routine calls that run without asking, as the user set them.
+    rules: std::sync::RwLock<ApprovalRules>,
+    /// The lead's questions waiting on the user, by call id.
+    questions: Mutex<HashMap<String, oneshot::Sender<String>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -259,6 +267,8 @@ impl Orchestrator {
             worker_model: std::sync::RwLock::default(),
             reconnect_waits: Vec::new(),
             team_convs: Mutex::default(),
+            rules: std::sync::RwLock::default(),
+            questions: Mutex::default(),
         }
     }
 
@@ -294,6 +304,55 @@ impl Orchestrator {
             .ok()
             .and_then(|mut m| m.remove(call_id));
         tx.is_some_and(|tx| tx.send(approved).is_ok())
+    }
+
+    /// Answer the lead's question `call_id`. Returns false if nothing is asking.
+    pub fn answer_question(&self, call_id: &str, answer: String) -> bool {
+        let tx = self
+            .questions
+            .lock()
+            .ok()
+            .and_then(|mut m| m.remove(call_id));
+        tx.is_some_and(|tx| tx.send(answer).is_ok())
+    }
+
+    /// Set which routine calls run without asking.
+    pub fn set_rules(&self, rules: ApprovalRules) {
+        if let Ok(mut r) = self.rules.write() {
+            *r = rules;
+        }
+    }
+
+    /// Tell the team working in `conv` something; the lead and every worker
+    /// read it at their next step. Returns the saved team line's id and time.
+    ///
+    /// # Errors
+    /// No team is working in `conv`, or the line could not be saved.
+    pub fn user_note(&self, conv: ConvId, text: &str) -> Result<(String, chrono::DateTime<Utc>)> {
+        let working = self.team_convs.lock().is_ok_and(|t| t.contains(&conv));
+        if !working {
+            return Err(CoreError::ToolLoop(
+                "no team is working in this chat".to_owned(),
+            ));
+        }
+        let text: String = text.trim().chars().take(MAX_NOTE_CHARS).collect();
+        self.channel.post(
+            conv,
+            Note {
+                from: USER.to_owned(),
+                to: None,
+                text: text.clone(),
+            },
+        );
+        let kind = EventKind::Team(TeamPost {
+            what: TeamWhat::Note,
+            from: USER.to_owned(),
+            dispatch: String::new(),
+            to: None,
+            text,
+        });
+        let id = self.with_store(|s| Ok(s.record_event(conv, None, &kind)?))?;
+        Ok((id.to_string(), Utc::now()))
     }
 
     /// Tools are offered only when there is a host and the target's backend
@@ -598,6 +657,7 @@ impl Orchestrator {
                         if team {
                             specs.push(wait_spec());
                             specs.push(lead_post_spec());
+                            specs.push(ask_spec());
                         }
                     }
                     specs
@@ -911,6 +971,7 @@ impl Orchestrator {
                     DISPATCH_AGENT => self.start_worker(conv, call, events, team),
                     WAIT_FOR_TEAM => self.wait_for_team(conv, team).await,
                     POST_MESSAGE => self.lead_post(conv, call, events).await,
+                    ASK_USER => self.ask_user(conv, call, events, cancel).await,
                     _ => self.run_call(conv, call, events, cancel, None, None).await,
                 });
             }
@@ -1003,11 +1064,13 @@ impl Orchestrator {
     /// What the team said and reported since the lead last asked, once
     /// something needs it or a while has passed.
     async fn wait_for_team(&self, conv: ConvId, team: &Team<'_>) -> ToolOutput {
+        // Whatever the user says, and what workers address to the lead.
         let for_lead = |n: &Note| {
-            n.to.as_deref().is_some_and(|t| {
-                let t = t.to_lowercase();
-                t.contains(LEAD) || t.contains("coordinator")
-            })
+            n.from == USER
+                || n.to.as_deref().is_some_and(|t| {
+                    let t = t.to_lowercase();
+                    t.contains(LEAD) || t.contains("coordinator")
+                })
         };
         let cursor = *team
             .cursor
@@ -1056,6 +1119,54 @@ impl Orchestrator {
             out.push_str(&format!("Still working: {}.", names.join(", ")));
         }
         ToolOutput::ok(out)
+    }
+
+    /// The lead asking the user, waiting for the answer; workers go on meanwhile.
+    async fn ask_user(
+        &self,
+        conv: ConvId,
+        call: &PendingCall,
+        events: &mpsc::Sender<TurnEvent>,
+        cancel: &CancellationToken,
+    ) -> ToolOutput {
+        let args: serde_json::Value = serde_json::from_str(&call.args).unwrap_or_default();
+        let Some(question) = args["question"].as_str().map(str::to_owned) else {
+            return ToolOutput::error("ask_user needs \"question\"");
+        };
+        let post = |what, from: &str, text: &str| TeamPost {
+            what,
+            from: from.to_owned(),
+            dispatch: String::new(),
+            to: None,
+            text: text.to_owned(),
+        };
+        let (tx, rx) = oneshot::channel();
+        if let Ok(mut m) = self.questions.lock() {
+            m.insert(call.call_id.clone(), tx);
+        }
+        self.team(conv, events, post(TeamWhat::Question, LEAD, &question))
+            .await;
+        let _ = events
+            .send(TurnEvent::Question {
+                call_id: call.call_id.clone(),
+                text: question,
+            })
+            .await;
+        let answer = tokio::select! {
+            a = rx => a.ok(),
+            () = cancel.cancelled() => None,
+        };
+        if let Ok(mut m) = self.questions.lock() {
+            m.remove(&call.call_id);
+        }
+        match answer {
+            Some(answer) => {
+                self.team(conv, events, post(TeamWhat::Answer, USER, &answer))
+                    .await;
+                ToolOutput::ok(answer)
+            }
+            None => ToolOutput::error("cancelled by the user before answering"),
+        }
     }
 
     /// The lead writing to its running workers.
@@ -1159,7 +1270,8 @@ impl Orchestrator {
             };
         }
 
-        if host.needs_approval(&call.name) {
+        let allowed = self.rules.read().is_ok_and(|r| r.allows(&call.name, &args));
+        if host.needs_approval(&call.name) && !allowed {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut m) = self.approvals.lock() {
                 m.insert(call.call_id.clone(), tx);

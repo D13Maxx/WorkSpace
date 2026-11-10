@@ -108,4 +108,17 @@ const withLead = teamChat(
 );
 assert.deepEqual(withLead.map((m) => [m.id, m.from]), [["1", "Lead"], ["2", "Lead"]]);
 
+// The user's lines and the lead's questions, named for the chat.
+const asked = teamChat(
+  [
+    line("1", "brief", "lead", "a", "worker", "do a"),
+    line("2", "question", "lead", "", null, "Delete the old parser?"),
+    line("3", "answer", "you", "", null, "yes"),
+    line("4", "note", "you", "", null, "use metric"),
+  ],
+  [],
+  two,
+);
+assert.deepEqual(asked.slice(1).map((m) => [m.from, m.to]), [["Lead", "You"], ["You", "Lead"], ["You", "everyone"]]);
+
 console.log("agent view: ok");

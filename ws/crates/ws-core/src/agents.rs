@@ -64,7 +64,7 @@ pub fn save_worker_fallbacks(data_dir: &Path, models: &[ModelRef]) -> std::io::R
 /// root, so a run that stops can be picked up again.
 pub const PLAN_FILE: &str = ".ws/plan.md";
 
-const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part: dispatch_agent starts it in the background and returns at once, so they run at the same time. Give each worker the full task, its files, the interfaces it must keep, and who else is working on what. You lead a team chat: workers message one another and you with post_message, and you answer questions, settle disagreements and correct course with post_message too; every running worker reads every message. Call wait_for_team to hear from them: it returns their messages, and their reports as they finish. When a worker reports, check its result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch a worker again for anything that is wrong. Keep the plan current: it is how a stopped run resumes. Do not finish while anyone is still working: keep calling wait_for_team until every worker has reported. Finish with a short summary for the user.";
+const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part: dispatch_agent starts it in the background and returns at once, so they run at the same time. Give each worker the full task, its files, the interfaces it must keep, and who else is working on what. You lead a team chat: workers message one another and you with post_message, and you answer questions, settle disagreements and correct course with post_message too; every running worker reads every message. Call wait_for_team to hear from them: it returns their messages, and their reports as they finish. When a worker reports, check its result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch a worker again for anything that is wrong. Keep the plan current: it is how a stopped run resumes. Messages from the user (from: you) also arrive through wait_for_team: they come first. Decide routine things yourself; use ask_user only at a milestone worth a check, or for a decision that is the user's (something destructive, outside the task, or a real choice between approaches). Do not finish while anyone is still working: keep calling wait_for_team until every worker has reported. Finish with a short summary for the user.";
 
 /// What makes the model the coordinator, with the plan a previous run left.
 #[must_use]
@@ -227,6 +227,22 @@ pub fn wait_spec() -> ToolSpec {
         name: WAIT_FOR_TEAM.to_owned(),
         description: "Wait for news from the workers you started: their messages, questions and reports. Returns as soon as a worker reports or writes to you (to: lead), otherwise after about a minute with whatever they said. Keep calling it until every worker has reported.".to_owned(),
         input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+    }
+}
+
+/// The lead's tool for asking the user, for a checkpoint or a decision.
+pub const ASK_USER: &str = "ask_user";
+
+#[must_use]
+pub fn ask_spec() -> ToolSpec {
+    ToolSpec {
+        name: ASK_USER.to_owned(),
+        description: "Ask the user and wait for their answer. Use it only at a milestone, or for a decision that is theirs: something destructive, outside the task, or a real choice between approaches. Workers keep going while you wait. Otherwise decide yourself.".to_owned(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": { "question": {"type": "string"} },
+            "required": ["question"]
+        }),
     }
 }
 

@@ -81,6 +81,13 @@ pub enum TurnEvent {
         entry: HelperEntry,
     },
 
+    /// The lead asks the user something during a coordinated turn and waits;
+    /// answer with `Orchestrator::answer_question`.
+    Question {
+        call_id: String,
+        text: String,
+    },
+
     /// A line of the team chat, already saved as event `id`.
     Team {
         id: String,

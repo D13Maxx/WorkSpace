@@ -281,6 +281,7 @@ async fn main() -> Result<()> {
         None => ws_core::load_worker_model(&cli.data_dir),
     };
     orch.set_worker_model(worker_model);
+    orch.set_rules(ws_core::rules::load_rules(&cli.data_dir));
     let orch = Arc::new(orch);
 
     let target = ModelRef::new(backend, model);
@@ -358,6 +359,21 @@ async fn drive(
                 post.to.as_deref().unwrap_or("everyone"),
                 post.text.trim()
             ),
+            TurnEvent::Question { call_id, text } => {
+                eprint!("\nthe lead asks: {}\n> ", text.trim());
+                let _ = std::io::stderr().flush();
+                let answer = tokio::task::spawn_blocking(|| {
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line).map(|_| line)
+                })
+                .await;
+                let answer = match answer {
+                    Ok(Ok(line)) if !line.trim().is_empty() => line.trim().to_owned(),
+                    // No one at the keyboard: the lead decides itself.
+                    _ => "No answer; decide yourself.".to_owned(),
+                };
+                orch.answer_question(&call_id, answer);
+            }
             TurnEvent::Failed { error, .. } => eprintln!("\nfailed: {error}"),
             _ => {}
         }

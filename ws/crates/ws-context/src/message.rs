@@ -190,6 +190,10 @@ pub struct TeamPost {
 #[serde(rename_all = "snake_case")]
 pub enum TeamWhat {
     Brief,
+    /// The lead asking the user, who must answer before it goes on.
+    Question,
+    /// The user's answer to a question.
+    Answer,
     Note,
     Report,
     Failed,

@@ -99,12 +99,20 @@ export interface Thread {
   team: TeamLine[];
 }
 
+/** Routine calls that run without asking. */
+export interface ApprovalRules {
+  /** Edits inside the project folder; each can be undone. */
+  edits: boolean;
+  /** Commands allowed as written or followed by arguments, e.g. "cargo test". */
+  commands: string[];
+}
+
 /** One line of the team chat: the lead's brief, a helper's message, or its report. */
 export interface TeamLine {
   id: string;
   /** RFC 3339. */
   at: string;
-  what: "brief" | "note" | "report" | "failed";
+  what: "brief" | "note" | "report" | "failed" | "question" | "answer";
   /** "lead", or the helper's agent name. */
   from: string;
   /** The dispatch_agent call of the helper it is from, or for. */
@@ -241,6 +249,8 @@ export type TurnEvent =
   | { type: "tool_result"; call_id: string; is_error: boolean; text: string }
   | { type: "helper_step"; dispatch: string; agent: string; entry: HelperEntry }
   | ({ type: "team" } & TeamLine)
+  /** The lead asks the user something and waits for answerQuestion. */
+  | { type: "question"; call_id: string; text: string }
   | { type: "completed"; message: string; stop_reason: unknown }
   /** The connection dropped (as when the laptop slept); the step starts again as a new reply. */
   | { type: "retrying"; error: string; wait_secs: number }
@@ -437,6 +447,16 @@ export const api = {
 
   resolveApproval: (callId: string, approved: boolean) =>
     invoke<boolean>("resolve_approval", { callId, approved }),
+
+  answerQuestion: (callId: string, answer: string) =>
+    invoke<boolean>("answer_question", { callId, answer }),
+
+  /** Tell the team working in a chat something, mid-run; returns the saved line. */
+  teamNote: (conversation: string, text: string) => invoke<TeamLine>("team_note", { conversation, text }),
+
+  approvalRules: () => invoke<ApprovalRules>("approval_rules"),
+
+  setApprovalRules: (rules: ApprovalRules) => invoke<void>("set_approval_rules", { rules }),
 
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
 

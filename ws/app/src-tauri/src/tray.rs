@@ -69,6 +69,18 @@ pub fn show_main(app: &AppHandle) {
     let _ = app.remove_tray_by_id(TRAY);
 }
 
+/// The agents are waiting on the user (an approval or a question): bring a
+/// window hidden in the tray back, and flash it in the taskbar.
+pub fn need_you(app: &AppHandle) {
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    if !main.is_visible().unwrap_or(true) {
+        show_main(app);
+    }
+    let _ = main.request_user_attention(Some(tauri::UserAttentionType::Critical));
+}
+
 /// After a turn ends: quit if the window was hidden and nothing else runs.
 pub fn quit_if_done(app: &AppHandle) {
     let hidden = app

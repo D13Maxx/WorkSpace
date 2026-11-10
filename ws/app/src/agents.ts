@@ -126,12 +126,16 @@ export function teamChat(saved: TeamLine[], live: TeamLine[], workers: Worker[])
   const labels = workerLabels(workers);
   // The lead's own messages belong to no worker: kept from this turn's first line on.
   const first = saved.find((l) => labels.has(l.dispatch))?.at;
-  const kept = saved.filter((l) => labels.has(l.dispatch) || (l.from === "lead" && first !== undefined && l.at >= first));
+  const kept = saved.filter(
+    (l) => labels.has(l.dispatch) || ((l.from === "lead" || l.from === "you") && first !== undefined && l.at >= first),
+  );
   const ids = new Set(kept.map((l) => l.id));
   const lines = [...kept, ...live.filter((l) => !ids.has(l.id))];
   const name = (dispatch: string, fallback: string) => labels.get(dispatch) ?? fallback;
   // A note's `to` is whatever the worker wrote: a name, an id, or "name (id)".
-  const target = (to: string | null) => {
+  const target = (to: string | null, what: TeamLine["what"]) => {
+    if (what === "question") return "You";
+    if (what === "answer") return "Lead";
     if (to === null) return "everyone";
     if (to === "lead") return "Lead";
     for (const [dispatch, label] of labels) if (to.includes(dispatch)) return label;
@@ -141,9 +145,9 @@ export function teamChat(saved: TeamLine[], live: TeamLine[], workers: Worker[])
     id: l.id,
     at: l.at,
     what: l.what,
-    from: l.what === "brief" || l.from === "lead" ? "Lead" : name(l.dispatch, l.from),
+    from: l.what === "brief" || l.from === "lead" ? "Lead" : l.from === "you" ? "You" : name(l.dispatch, l.from),
     dispatch: l.dispatch,
-    to: l.what === "brief" ? name(l.dispatch, l.to ?? "worker") : target(l.to),
+    to: l.what === "brief" ? name(l.dispatch, l.to ?? "worker") : target(l.to, l.what),
     text: l.text,
   }));
 }

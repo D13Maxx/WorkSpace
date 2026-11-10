@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   ask,
+  type ApprovalRules,
   type BackendInfo,
   type CompatProvider,
   type ModelChoice,
@@ -241,6 +242,65 @@ function EditorSection() {
         Normal, insert and visual modes, motions, operators, text objects, registers, macros and
         marks; <code>:w</code> saves. Applies to open files straight away.
       </p>
+    </section>
+  );
+}
+
+/** Routine calls that run without asking: fixed rules, not the model's say-so. */
+function ApprovalRulesSection() {
+  const [rules, setRules] = useState<ApprovalRules | null>(null);
+  const [commands, setCommands] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .approvalRules()
+      .then((r) => {
+        setRules(r);
+        setCommands(r.commands.join("\n"));
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const save = (next: ApprovalRules) => {
+    setRules(next);
+    api.setApprovalRules(next).then(() => setError(null), (e) => setError(String(e)));
+  };
+  if (!rules) return error ? <p className="failure">{error}</p> : null;
+
+  return (
+    <section>
+      <h3>Approval rules</h3>
+      <p className="muted">
+        What agents may do without asking you, in any chat. Everything else still asks.
+      </p>
+      <label className="row">
+        <input type="checkbox" checked={rules.edits} onChange={(e) => save({ ...rules, edits: e.target.checked })} />
+        Edit files inside the project (each edit is recorded and can be undone)
+      </label>
+      <p className="muted">
+        Commands that run without asking, one per line, as written or followed by arguments:{" "}
+        <code>cargo test</code> also covers <code>cargo test -p core</code>. A command with
+        quotes, pipes, <code>;</code>, <code>&amp;</code>, <code>&gt;</code>, <code>$</code> or
+        similar always asks, so nothing can ride along.
+      </p>
+      <textarea
+        value={commands}
+        onChange={(e) => setCommands(e.target.value)}
+        onBlur={() =>
+          save({
+            ...rules,
+            commands: commands
+              .split("\n")
+              .map((c) => c.trim())
+              .filter(Boolean),
+          })
+        }
+        rows={4}
+        placeholder={"cargo test\nnpm test"}
+        aria-label="Commands that run without asking"
+      />
+      {error && <p className="failure">{error}</p>}
     </section>
   );
 }
@@ -576,6 +636,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
+      <ApprovalRulesSection />
       <WorkerModelSection models={models} />
       <FallbackSection models={models} />
       <CompatSection onChanged={refreshBackends} />

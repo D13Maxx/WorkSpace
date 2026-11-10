@@ -102,6 +102,12 @@ export default function App() {
     void api.resolveApproval(callId, approved);
     setApprovals((q) => q.filter((a) => a.callId !== callId));
   };
+  // The lead's questions waiting on the user, answered in the team chat.
+  const [questions, setQuestions] = useState<{ callId: string; text: string }[]>([]);
+  const reply = (callId: string, text: string) => {
+    void api.answerQuestion(callId, text);
+    setQuestions((q) => q.filter((x) => x.callId !== callId));
+  };
 
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspectorView, setInspectorView] = useState<ContextView | null>(null);
@@ -319,7 +325,7 @@ export default function App() {
     () => latestWorkers(thread, helperLogs, finished, approvals, busy),
     [thread, helperLogs, finished, approvals, busy],
   );
-  const needYou = workers.filter((w) => w.status === "needs-you").length;
+  const needYou = workers.filter((w) => w.status === "needs-you").length + questions.length;
   const team = useMemo(() => teamChat(thread?.team ?? [], liveTeam, workers), [thread, liveTeam, workers]);
 
   const commandList: Command[] = [
@@ -437,6 +443,7 @@ export default function App() {
       setLiveHelpers({});
       setLiveResults({});
       setLiveTeam([]);
+      setQuestions([]);
 
       let text = "";
       let reasoned = "";
@@ -500,6 +507,9 @@ export default function App() {
               setLiveTeam((lines) => [...lines, line]);
               break;
             }
+            case "question":
+              setQuestions((q) => [...q, { callId: event.call_id, text: event.text }]);
+              break;
             case "tool_result":
               setLiveResults((r) => ({ ...r, [event.call_id]: event.is_error }));
               setStatus(null);
@@ -768,6 +778,16 @@ export default function App() {
           <AgentView
             workers={workers}
             team={team}
+            questions={questions}
+            onReply={reply}
+            onNote={
+              busy && active
+                ? async (text) => {
+                    const line = await api.teamNote(active, text);
+                    setLiveTeam((lines) => [...lines, line]);
+                  }
+                : undefined
+            }
             onAnswer={answer}
             onMerged={() => {
               setFileVersion((v) => v + 1);

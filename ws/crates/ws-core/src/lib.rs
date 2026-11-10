@@ -6,6 +6,7 @@ pub mod edits;
 pub mod error;
 pub mod events;
 pub mod profiles;
+pub mod rules;
 pub mod skills;
 mod team;
 pub mod tools;

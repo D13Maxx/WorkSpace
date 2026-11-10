@@ -1079,6 +1079,9 @@ async fn run_team(h: &Harness, conv: ws_context::ConvId) -> Vec<TurnEvent> {
         if let TurnEvent::ApprovalRequired { call_id, .. } = &e {
             h.orch.resolve_approval(call_id, true);
         }
+        if let TurnEvent::Question { call_id, .. } = &e {
+            assert!(h.orch.answer_question(call_id, "go ahead".to_owned()));
+        }
         seen.push(e);
     }
     turn.await.unwrap().unwrap();
@@ -1265,4 +1268,132 @@ async fn a_coordinated_message_runs_as_a_team() {
     run(&h, conv, true).await;
     let second = &h.backend.requests()[1];
     assert!(!second.tools.iter().any(|t| t.name == "wait_for_team"));
+}
+
+#[tokio::test]
+async fn rules_let_routine_calls_run_without_asking() {
+    let h = harness(vec![
+        Scripted::calls("w1", "write_file", r#"{"path":"a.rs"}"#),
+        Scripted::Text(vec!["done".to_owned()]),
+    ]);
+    h.orch.set_rules(ws_core::rules::ApprovalRules {
+        edits: true,
+        commands: Vec::new(),
+    });
+    let conv = h.conversation();
+    // Declining every approval: the write must not have needed one.
+    let events = run(&h, conv, false).await;
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, TurnEvent::ApprovalRequired { .. }))
+    );
+    assert_eq!(h.tools.calls.lock().unwrap().len(), 1, "it ran");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_lead_asks_the_user_while_workers_go_on() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    lead(dispatch("d1", "worker"));
+    lead(Scripted::calls(
+        "a1",
+        "ask_user",
+        r#"{"question":"Delete the old parser?"}"#,
+    ));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["all done".to_owned()]));
+    h.backend
+        .script_for("fake-2", Scripted::Text(vec!["worker done".to_owned()]));
+    let conv = h.conversation();
+    let events = run_team(&h, conv).await;
+
+    assert!(events.iter().any(
+        |e| matches!(e, TurnEvent::Question { text, .. } if text == "Delete the old parser?")
+    ));
+    let lead = to_model(&h, "fake-1");
+    assert!(
+        heard(&lead[2], "go ahead"),
+        "the answer is the tool's result"
+    );
+    assert!(lead[0].tools.iter().any(|t| t.name == "ask_user"));
+    let said: Vec<(ws_context::TeamWhat, String)> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| match e.kind {
+            ws_context::EventKind::Team(p)
+                if matches!(
+                    p.what,
+                    ws_context::TeamWhat::Question | ws_context::TeamWhat::Answer
+                ) =>
+            {
+                Some((p.what, p.text))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (
+                ws_context::TeamWhat::Question,
+                "Delete the old parser?".to_owned()
+            ),
+            (ws_context::TeamWhat::Answer, "go ahead".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_note_from_the_user_reaches_the_lead_and_the_workers() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    lead(dispatch("d1", "worker"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["all done".to_owned()]));
+    let worker = |s| h.backend.script_for("fake-2", s);
+    worker(later(
+        5,
+        Scripted::calls("r1", "read_file", r#"{"path":"a.rs"}"#),
+    ));
+    worker(later(5, Scripted::Text(vec!["worker done".to_owned()])));
+    let conv = h.conversation();
+    assert!(
+        h.orch.user_note(conv, "no team yet").is_err(),
+        "nothing to tell before a team runs"
+    );
+
+    let (tx, mut rx) = mpsc::channel(256);
+    let orch = h.orch.clone();
+    let turn =
+        tokio::spawn(async move { orch.run_team_turn(conv, tx, CancellationToken::new()).await });
+    let mut told = false;
+    while let Some(e) = rx.recv().await {
+        if !told
+            && matches!(&e, TurnEvent::Team { post, .. } if post.what == ws_context::TeamWhat::Brief)
+        {
+            h.orch.user_note(conv, "use metric units").unwrap();
+            told = true;
+        }
+    }
+    turn.await.unwrap().unwrap();
+
+    let (lead, worker) = (to_model(&h, "fake-1"), to_model(&h, "fake-2"));
+    assert!(
+        heard(&lead[2], "from you: use metric units"),
+        "the lead hears it first"
+    );
+    assert!(
+        heard(&worker[1], "from you: use metric units"),
+        "and so do the workers"
+    );
 }

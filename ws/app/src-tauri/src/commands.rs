@@ -495,8 +495,15 @@ async fn stream_turn(
     let orchestrator = state.orchestrator.clone();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<TurnEvent>(256);
+    let handle = app.clone();
     let forward = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
+            if matches!(
+                event,
+                TurnEvent::ApprovalRequired { .. } | TurnEvent::Question { .. }
+            ) {
+                crate::tray::need_you(&handle);
+            }
             // A send failure means the window is gone; the turn still finishes
             // and persists, so nothing is lost.
             if on_event.send(event).is_err() {
@@ -978,6 +985,55 @@ pub async fn local_model_status(state: State<'_, AppState>) -> CmdResult<Option<
 #[tauri::command]
 pub fn resolve_approval(state: State<'_, AppState>, call_id: String, approved: bool) -> bool {
     state.orchestrator.resolve_approval(&call_id, approved)
+}
+
+/// Answer the lead's question. False if it is no longer asking.
+#[tauri::command]
+pub fn answer_question(state: State<'_, AppState>, call_id: String, answer: String) -> bool {
+    state.orchestrator.answer_question(&call_id, answer)
+}
+
+/// Tell the team working in a chat something, mid-run. Returns the team
+/// chat line, saved, so the window shows it at once.
+#[tauri::command]
+pub fn team_note(
+    state: State<'_, AppState>,
+    conversation: String,
+    text: String,
+) -> CmdResult<TeamLine> {
+    let conv = conv_id(&conversation)?;
+    if text.trim().is_empty() {
+        return Err("write something to tell the team".to_owned());
+    }
+    let (id, at) = state.orchestrator.user_note(conv, &text).map_err(err)?;
+    Ok(TeamLine {
+        id,
+        at,
+        post: ws_context::TeamPost {
+            what: ws_context::TeamWhat::Note,
+            from: "you".to_owned(),
+            dispatch: String::new(),
+            to: None,
+            text: text.trim().to_owned(),
+        },
+    })
+}
+
+/// Which routine calls run without asking.
+#[tauri::command]
+pub fn approval_rules(state: State<'_, AppState>) -> ws_core::rules::ApprovalRules {
+    ws_core::rules::load_rules(&state.data_dir)
+}
+
+/// Save the rules and use them from the next call on.
+#[tauri::command]
+pub fn set_approval_rules(
+    state: State<'_, AppState>,
+    rules: ws_core::rules::ApprovalRules,
+) -> CmdResult<()> {
+    ws_core::rules::save_rules(&state.data_dir, &rules).map_err(err)?;
+    state.orchestrator.set_rules(rules);
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]

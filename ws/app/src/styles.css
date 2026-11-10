@@ -2691,3 +2691,32 @@ body.resizing-v {
 .linklike:hover {
   text-decoration: underline;
 }
+.team-line.question {
+  border-left-color: var(--danger);
+}
+.team-what.question {
+  color: var(--danger);
+}
+.team-question textarea,
+.team-say textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+.team-say {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+.team-say textarea {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.team-say .failure {
+  flex-basis: 100%;
+  margin: 0;
+}

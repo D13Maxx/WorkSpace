@@ -17,12 +17,20 @@ const LABEL: Record<WorkerStatus, string> = {
 export function AgentView({
   workers,
   team,
+  questions,
+  onReply,
+  onNote,
   onAnswer,
   onMerged,
   onClose,
 }: {
   workers: Worker[];
   team: TeamItem[];
+  /** The lead's questions waiting on the user. */
+  questions: { callId: string; text: string }[];
+  onReply: (callId: string, text: string) => void;
+  /** Tell the team something; only while a team is working. */
+  onNote?: (text: string) => Promise<void>;
   onAnswer: (callId: string, approved: boolean) => void;
   /** A helper's changes reached the project's files. */
   onMerged: () => void;
@@ -68,7 +76,16 @@ export function AgentView({
           <p>No agents yet. When the chat hands work to helpers, each one shows here as it runs.</p>
         </div>
       ) : tab === "team" ? (
-        <TeamChat items={team} workers={workers} labels={labels} onAnswer={onAnswer} onOpen={openPane} />
+        <TeamChat
+          items={team}
+          workers={workers}
+          labels={labels}
+          questions={questions}
+          onReply={onReply}
+          onNote={onNote}
+          onAnswer={onAnswer}
+          onOpen={openPane}
+        />
       ) : (
         <div className="agent-grid">
           {workers.map((w) => (
@@ -80,19 +97,32 @@ export function AgentView({
   );
 }
 
-const WHAT: Record<TeamItem["what"], string> = { brief: "brief", note: "", report: "report", failed: "failed" };
+const WHAT: Record<TeamItem["what"], string> = {
+  brief: "brief",
+  note: "",
+  report: "report",
+  failed: "failed",
+  question: "question",
+  answer: "answer",
+};
 
 /** What the team said, in order, following new lines unless the user scrolled up. */
 function TeamChat({
   items,
   workers,
   labels,
+  questions,
+  onReply,
+  onNote,
   onAnswer,
   onOpen,
 }: {
   items: TeamItem[];
   workers: Worker[];
   labels: Map<string, string>;
+  questions: { callId: string; text: string }[];
+  onReply: (callId: string, text: string) => void;
+  onNote?: (text: string) => Promise<void>;
   onAnswer: (callId: string, approved: boolean) => void;
   onOpen: (dispatch: string) => void;
 }) {
@@ -102,10 +132,11 @@ function TeamChat({
   useEffect(() => {
     const el = box.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  }, [items.length, waiting.length]);
+  }, [items.length, waiting.length, questions.length]);
   const working = workers.filter((w) => w.status === "working" || w.status === "retrying");
 
   return (
+    <>
     <div
       className="team-chat"
       ref={box}
@@ -119,9 +150,13 @@ function TeamChat({
       {items.map((m) => (
         <article key={m.id} className={`team-line ${m.what} ${m.from === "Lead" ? "lead" : ""}`}>
           <header>
-            <button className="linklike team-who" onClick={() => onOpen(m.dispatch)} title="Open this worker's pane">
-              {m.from}
-            </button>
+            {m.dispatch ? (
+              <button className="linklike team-who" onClick={() => onOpen(m.dispatch)} title="Open this worker's pane">
+                {m.from}
+              </button>
+            ) : (
+              <strong className="team-who">{m.from}</strong>
+            )}
             <span className="muted">→ {m.to}</span>
             {WHAT[m.what] && <span className={`team-what ${m.what}`}>{WHAT[m.what]}</span>}
             <time className="muted" dateTime={m.at}>
@@ -134,11 +169,91 @@ function TeamChat({
       {waiting.map((w) => (
         <Approval key={w.dispatch} worker={w} label={labels.get(w.dispatch) ?? w.agent} onAnswer={onAnswer} />
       ))}
+      {questions.map((q) => (
+        <Reply key={q.callId} label="The lead asks you" text={q.text} action="Answer" onSend={(a) => onReply(q.callId, a)} />
+      ))}
       {working.length > 0 && (
         <p className="muted team-typing">
           {working.map((w) => labels.get(w.dispatch) ?? w.agent).join(", ")} {working.length === 1 ? "is" : "are"} working…
         </p>
       )}
+    </div>
+    {onNote && <Say onNote={onNote} />}
+    </>
+  );
+}
+
+/** An answer to the lead's question; the team keeps working meanwhile. */
+function Reply({
+  label,
+  text,
+  action,
+  onSend,
+}: {
+  label: string;
+  text: string;
+  action: string;
+  onSend: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  return (
+    <form
+      className="approval agent-approval team-question"
+      role="alertdialog"
+      aria-label={label}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (draft.trim()) onSend(draft.trim());
+      }}
+    >
+      <p>
+        <strong>{label}:</strong> {text}
+      </p>
+      <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} aria-label="Your answer" autoFocus />
+      <div className="row">
+        <button className="primary" type="submit" disabled={!draft.trim()}>
+          {action}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Tell the whole team something while it works; the lead reads it first. */
+function Say({ onNote }: { onNote: (text: string) => Promise<void> }) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onNote(text).then(
+      () => {
+        setDraft("");
+        setError(null);
+      },
+      (e) => setError(String(e)),
+    );
+  };
+  return (
+    <div className="team-say">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        rows={1}
+        placeholder="Tell the team…"
+        title="The lead reads it first, then every worker"
+        aria-label="Tell the team"
+      />
+      <button onClick={send} disabled={!draft.trim()}>
+        Send
+      </button>
+      {error && <p className="failure">{error}</p>}
     </div>
   );
 }
