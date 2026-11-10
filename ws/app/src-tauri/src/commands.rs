@@ -634,7 +634,8 @@ pub async fn list_models(state: State<'_, AppState>) -> CmdResult<Vec<ModelOptio
         }
     }
 
-    options.sort_by(|a, b| (&a.backend, &a.model_id).cmp(&(&b.backend, &b.model_id)));
+    // By name: what the picker shows, so a model can be found by typing it.
+    options.sort_by_cached_key(|o| (o.backend.clone(), o.display_name.to_lowercase()));
     Ok(options)
 }
 

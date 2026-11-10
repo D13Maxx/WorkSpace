@@ -229,9 +229,16 @@ fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelI
                     if tools == Some(false) {
                         return None;
                     }
+                    // OpenRouter names its models ("Cohere: North Mini Code
+                    // (free)"): easier to find among hundreds than the id.
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .filter(|n| !n.trim().is_empty())
+                        .unwrap_or(id);
                     Some(ModelInfo {
                         model: ModelRef::new(backend.clone(), id),
-                        display_name: id.to_owned(),
+                        display_name: name.to_owned(),
                         known_capabilities: reported_limits(item, tools.unwrap_or(false)),
                     })
                 })
@@ -310,10 +317,15 @@ mod tests {
     #[test]
     fn the_model_list_comes_from_the_endpoint() {
         let backend = BackendId::new("local-llama");
-        let body = serde_json::json!({"data": [{"id": "llama-3-8b"}, {"id": "qwen-7b"}]});
+        let body = serde_json::json!({"data": [
+            {"id": "llama-3-8b"},
+            {"id": "cohere/north-mini-code:free", "name": "Cohere: North Mini Code (free)"}
+        ]});
         let models = parse_model_list(&backend, &body);
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].model.model_id, "llama-3-8b");
+        assert_eq!(models[0].display_name, "llama-3-8b", "no name: the id");
+        assert_eq!(models[1].display_name, "Cohere: North Mini Code (free)");
     }
 
     #[test]

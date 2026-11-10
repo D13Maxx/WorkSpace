@@ -140,12 +140,7 @@ function ProfileSection({
         aria-label="Model to edit"
       >
         <option value="">Choose a model…</option>
-        {models.map((m) => (
-          <option key={`${m.backend}/${m.model_id}`} value={`${m.backend}/${m.model_id}`}>
-            {m.backend} / {m.display_name}
-            {m.unprofiled ? " — unprofiled" : ""}
-          </option>
-        ))}
+        <ModelGroups models={models} suffix={(m) => (m.unprofiled ? " — unprofiled" : "")} />
       </select>
 
       {model && profile && (
@@ -336,14 +331,33 @@ function WorkerModelSection({ models }: { models: ModelOption[] }) {
       <select value={model ? key(model) : ""} onChange={(e) => save(e.target.value)} aria-label="Worker model">
         <option value="">Same as the chat</option>
         {!known && model && <option value={key(model)}>{key(model)} (not available now)</option>}
-        {models.map((m) => (
-          <option key={key(m)} value={key(m)}>
-            {m.backend} / {m.display_name}
-          </option>
-        ))}
+        <ModelGroups models={models} />
       </select>
       {error && <p className="failure">{error}</p>}
     </section>
+  );
+}
+
+/**
+ * Models under their provider, by name, as the chat's picker shows them: with
+ * hundreds from OpenRouter, typing a name in the open list jumps to it.
+ */
+function ModelGroups({ models, suffix }: { models: ModelOption[]; suffix?: (m: ModelOption) => string }) {
+  const groups = new Map<string, ModelOption[]>();
+  for (const m of models) groups.set(m.backend, [...(groups.get(m.backend) ?? []), m]);
+  return (
+    <>
+      {[...groups].map(([backend, list]) => (
+        <optgroup key={backend} label={backend}>
+          {list.map((m) => (
+            <option key={`${m.backend}/${m.model_id}`} value={`${m.backend}/${m.model_id}`}>
+              {m.display_name}
+              {suffix?.(m)}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
   );
 }
 
@@ -410,11 +424,7 @@ function FallbackSection({ models }: { models: ModelOption[] }) {
         aria-label="Add a fallback model"
       >
         <option value="">{list.length ? "Add another fallback…" : "Add a fallback model…"}</option>
-        {addable.map((m) => (
-          <option key={key(m)} value={key(m)}>
-            {m.backend} / {m.display_name}
-          </option>
-        ))}
+        <ModelGroups models={addable} />
       </select>
       {error && <p className="failure">{error}</p>}
     </section>
