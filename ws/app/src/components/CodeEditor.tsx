@@ -17,6 +17,67 @@ import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { yaml } from "@codemirror/legacy-modes/mode/yaml";
+import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { standardSQL } from "@codemirror/legacy-modes/mode/sql";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { r } from "@codemirror/legacy-modes/mode/r";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { cmake } from "@codemirror/legacy-modes/mode/cmake";
+import { protobuf } from "@codemirror/legacy-modes/mode/protobuf";
+import { csharp, dart, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
+import { groovy } from "@codemirror/legacy-modes/mode/groovy";
+import { css, less, sCSS } from "@codemirror/legacy-modes/mode/css";
+import { sass } from "@codemirror/legacy-modes/mode/sass";
+import type { StreamParser } from "@codemirror/language";
+
+/** Config, scripts and the rest, by extension: CodeMirror's simpler modes. */
+const LEGACY: Record<string, StreamParser<unknown>> = {
+  toml,
+  // Cargo.lock is TOML.
+  lock: toml,
+  yaml,
+  yml: yaml,
+  xml,
+  sh: shell,
+  bash: shell,
+  zsh: shell,
+  ps1: powerShell,
+  psm1: powerShell,
+  sql: standardSQL,
+  go,
+  rb: ruby,
+  lua,
+  swift,
+  r,
+  ini: properties,
+  cfg: properties,
+  conf: properties,
+  env: properties,
+  editorconfig: properties,
+  gitattributes: properties,
+  gitignore: properties,
+  dockerignore: properties,
+  npmrc: properties,
+  cmake,
+  proto: protobuf,
+  cs: csharp,
+  kt: kotlin,
+  kts: kotlin,
+  scala,
+  dart,
+  gradle: groovy,
+  css,
+  scss: sCSS,
+  less,
+  sass,
+} as Record<string, StreamParser<unknown>>;
 import { oneDark } from "@codemirror/theme-one-dark";
 import { vim } from "@replit/codemirror-vim";
 import { onVimChange, setSaver, vimEnabled } from "../vim";
@@ -34,7 +95,13 @@ function language(ext: string): Extension {
       return java();
     case "html":
     case "htm":
+    case "vue":
+    case "svelte":
       return html();
+    case "jsx":
+      return javascript({ jsx: true });
+    case "tsx":
+      return javascript({ jsx: true, typescript: true });
     case "js":
     case "mjs":
     case "cjs":
@@ -60,7 +127,7 @@ function language(ext: string): Extension {
     case "cls":
       return StreamLanguage.define(stex);
     default:
-      return [];
+      return ext in LEGACY ? StreamLanguage.define(LEGACY[ext]) : [];
   }
 }
 
