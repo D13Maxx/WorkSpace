@@ -637,6 +637,20 @@ export default function App() {
     );
   };
 
+  // A blueprint part's code, or a file Windows opened Workspace with.
+  const openCode = (payload: { root: string; path: string }) => {
+    void getCurrentWindow().setFocus();
+    // A folder opens on the left; a file opens here.
+    // shortcut: a folder already inside an open one shows again as its own root; expand it in place once the tree can be driven from here.
+    api
+      .listDir(payload.root, payload.path)
+      .then(() => addFolder(`${payload.root.replace(/[\\/]+$/, "")}\\${payload.path.replace(/\//g, "\\")}`))
+      .catch(() => {
+        showFolder(payload.root);
+        openAnyRef.current(payload);
+      });
+  };
+
   // Blueprint windows: a saved file (new ones show on the left, and an open
   // source rereads), a file's source, and a part's code.
   useEffect(() => {
@@ -650,19 +664,10 @@ export default function App() {
         setOpenFile(payload);
         void getCurrentWindow().setFocus();
       }),
-      listen<{ root: string; path: string }>("open-code", ({ payload }) => {
-        void getCurrentWindow().setFocus();
-        // A folder opens on the left; a file opens here.
-        // shortcut: a folder already inside an open one shows again as its own root; expand it in place once the tree can be driven from here.
-        api
-          .listDir(payload.root, payload.path)
-          .then(() => addFolder(`${payload.root.replace(/[\\/]+$/, "")}\\${payload.path.replace(/\//g, "\\")}`))
-          .catch(() => {
-            showFolder(payload.root);
-            openAnyRef.current(payload);
-          });
-      }),
+      listen<{ root: string; path: string }>("open-code", ({ payload }) => openCode(payload)),
     ];
+    // Files Windows launched Workspace with ("Open with", a double-click).
+    void api.takeLaunchFiles().then((files) => files.forEach(openCode));
     return () => offs.forEach((off) => void off.then((f) => f()));
     // Once: the handlers read what changes through state setters and openAnyRef.
   }, []);

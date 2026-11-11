@@ -13,6 +13,7 @@ mod bridge;
 mod commands;
 mod graph;
 mod graph_builder;
+mod launch;
 mod run;
 mod sandbox;
 mod state;
@@ -50,6 +51,7 @@ pub fn run() {
             // Also brings it back from the tray.
             tray::show_main(app);
             blueprint::open_from_args(app, &argv, &cwd);
+            launch::open_now(app, &argv, &cwd);
         }))
         .plugin(tauri_plugin_dialog::init())
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
@@ -65,9 +67,11 @@ pub fn run() {
             let cwd = std::env::current_dir().unwrap_or_default();
             let args: Vec<String> = std::env::args().collect();
             blueprint::open_from_args(app.handle(), &args, &cwd.to_string_lossy());
+            launch::hold(&args, &cwd.to_string_lossy());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            launch::take_launch_files,
             commands::list_conversations,
             commands::create_conversation,
             commands::load_thread,

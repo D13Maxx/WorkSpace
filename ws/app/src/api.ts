@@ -448,6 +448,9 @@ export const api = {
   resolveApproval: (callId: string, approved: boolean) =>
     invoke<boolean>("resolve_approval", { callId, approved }),
 
+  /** Files Workspace was launched with by Windows, once; blueprints excluded. */
+  takeLaunchFiles: () => invoke<{ root: string; path: string }[]>("take_launch_files"),
+
   answerQuestion: (callId: string, answer: string) =>
     invoke<boolean>("answer_question", { callId, answer }),
 
