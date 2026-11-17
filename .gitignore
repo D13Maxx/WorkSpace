@@ -26,3 +26,6 @@ ws/app/src-tauri/gen/
 # Built by ws/app/scripts/build-ua-pipeline.mjs (38 MB of bundles and grammars)
 ws/app/src-tauri/ua-pipeline/
 
+
+# Claude Code: local settings and worktrees
+.claude/
