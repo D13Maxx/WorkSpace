@@ -31,6 +31,8 @@ const EDITABLE = new Set([
   ...["json", "jsonc", "toml", "yaml", "yml", "xml", "ini", "cfg", "conf", "env", "lock", "gradle", "cmake"],
   ...["sh", "bash", "zsh", "ps1", "psm1", "bat", "cmd", "sql", "graphql", "proto"],
   ...["md", "markdown", "mdx"],
+  // Plain text: requirements.txt, notes, logs.
+  ...["txt", "log"],
   // A blueprint's text, opened from its window's Source button.
   "blueprint",
   ...["gitignore", "gitattributes", "editorconfig", "dockerignore", "npmrc"],

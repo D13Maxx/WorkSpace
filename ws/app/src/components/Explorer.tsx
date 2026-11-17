@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { api, pickFile, pickFolder, type FileEntry } from "../api";
+import { opensHere } from "./FileViewer";
 
 export interface OpenFile {
   root: string;
@@ -104,13 +105,15 @@ function Folder({
     setError(null);
     api
       .listDir(root, path)
-      .then(setEntries)
+      // Only what Workspace can open: other files would just say so when clicked.
+      .then((all) => setEntries(all.filter((e) => e.is_dir || opensHere(e.path))))
       .catch((e) => setError(String(e)));
   }, [root, path, version]);
 
   if (error) return <p className="failure tree-note">{error}</p>;
   if (!entries) return <p className="muted tree-note">Loading…</p>;
-  if (entries.length === 0 && depth === 1) return <p className="muted tree-note">Empty folder.</p>;
+  if (entries.length === 0 && depth === 1)
+    return <p className="muted tree-note">Nothing here that Workspace opens.</p>;
 
   return (
     <ul className="tree" role="group">
