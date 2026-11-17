@@ -52,10 +52,14 @@ mod tests {
     fn the_request_is_held_while_any_turn_runs() {
         let a = hold();
         let b = hold();
-        assert!(HELD.lock().unwrap().1.is_some());
+        // A machine with no power service to ask (a CI box) grants nothing.
+        let granted = HELD.lock().unwrap().1.is_some();
+        assert_eq!(HELD.lock().unwrap().0, 2);
         drop(a);
-        assert!(HELD.lock().unwrap().1.is_some(), "b still runs");
+        assert_eq!(HELD.lock().unwrap().0, 1);
+        assert_eq!(HELD.lock().unwrap().1.is_some(), granted, "b still runs");
         drop(b);
+        assert_eq!(HELD.lock().unwrap().0, 0);
         assert!(HELD.lock().unwrap().1.is_none());
     }
 }

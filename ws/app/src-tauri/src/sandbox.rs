@@ -275,6 +275,15 @@ async fn kill_tree(child: &mut tokio::process::Child) {
             .creation_flags(0x0800_0000);
         let _ = k.output().await;
     }
+    // Started as the leader of its own process group (see `sandbox_run`), so
+    // the group's id is its pid: this ends the server a shell started, too.
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let _ = tokio::process::Command::new("kill")
+            .args(["-KILL", "--", &format!("-{pid}")])
+            .output()
+            .await;
+    }
     let _ = child.kill().await;
 }
 
@@ -331,7 +340,11 @@ pub async fn sandbox_run(
     };
     say(format!("Starting: {}", spec.start));
     let output = Arc::new(Mutex::new(String::new()));
-    let mut child = crate::workspace::shell(&spec.start)
+    let mut start = crate::workspace::shell(&spec.start);
+    // Its own process group, so kill_tree can end everything it starts.
+    #[cfg(unix)]
+    start.process_group(0);
+    let mut child = start
         .current_dir(&cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
