@@ -1,4 +1,4 @@
-//! End-to-end generation against a real, tiny model (master spec s13 C3).
+//! End-to-end generation against a real, tiny model.
 //!
 //! This builds an actual GGUF -- a two-layer Llama with a real byte-level BPE
 //! vocabulary, a real chat template and randomly initialised weights -- and
@@ -7,7 +7,7 @@
 //!
 //! **What this does and does not prove.** The weights are random, so the text
 //! is nonsense; nothing here says the model is *correct*. That is what the
-//! reference-parity suite in master spec s9 is for, and it needs a real model
+//! reference-parity suite is for, and it needs a real model
 //! file. What these tests do prove is that every seam holds on a genuine file:
 //! the tensor names match, the tokenizer builds from GGUF metadata, the
 //! template renders, BOS is written exactly once, the KV cache is reused
@@ -15,7 +15,7 @@
 //! event stream is well formed. Those are the failures that would otherwise
 //! wait until someone downloaded four gigabytes to find them.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use candle_core::quantized::{GgmlDType, QTensor, gguf_file};
@@ -217,8 +217,7 @@ fn write_tiny_model(path: &Path, vocab_size: usize) {
     put("tokenizer.ggml.eos_token_id", gguf_file::Value::U32(eos));
     put("tokenizer.ggml.eot_token_id", gguf_file::Value::U32(eot));
     // The file asks for BOS to be added automatically. Together with a
-    // template that writes one itself, this is exactly the double-BOS trap
-    // master spec s8.7 warns about, and it is here on purpose.
+    // template that writes one itself, this is exactly the double-BOS trap, and it is here on purpose.
     put("tokenizer.ggml.add_bos_token", gguf_file::Value::Bool(true));
     put(
         "tokenizer.chat_template",
@@ -346,7 +345,7 @@ async fn a_tiny_model_loads_and_reports_itself() {
 async fn the_template_renders_and_the_prompt_carries_exactly_one_bos() {
     // The file sets add_bos_token AND the template writes one. Encoding with
     // special tokens enabled would produce two and shift every position
-    // (master spec s8.7).
+    //.
     let f = Fixture::new();
     let engine = f.engine().await;
     let (_, bos, ..) = vocabulary();
@@ -382,7 +381,7 @@ async fn generation_produces_text_and_one_terminal_event() {
 
     let events = run(&engine, prompt.clone(), 12).await;
 
-    // Exactly one terminal event, and it is last (master spec s4).
+    // Exactly one terminal event, and it is last.
     let terminals = events
         .iter()
         .filter(|e| matches!(e, BackendEvent::Done { .. } | BackendEvent::Error(_)))
@@ -470,9 +469,9 @@ async fn prefill_progress_reaches_the_whole_prompt() {
 
 #[tokio::test]
 async fn a_second_turn_reuses_the_cache_instead_of_rereading_the_conversation() {
-    // Master spec s8.5: without this, every chat turn re-reads the whole
+    // Without this, every chat turn re-reads the whole
     // conversation and a local model becomes unusable past a few exchanges.
-    // Master spec s13 C4 asks for it to be demonstrated from these events,
+    // It has to be demonstrated from these events,
     // which is what `reused_tokens` makes possible.
     //
     // `max_tokens: 1` is what makes this deterministic rather than flaky. The
@@ -621,7 +620,7 @@ async fn cancelling_stops_generation_and_keeps_the_text_so_far() {
     assert_eq!(stop, Some(StopReason::Cancelled), "got {events:?}");
     assert!(
         !events.iter().any(|e| matches!(e, BackendEvent::Error(_))),
-        "cancelling is not an error (master spec s7.1)"
+        "cancelling is not an error"
     );
 }
 
@@ -667,7 +666,7 @@ async fn unloading_and_reloading_works() {
 
 #[tokio::test]
 async fn exact_token_counting_uses_the_models_own_tokenizer() {
-    // Master spec s6.1: this is the number the context builder budgets
+    // This is the number the context builder budgets
     // against, and against a small local cap it has to be the truth.
     use ws_context::backend::ChatBackend;
 
@@ -704,7 +703,7 @@ async fn exact_token_counting_uses_the_models_own_tokenizer() {
 #[tokio::test]
 async fn a_model_that_is_too_large_for_its_cap_is_refused_before_loading() {
     // The memory pre-check is the last line before an allocation that would
-    // abort the process (master spec s8.10).
+    // abort the process.
     let f = Fixture::new();
     let engine = EngineHandle::start(Some(1)).unwrap();
 

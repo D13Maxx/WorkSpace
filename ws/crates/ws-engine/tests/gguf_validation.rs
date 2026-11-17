@@ -1,4 +1,4 @@
-//! GGUF validation against corrupt and truncated files (master spec s13 C3).
+//! GGUF validation against corrupt and truncated files.
 //!
 //! The requirement is "errors, zero panics". A model file is something the
 //! user downloaded, and the realistic hostile input is not a crafted attack
@@ -8,7 +8,7 @@
 //! Files are generated rather than committed: a corpus of binaries in the
 //! repository is opaque, and this way the shapes being tested are readable.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use candle_core::quantized::{QTensor, gguf_file};
@@ -212,7 +212,7 @@ fn a_tensor_table_describing_absent_data_is_rejected_by_the_bounds_check() {
     // Drives the bounds arithmetic directly: keep the whole header, remove
     // enough of the payload that the tensor table describes data that is not
     // there. This is the check that stops a crafted shape becoming an
-    // allocation (master spec s8.3).
+    // allocation.
     let f = Fixtures::new();
     let src = f.valid("table-src.gguf");
     let bytes = std::fs::read(&src).unwrap();
@@ -253,7 +253,7 @@ fn a_missing_file_is_an_io_error_with_the_path_in_it() {
 
 #[test]
 fn an_unsupported_architecture_is_named_in_the_error() {
-    // Master spec s8.3: M1 supports llama only, and says so rather than
+    // M1 supports llama only, and says so rather than
     // failing obscurely later.
     let f = Fixtures::new();
     let p = f.path("mamba.gguf");
@@ -296,11 +296,11 @@ fn hashing_a_file_is_stable_and_content_addressed() {
     assert_ne!(ha, gguf::file_sha256(&different).unwrap());
 }
 
-// ---- RoPE scaling detection (master spec s8.4) -------------------------
+// ---- RoPE scaling detection -------------------------
 //
 // The forward pass in this build applies no frequency scaling. A file that
 // needs it still loads and still produces fluent text on short prompts, then
-// degrades as the context grows -- the exact failure s8.4 calls out as
+// degrades as the context grows -- the exact failure that stays
 // invisible. So it has to be detected from the file rather than discovered
 // from the output.
 
@@ -339,7 +339,7 @@ fn a_file_carrying_rope_frequency_factors_is_detected() {
     );
     assert!(
         info.rope_scaling.unwrap().to_string().contains("Llama 3"),
-        "the message should name what this is, for someone who has not read s8.4"
+        "the message should name what this is, for someone who does not know RoPE scaling"
     );
 }
 

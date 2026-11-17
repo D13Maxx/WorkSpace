@@ -1,4 +1,4 @@
-//! SQLite persistence and the blob store (master spec s10).
+//! SQLite persistence and the blob store.
 //!
 //! The database enforces the invariants that matter rather than trusting
 //! callers: triggers block edits to message content and single-message

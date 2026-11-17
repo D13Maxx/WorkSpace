@@ -412,7 +412,7 @@ pub type Viewer = std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

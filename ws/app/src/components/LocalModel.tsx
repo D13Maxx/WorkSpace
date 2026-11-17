@@ -1,4 +1,4 @@
-// Choosing and loading a local GGUF (master spec s8, s11.1).
+// Choosing and loading a local GGUF.
 //
 // The flow is inspect-then-load on purpose. Loading a model takes seconds and
 // gigabytes; reading its header takes neither. So the user sees what a file
@@ -6,7 +6,7 @@
 // before anything is committed.
 //
 // The path is typed or picked with the native dialog, which only returns a
-// path; the webview reads nothing itself (master spec s11.2). The backend
+// path; the webview reads nothing itself. The backend
 // validates whatever arrives.
 
 import { useCallback, useEffect, useState } from "react";

@@ -1,4 +1,4 @@
-// Prefill progress with an estimate of the wait (master spec s11.1).
+// Prefill progress with an estimate of the wait.
 //
 // A local model can spend several seconds reading a long prompt before the
 // first word appears. Without this the app looks frozen, and the user's only

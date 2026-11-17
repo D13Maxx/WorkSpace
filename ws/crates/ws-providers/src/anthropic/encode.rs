@@ -1,4 +1,4 @@
-//! Building an Anthropic request body (master spec s7.2).
+//! Building an Anthropic request body.
 //!
 //! Pure: a `BackendRequest` in, JSON out. Kept separate from the HTTP client so
 //! the wire shape — including the replay rules, which are the easy part to get
@@ -52,7 +52,7 @@ fn encode_part(part: &Part, req: &BackendRequest) -> Option<Value> {
         // A provider-native block is replayed exactly as it was received.
         Part::Opaque(o) => Some(o.payload.clone()),
 
-        // Never sent to any model (master spec s6.3). The replayable form of
+        // Never sent to any model. The replayable form of
         // reasoning is the opaque block above.
         Part::Reasoning { .. } => None,
 
@@ -92,7 +92,7 @@ fn encode_message(msg: &RenderedMessage, req: &BackendRequest) -> Option<Value> 
     // Replay an assistant turn from the provider's own stored response rather
     // than rebuilding it. Anthropic signs thinking blocks against the exact
     // content they were produced with, and a reconstruction that reorders or
-    // omits one is rejected (master spec s5.2).
+    // omits one is rejected.
     if msg.role == Role::Assistant {
         if let Some(raw) = req.raw_payloads.get(&msg.source_id) {
             if let Some(content) = raw.get("content").filter(|c| c.is_array()) {
@@ -164,7 +164,7 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

@@ -22,7 +22,7 @@ license = "Apache-2.0"
 authors = ["Debargha Das"]
 
 # Shared dependency versions. Pinned from crates.io at scaffold time (2026-09-12).
-# Per master spec s0.3: never invent APIs; verify against docs.rs for these exact versions.
+# Never invent APIs; verify against docs.rs for these exact versions.
 [workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -47,8 +47,8 @@ hex = "0.4.3"
 base64 = "0.23.1"
 bytes = "1"
 
-# Local inference (master spec s8). candle-transformers is the reference
-# implementation of the Llama forward pass; s2 requires the shipped model code
+# Local inference. candle-transformers is the reference
+# implementation of the Llama forward pass; the shipped model code is meant
 # to be hand-written, so it is staged to be replaced behind the same trait.
 candle-core = "0.11.0"
 candle-transformers = "0.11.0"
@@ -57,7 +57,7 @@ candle-transformers = "0.11.0"
 # `TokenizerFromGguf` would not apply to ours.
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
 # No "loader": that feature is filesystem template loading, which is exactly
-# what a sandboxed chat template must not have (master spec s8.8). "fuel"
+# what a sandboxed chat template must not have. "fuel"
 # gates the instruction limit; "json" provides the tojson filter that
 # tool-calling templates reference.
 minijinja = { version = "2.24.0", default-features = true, features = ["fuel", "json"] }
@@ -96,7 +96,7 @@ unwrap_used = "warn"
 expect_used = "warn"
 todo = "warn"
 
-# Master spec s8.10: never ship target-cpu=native.
+# Never ship target-cpu=native.
 [profile.release]
 opt-level = 3
 lto = "thin"

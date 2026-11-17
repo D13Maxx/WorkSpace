@@ -1,7 +1,6 @@
 # Anthropic SSE fixtures
 
-Recorded and synthetic streams used to test the decoder without a network
-(master spec s7.6). Each file is a raw `text/event-stream` body.
+Recorded and synthetic streams used to test the decoder without a network. Each file is a raw `text/event-stream` body.
 
 - `text_only.sse` — a plain reply with no thinking.
 - `thinking_with_signature.sse` — an extended-thinking reply. The signature

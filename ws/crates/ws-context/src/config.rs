@@ -1,10 +1,10 @@
-//! Tunables for the context builder (master spec s6.1, s6.2).
+//! Tunables for the context builder.
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextConfig {
-    /// Hard cap on summary size regardless of window (master spec s6.2).
+    /// Hard cap on summary size regardless of window.
     pub summary_max_tokens: u32,
     /// Fraction of the available budget a summary may occupy, as a percentage.
     pub summary_budget_pct: u32,
@@ -13,14 +13,14 @@ pub struct ContextConfig {
     pub safety_margin_floor: u32,
     pub safety_margin_pct: u32,
     /// How far over its budget a returned summary may run before the
-    /// orchestrator re-requests it. Spec s6.5 sets no bound; without one a
+    /// orchestrator re-requests it. The original design set no bound; without one a
     /// verbose summariser can crowd out the recent window entirely.
     pub summary_overflow_pct: u32,
 
     /// Compact once the view would exceed this percentage of the available
     /// budget, rather than waiting until it no longer fits.
     ///
-    /// Spec s6.2 compacts only on overflow, which means compacting on *every*
+    /// Compacting only on overflow which means compacting on *every*
     /// turn once a conversation is long: each new exchange pushes it back over
     /// the line, so a fresh summary is written every time. Triggering early
     /// and compacting down to `compaction_target_pct` leaves headroom for
@@ -47,14 +47,14 @@ impl Default for ContextConfig {
 }
 
 impl ContextConfig {
-    /// `max(floor, pct% of context_window)` (master spec s6.1).
+    /// `max(floor, pct% of context_window)`.
     #[must_use]
     pub fn safety_margin(&self, context_window: u32) -> u32 {
         let pct = context_window.saturating_mul(self.safety_margin_pct) / 100;
         self.safety_margin_floor.max(pct)
     }
 
-    /// `min(pct% of available, summary_max_tokens)` (master spec s6.2).
+    /// `min(pct% of available, summary_max_tokens)`.
     #[must_use]
     pub fn summary_budget(&self, available: u32) -> u32 {
         let pct = available.saturating_mul(self.summary_budget_pct) / 100;
@@ -91,7 +91,7 @@ impl ContextConfig {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

@@ -1,4 +1,4 @@
-//! Building an OpenAI-compatible Chat Completions body (spec s7.5).
+//! Building an OpenAI-compatible Chat Completions body.
 //!
 //! The plainest of the four shapes: a flat `messages` array with a leading
 //! `system` message. Nothing provider-native is ever sent back, because this
@@ -117,8 +117,8 @@ fn encode_content(msg: &RenderedMessage, req: &BackendRequest) -> Option<Value> 
                     "type": "text",
                     "text": format!("[File \"{name}\" is not readable by this model]"),
                 })),
-                // Reasoning is never sent (s6.3), and nothing here is
-                // replayable (s7.5), so opaque parts are dropped too.
+                // Reasoning is never sent, and nothing here is
+                // replayable, so opaque parts are dropped too.
                 Part::Reasoning { .. }
                 | Part::Opaque(_)
                 | Part::ToolCall { .. }
@@ -184,7 +184,7 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn nothing_provider_native_is_ever_sent_back() {
-        // Master spec s7.5: this protocol has no signed reasoning, so an
+        // This protocol has no signed reasoning, so an
         // opaque part from any provider must be dropped rather than replayed
         // to a server that has never heard of it.
         let id = MsgId::new();

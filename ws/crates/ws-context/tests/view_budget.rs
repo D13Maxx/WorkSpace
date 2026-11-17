@@ -1,7 +1,7 @@
 //! Budget arithmetic, mode selection, per-target transformations and summary
-//! validity (master spec s6.1 - s6.5).
+//! validity.
 
-// Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 mod common;
 
@@ -319,7 +319,7 @@ fn the_outgoing_model_is_suggested_as_summariser_after_a_switch() {
 
     assert_eq!(
         req.suggested_writer, outgoing,
-        "spec s6.5 prefers the model being switched away from"
+        "the model being switched away from is preferred"
     );
 }
 

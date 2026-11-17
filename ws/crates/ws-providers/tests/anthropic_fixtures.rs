@@ -1,10 +1,10 @@
-//! Decoder tests over recorded streams (master spec s7.6).
+//! Decoder tests over recorded streams.
 //!
 //! These run the real SSE parser and the real decoder against raw
 //! `text/event-stream` bodies, so the whole protocol path is covered without
 //! touching the network.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ws_context::{BackendError, BackendEvent, BackendId, ProviderKind, StopReason};
@@ -156,7 +156,7 @@ fn a_redacted_thinking_block_is_carried_verbatim() {
 
 #[test]
 fn an_unrecognised_block_type_is_preserved_rather_than_dropped() {
-    // Master spec s7.2: never filter content blocks by type when storing raw
+    // Never filter content blocks by type when storing raw
     // payloads. A build that drops what it does not understand will send back
     // an incomplete reply and be rejected.
     let (events, decoder) = decode("unknown_block_type.sse");

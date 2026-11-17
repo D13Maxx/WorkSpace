@@ -1,5 +1,5 @@
 //! Context-building failures. Every one of these is user-facing: the builder
-//! never truncates silently to avoid an error (master spec s6.2, s6.5).
+//! never truncates silently to avoid an error.
 
 use crate::model::ModelRef;
 use thiserror::Error;

@@ -1,10 +1,10 @@
-//! Local inference engine (master spec s8).
+//! Local inference engine.
 //!
 //! Everything here is hand-written except the forward pass, which is
 //! `candle_transformers`' reference `quantized_llama` behind
-//! [`model::LoadedModel`]. Master spec s8.1 requires the shipped model code to
+//! [`model::LoadedModel`]. The shipped model code is meant to
 //! be ours; the reference is staged so the swap touches one module and the
-//! parity suite (s9) is the gate on it.
+//! parity suite is the gate on it.
 
 pub mod backend;
 pub mod cache;

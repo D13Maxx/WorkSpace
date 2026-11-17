@@ -1,4 +1,4 @@
-//! The GGUF-embedded chat template (master spec s8.8).
+//! The GGUF-embedded chat template.
 //!
 //! A chat template is Jinja source that shipped inside a model file someone
 //! downloaded, so it is untrusted input in the same sense the tensors are. It
@@ -57,8 +57,8 @@ impl ChatTemplate {
     /// Read the template out of GGUF metadata.
     ///
     /// # Errors
-    /// Fails if the file embeds no `tokenizer.chat_template`. Master spec s8.8
-    /// is explicit that M1 does not guess one.
+    /// Fails if the file embeds no `tokenizer.chat_template`. Workspace
+    /// never guesses one.
     pub fn from_gguf(content: &gguf_file::Content, path: &str) -> Result<Self> {
         let source = content
             .metadata
@@ -278,7 +278,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn a_runaway_template_runs_out_of_fuel_rather_than_hanging() {
         // Without a fuel limit this never returns, and the engine thread is
-        // gone for good (master spec s8.8).
+        // gone for good.
         let t =
             ChatTemplate::from_source("{% for i in range(100000000) %}{{ i }}{% endfor %}", "", "");
         let err = t.render(&[], false).unwrap_err();

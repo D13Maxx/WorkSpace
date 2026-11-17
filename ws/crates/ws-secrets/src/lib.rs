@@ -1,6 +1,6 @@
 //! API keys, held in the OS credential store and nowhere else.
 //!
-//! Master spec s12: keys never appear in logs, the database, exports or crash
+//! Keys never appear in logs, the database, exports or crash
 //! reports. Two things enforce that here rather than leaving it to discipline:
 //!
 //! - [`Secret`] redacts itself in `Debug` and `Display`, so a key cannot reach
@@ -141,7 +141,7 @@ impl SecretStore {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

@@ -2,7 +2,7 @@
 //!
 //! Every path is a project root plus a path relative to it, and nothing may
 //! resolve outside the root: the webview has no filesystem access of its own
-//! (master spec s11.2), and these commands must not quietly become one.
+//!, and these commands must not quietly become one.
 
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
@@ -201,7 +201,7 @@ pub fn create_file(root: &str, rel: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

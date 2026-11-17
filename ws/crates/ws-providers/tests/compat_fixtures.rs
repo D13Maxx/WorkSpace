@@ -1,6 +1,6 @@
-//! OpenAI-compatible decoder tests over recorded streams (master spec s7.6).
+//! OpenAI-compatible decoder tests over recorded streams.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ws_context::{BackendError, BackendEvent, BackendId, StopReason};
@@ -60,7 +60,7 @@ fn a_plain_reply_streams_and_ends_on_the_done_sentinel() {
 
 #[test]
 fn no_opaque_block_is_ever_emitted() {
-    // Master spec s7.5: this protocol has nothing signed to replay. The
+    // This protocol has nothing signed to replay. The
     // adapter must never hand the context builder something it would then try
     // to send back to a server that has never heard of it.
     for name in [

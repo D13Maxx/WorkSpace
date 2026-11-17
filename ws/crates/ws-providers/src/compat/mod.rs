@@ -1,4 +1,4 @@
-//! OpenAI-compatible (Chat Completions) adapter (master spec s7.5).
+//! OpenAI-compatible (Chat Completions) adapter.
 
 pub mod client;
 pub mod decode;

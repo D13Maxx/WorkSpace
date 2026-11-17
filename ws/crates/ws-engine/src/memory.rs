@@ -1,4 +1,4 @@
-//! The memory pre-check (master spec s8.10).
+//! The memory pre-check.
 //!
 //! This is mandatory rather than defensive. A Rust allocation failure aborts
 //! the process: there is no `Err` to handle and no panic to catch, so the only
@@ -15,7 +15,7 @@ use crate::gguf::GgufInfo;
 use serde::{Deserialize, Serialize};
 
 /// Headroom over the computed total, for activations, the tokenizer, the
-/// sampler's working buffers and allocator slack (master spec s8.10).
+/// sampler's working buffers and allocator slack.
 const OVERHEAD_PERCENT: u64 = 10;
 
 const MIB: u64 = 1024 * 1024;
@@ -109,7 +109,7 @@ pub fn available_memory() -> u64 {
 }
 
 /// Default worker threads: physical cores minus one, so the UI thread still
-/// gets scheduled while a generation is running (master spec s8.10).
+/// gets scheduled while a generation is running.
 #[must_use]
 pub fn default_threads() -> usize {
     sysinfo::System::physical_core_count()
@@ -156,13 +156,13 @@ fn largest_fitting_cap(info: &GgufInfo, kv_dtype: KvDType, available: u64) -> Op
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
     use std::path::PathBuf;
 
-    /// Llama-3.2-1B-like dimensions, the worked example in master spec s8.5.
+    /// Llama-3.2-1B-like dimensions, a worked example.
     fn info() -> GgufInfo {
         GgufInfo {
             path: PathBuf::from("model.gguf"),

@@ -3,7 +3,7 @@
 //! Gated behind `live-tests` because it writes to Windows Credential Manager.
 //! Run with: cargo test -p ws-secrets --features live-tests
 #![cfg(feature = "live-tests")]
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ws_secrets::{Secret, SecretStore};

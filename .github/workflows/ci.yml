@@ -1,6 +1,6 @@
 name: CI
 
-# Master spec s13 C1: fmt, clippy and tests must pass. Workspace ships for
+# Fmt, clippy and tests must pass. Workspace ships for
 # Windows and Linux, so both run.
 on:
   push:
@@ -69,5 +69,5 @@ jobs:
         run: cargo test --workspace --no-fail-fast ${{ matrix.features }}
 
       # Live provider smoke tests need real API keys and are never run in CI
-      # (master spec s7.6). Parity tests need multi-GB GGUFs and are gated the
+      #. Parity tests need multi-GB GGUFs and are gated the
       # same way; see docs/checkpoints for how they are run locally.

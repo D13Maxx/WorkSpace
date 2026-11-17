@@ -1,4 +1,4 @@
-//! The OpenAI-compatible client and `ChatBackend` implementation (spec s7.5).
+//! The OpenAI-compatible client and `ChatBackend` implementation.
 //!
 //! Unlike the other three, everything about this backend is user-supplied: a
 //! display name, a base URL, an optional key and optional headers. Several can
@@ -122,7 +122,7 @@ impl ChatBackend for CompatBackend {
         })?;
 
         // `/models` is optional in this protocol. A server without it is
-        // usable; the user adds model ids by hand (master spec s7.5).
+        // usable; the user adds model ids by hand.
         if !resp.status().is_success() {
             tracing::debug!(
                 backend = %self.config.id,
@@ -141,7 +141,7 @@ impl ChatBackend for CompatBackend {
 
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities {
         // Whatever the profile says, this protocol cannot replay reasoning:
-        // there is nothing signed to replay (master spec s7.5). Declaring it
+        // there is nothing signed to replay. Declaring it
         // here keeps the context builder from ever trying.
         ModelCapabilities {
             reasoning: ReasoningSupport::None,
@@ -252,7 +252,7 @@ fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelI
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn reasoning_replay_is_refused_whatever_the_profile_claims() {
-        // Master spec s7.5: this protocol has nothing signed to replay, so the
+        // This protocol has nothing signed to replay, so the
         // capability is denied at the adapter rather than trusted from config.
         #[derive(Debug)]
         struct Optimistic;

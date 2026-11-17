@@ -1,4 +1,4 @@
-//! Conversation and message persistence (master spec s10).
+//! Conversation and message persistence.
 
 use crate::error::{Result, StoreError};
 use crate::migrations;
@@ -12,7 +12,7 @@ use ws_context::{
 };
 
 /// A user-configured provider endpoint. Deliberately holds no secret; the key
-/// lives in the OS credential store under the same id (master spec s12).
+/// lives in the OS credential store under the same id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredProvider {
     pub id: BackendId,
@@ -24,7 +24,7 @@ pub struct StoredProvider {
     pub enabled: bool,
 }
 
-/// A stored model profile, with its JSON left unparsed (master spec s7.1).
+/// A stored model profile, with its JSON left unparsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredProfile {
     pub model: ModelRef,
@@ -59,7 +59,7 @@ pub struct FileEdit {
 
 /// A new message to persist. Separate from [`Message`] because the raw
 /// provider payload is stored alongside the canonical parts but is not part of
-/// the canonical format itself (master spec s5.2).
+/// the canonical format itself.
 #[derive(Debug, Clone)]
 pub struct NewMessage {
     pub message: Message,
@@ -282,7 +282,7 @@ impl Store {
     }
 
     /// Delete a conversation and everything hanging off it. The only
-    /// destructive operation in the product (master spec s5.1 invariant 5).
+    /// destructive operation in the product.
     ///
     /// # Errors
     /// Fails on any database error.
@@ -658,7 +658,7 @@ impl Store {
     }
 
     /// Turn every leftover draft into a `Failed` message keeping its partial
-    /// text, and clear the draft table. Run once at launch (master spec s10).
+    /// text, and clear the draft table. Run once at launch.
     ///
     /// Returns the ids of the messages created.
     ///
@@ -698,7 +698,7 @@ impl Store {
     // ---- providers -----------------------------------------------------
 
     /// Save a user-configured provider. Holds no secret: the API key lives in
-    /// the OS credential store under this same id (master spec s12).
+    /// the OS credential store under this same id.
     ///
     /// # Errors
     /// Fails on any database error, or if the headers cannot be serialised.
@@ -769,7 +769,7 @@ impl Store {
 
     // ---- model profiles ------------------------------------------------
 
-    /// Save the user-editable settings for one model (master spec s7.1).
+    /// Save the user-editable settings for one model.
     ///
     /// # Errors
     /// Fails on any database error.
@@ -837,7 +837,7 @@ impl Store {
     // ---- conversation events -------------------------------------------
 
     /// Record something that happened but is not a message: a model switch,
-    /// say. Never sent to a model (master spec s5.3).
+    /// say. Never sent to a model.
     ///
     /// # Errors
     /// Fails on any database error, or if the event cannot be serialised.
@@ -907,8 +907,8 @@ impl Store {
     /// The model that wrote the most recent assistant reply on the active
     /// path, when it is not the model the conversation now points at.
     ///
-    /// This is the model being switched away from, and master spec s6.5
-    /// prefers it as summariser because it still holds the context being
+    /// This is the model being switched away from, and it is
+    /// preferred as summariser because it still holds the context being
     /// compressed. Defining it by authorship rather than by a switch event is
     /// what makes it self-invalidating: as soon as a reply is generated on the
     /// new model, the last author *is* the current model and this returns

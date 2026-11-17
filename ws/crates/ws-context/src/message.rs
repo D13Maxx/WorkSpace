@@ -1,4 +1,4 @@
-//! The canonical conversation format (master spec s5).
+//! The canonical conversation format.
 //!
 //! Invariant 1: messages are immutable once persisted. Nothing in this module
 //! offers interior mutability, and `ws-store` backs the rule with a trigger.
@@ -39,7 +39,7 @@ pub enum MsgStatus {
 pub struct ProviderOpaque {
     pub provider: ProviderKind,
     /// The exact model id that produced this block. Replay compares against
-    /// this, not against the provider (master spec s6.4).
+    /// this, not against the provider.
     pub model_id: String,
     /// e.g. `anthropic.thinking`, `anthropic.redacted_thinking`,
     /// `openai.reasoning_item`, `gemini.part_with_signature`.
@@ -53,7 +53,7 @@ pub struct ProviderOpaque {
 /// One piece of message content.
 ///
 /// `ToolCall` and `ToolResult` are unused in M1 but present so that adding
-/// tool calling later needs no data migration (master spec s3).
+/// tool calling later needs no data migration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
@@ -71,7 +71,7 @@ pub enum Part {
         name: String,
     },
     /// Human-readable reasoning the UI may show. Never sent to any model by
-    /// default (master spec s6.3); the replayable form is `Opaque`.
+    /// default; the replayable form is `Opaque`.
     Reasoning {
         visible_text: Option<String>,
     },
@@ -154,7 +154,7 @@ pub struct Conversation {
 }
 
 /// Something that happened in a conversation but is not a message and is
-/// never sent to a model (master spec s5.3).
+/// never sent to a model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {

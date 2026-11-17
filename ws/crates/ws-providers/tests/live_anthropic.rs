@@ -1,4 +1,4 @@
-//! Live smoke tests against the real Anthropic API (master spec s7.6).
+//! Live smoke tests against the real Anthropic API.
 //!
 //! Gated behind `live-tests` and never run in CI. They spend real tokens, so
 //! they are deliberately small.
@@ -10,7 +10,7 @@
 //! `anthropic` — the same place the app puts it — falling back to the
 //! ANTHROPIC_API_KEY environment variable.
 #![cfg(feature = "live-tests")]
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use futures_util::StreamExt;
@@ -183,7 +183,7 @@ async fn a_thinking_reply_carries_a_signed_block_that_can_be_replayed() {
         .expect("a raw payload should be emitted before Done");
 
     // Replay it as a prior assistant turn and check the API accepts it. This
-    // is the failure the raw-payload rule exists to prevent (master spec s5.2).
+    // is the failure the raw-payload rule exists to prevent.
     let assistant_id = ws_context::MsgId::new();
     let mut replay = request(
         "And what is that plus one?",

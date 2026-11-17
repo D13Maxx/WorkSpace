@@ -1,4 +1,4 @@
-//! ws-engine-cli: standalone harness for the local engine (master spec s13 C3).
+//! ws-engine-cli: standalone harness for the local engine.
 //!
 //! The engine is reachable without the desktop app on purpose. A model that
 //! will not load, a template that renders wrongly or a prompt that tokenizes

@@ -1,4 +1,4 @@
-//! The Gemini client and `ChatBackend` implementation (master spec s7.4).
+//! The Gemini client and `ChatBackend` implementation.
 
 use futures_util::stream::BoxStream;
 use std::sync::Arc;
@@ -157,7 +157,7 @@ impl ChatBackend for GeminiBackend {
     }
 }
 
-/// Model ids come from the provider, never a hardcoded list (spec s7.1).
+/// Model ids come from the provider, never a hardcoded list.
 ///
 /// Gemini's list endpoint *does* report token limits, so unlike the other
 /// providers the capabilities can be filled in without the user profiling
@@ -204,7 +204,7 @@ fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelI
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

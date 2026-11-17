@@ -1,6 +1,6 @@
 //! Engine failures.
 //!
-//! A GGUF file is untrusted input (master spec s8.3): every rejection here is
+//! A GGUF file is untrusted input: every rejection here is
 //! an error with numbers in it, never a panic and never a silent truncation.
 //!
 //! The messages are written for the person who chose the model, not for a log
@@ -115,7 +115,7 @@ pub type Result<T> = std::result::Result<T, EngineError>;
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

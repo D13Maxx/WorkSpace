@@ -1,4 +1,4 @@
-//! Retry rules shared by the API adapters (master spec s7.1).
+//! Retry rules shared by the API adapters.
 //!
 //! Retries happen only *before* the first streamed byte. That is not a policy
 //! knob but a correctness rule: once a reply has begun arriving, re-sending
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetryPolicy {
-    /// Total attempts, including the first. Spec s7.1 allows at most 3.
+    /// Total attempts, including the first. At most 3.
     pub max_attempts: u32,
     pub base_delay: Duration,
     pub max_delay: Duration,
@@ -69,7 +69,7 @@ pub fn parse_retry_after(raw: &str, now: chrono::DateTime<chrono::Utc>) -> Optio
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn the_default_allows_at_most_three_attempts() {
-        // Spec s7.1 sets this ceiling; a change here is a spec change.
+        // A deliberate ceiling; raise it only on purpose.
         assert_eq!(RetryPolicy::default().max_attempts, 3);
     }
 

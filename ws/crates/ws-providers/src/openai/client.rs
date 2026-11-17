@@ -1,4 +1,4 @@
-//! The OpenAI Responses client and `ChatBackend` implementation (spec s7.3).
+//! The OpenAI Responses client and `ChatBackend` implementation.
 
 use futures_util::stream::BoxStream;
 use std::sync::Arc;
@@ -133,7 +133,7 @@ impl ChatBackend for OpenAiBackend {
     }
 }
 
-/// Model ids come from the provider, never a hardcoded list (spec s7.1).
+/// Model ids come from the provider, never a hardcoded list.
 fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelInfo> {
     body.get("data")
         .and_then(|d| d.as_array())
@@ -157,7 +157,7 @@ fn parse_model_list(backend: &BackendId, body: &serde_json::Value) -> Vec<ModelI
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

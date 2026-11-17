@@ -1,10 +1,10 @@
-//! Proof that the database itself enforces the immutability invariants of
-//! master spec s5.1, rather than trusting callers to respect them.
+//! Proof that the database itself enforces the message immutability
+//! invariants, rather than trusting callers to respect them.
 //!
 //! Required by checkpoint C1: "test proving the immutability trigger rejects
 //! updates".
 
-// Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;

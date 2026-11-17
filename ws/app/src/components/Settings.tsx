@@ -20,7 +20,7 @@ interface Props {
   onModelsChanged: () => void;
 }
 
-/** Keys: set, replace or delete, never read back (master spec s12). */
+/** Keys: set, replace or delete, never read back. */
 function KeySection({
   backends,
   onChanged,
@@ -88,7 +88,7 @@ function KeySection({
 }
 
 /**
- * Editing a model's capabilities (master spec s7.1). Until a model is edited
+ * Editing a model's capabilities. Until a model is edited
  * here it runs on conservative guesses, which is what `unprofiled` warns about.
  */
 function ProfileSection({
@@ -431,7 +431,7 @@ function FallbackSection({ models }: { models: ModelOption[] }) {
   );
 }
 
-/** User-configured OpenAI-compatible endpoints (master spec s7.5). */
+/** User-configured OpenAI-compatible endpoints. */
 /** Skills are SKILL.md folders, the same format Claude Code uses. */
 function SkillsSection() {
   const [list, setList] = useState<SkillList | null>(null);

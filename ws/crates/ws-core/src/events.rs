@@ -11,7 +11,7 @@ use ws_context::{ContextView, HelperEntry, ModelRef, MsgId, StopReason, TeamPost
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TurnEvent {
     /// The context is being assembled. Shown as "Preparing context for {model}…"
-    /// and cancellable (master spec s6.5).
+    /// and cancellable.
     PreparingContext {
         target: ModelRef,
     },
@@ -29,7 +29,7 @@ pub enum TurnEvent {
         view: Box<ContextView>,
     },
 
-    /// Local engine only: progress reading the prompt (master spec s8.6).
+    /// Local engine only: progress reading the prompt.
     ///
     /// `reused_tokens` came from the KV cache and cost nothing, so the UI
     /// should base any time estimate on `done_tokens` alone.

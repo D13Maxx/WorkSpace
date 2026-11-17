@@ -16,5 +16,5 @@ tracing.workspace = true
 
 [features]
 # Touches the real Windows Credential Manager. Never enabled in CI
-# (master spec s7.6); run locally with --features live-tests.
+#; run locally with --features live-tests.
 live-tests = []

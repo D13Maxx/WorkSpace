@@ -1,9 +1,9 @@
-//! Token sampling (master spec s8.9).
+//! Token sampling.
 //!
 //! Hand-written and deliberately free of any model dependency: this survives
 //! the swap from candle's reference forward pass to the one written here.
 //!
-//! Order is fixed by the spec: repetition penalty, then temperature, then
+//! Order is fixed: repetition penalty, then temperature, then
 //! top-k, then top-p, then sample. Applying temperature after top-k would
 //! change which tokens the cut admits, so the order is part of the contract
 //! rather than an implementation detail.
@@ -39,7 +39,7 @@ impl Default for SamplingParams {
 }
 
 impl SamplingParams {
-    /// Deterministic decoding, for parity tests (master spec s9 T4).
+    /// Deterministic decoding, for parity tests.
     #[must_use]
     pub fn greedy(max_tokens: u32) -> Self {
         Self {
@@ -187,7 +187,7 @@ fn argmax(logits: &[f32]) -> u32 {
 }
 
 /// Numerically stable softmax: subtracting the max prevents `exp` overflowing
-/// on large logits (master spec s8.9).
+/// on large logits.
 fn softmax(logits: &[f32]) -> Vec<f32> {
     let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     if !max.is_finite() {
@@ -232,7 +232,7 @@ fn truncate_to_top_p(candidates: &mut Vec<(u32, f32)>, probs: &mut Vec<f32>, p: 
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

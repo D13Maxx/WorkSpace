@@ -66,7 +66,7 @@ export default function App() {
   const [models, setModels] = useState<ModelOption[]>([]);
 
   // While a turn streams, the reply lives here rather than in `thread`: the
-  // message row does not exist until it completes (master spec s10).
+  // message row does not exist until it completes.
   const [streaming, setStreaming] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState("");
   const [status, setStatus] = useState<string | null>(null);

@@ -1,4 +1,4 @@
-/* Dark by default. Master spec s3 defers the visual design pass, so this aims
+/* Dark by default. The visual design pass is still to come, so this aims
    for legible and calm rather than styled: one dark ground, two raised
    surfaces, and a single accent. */
 :root {
@@ -268,7 +268,7 @@ select:focus {
 .message .actions button:hover {
   color: var(--text);
 }
-/* Model output is plain text: no HTML is ever rendered (master spec s12). */
+/* Model output is plain text: no HTML is ever rendered. */
 .message .body {
   white-space: pre-wrap;
   word-break: break-word;
@@ -536,7 +536,7 @@ select:focus {
   font-size: 13px;
 }
 
-/* ---- prefill progress (master spec s11.1) --------------------------- */
+/* ---- prefill progress --------------------------- */
 
 .prefill {
   padding: 0.6rem 1rem;

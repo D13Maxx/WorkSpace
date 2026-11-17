@@ -1,4 +1,4 @@
-//! Prefill and decode (master spec s8.6).
+//! Prefill and decode.
 //!
 //! The loop is hand-written and stays: chunked prefill with progress and
 //! cancellation between chunks, then one token at a time until something says
@@ -17,7 +17,7 @@ use crate::sampler::{Sampler, SamplingParams};
 use tokio_util::sync::CancellationToken;
 use ws_context::backend::{BackendEvent, StopReason};
 
-/// Prompt tokens per forward pass during prefill (master spec s8.6).
+/// Prompt tokens per forward pass during prefill.
 pub const DEFAULT_PREFILL_CHUNK: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +36,7 @@ impl Default for GenerateOptions {
 /// Run one generation, emitting events as it goes.
 ///
 /// Returns the reason it stopped. A cancelled generation is not an error: the
-/// text already emitted is the caller's to keep (master spec s7.1).
+/// text already emitted is the caller's to keep.
 ///
 /// # Errors
 /// Fails if the prompt does not fit the context cap, or if a forward pass or
@@ -62,7 +62,7 @@ pub fn generate(
         });
     }
 
-    // 1. Decide what the cache can save us (master spec s8.5).
+    // 1. Decide what the cache can save us.
     let plan = cache::plan(model.cached_tokens(), prompt, CACHE_ABILITY);
     model.apply_plan(plan);
 
@@ -158,7 +158,7 @@ pub fn generate(
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

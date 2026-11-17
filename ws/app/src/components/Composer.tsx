@@ -20,7 +20,7 @@ export function Composer({ onSend, onStop, busy }: Props) {
     onSend(text.trim(), coordinate);
   };
 
-  // Master spec s11.1: Enter sends, Shift+Enter is a newline, Esc stops.
+  // Enter sends, Shift+Enter is a newline, Esc stops.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

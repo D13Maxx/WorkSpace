@@ -1,4 +1,4 @@
-//! Cached summaries of evicted history (master spec s6.5).
+//! Cached summaries of evicted history.
 
 use crate::ids::{ConvId, MsgId, SummaryId};
 use crate::model::ModelRef;

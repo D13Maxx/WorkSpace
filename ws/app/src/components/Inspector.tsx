@@ -6,7 +6,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** "What this model sees" (master spec s6.6). */
+/** "What this model sees". */
 export function Inspector({ view, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();

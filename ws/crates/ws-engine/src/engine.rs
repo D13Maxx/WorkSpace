@@ -1,4 +1,4 @@
-//! The engine worker and its command channel (master spec s8.2, s8.10).
+//! The engine worker and its command channel.
 //!
 //! One model, one generation at a time; further requests queue behind the
 //! channel. The model lives on a dedicated OS thread and never touches the
@@ -47,8 +47,7 @@ pub enum EngineCmd {
     ///
     /// The two belong together: the exact token count depends on the template
     /// the *file* carries, so a caller that rendered separately would be
-    /// counting a different string than the one the model sees (master spec
-    /// s6.1).
+    /// counting a different string than the one the model sees.
     RenderAndTokenize {
         messages: Vec<TemplateMessage>,
         add_generation_prompt: bool,
@@ -73,8 +72,8 @@ pub enum EngineCmd {
 /// Names the command without its contents.
 ///
 /// Deliberately not derived: a derived `Debug` would put whole prompts into
-/// anything that logged a command, and master spec s12 keeps conversation
-/// content out of logs.
+/// anything that logged a command, and conversation content is kept
+/// out of logs.
 impl std::fmt::Debug for EngineCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
@@ -103,7 +102,7 @@ impl EngineHandle {
     /// `threads` sizes rayon's global pool, which is where candle's CPU
     /// kernels do their parallel work. It can only be set once per process,
     /// so a second engine inherits the first one's pool; that is fine, since
-    /// master spec s8.1 allows one model at a time anyway.
+    /// only one model is loaded at a time anyway.
     ///
     /// # Errors
     /// Fails only if the worker thread cannot be spawned.
@@ -301,7 +300,7 @@ impl Worker {
                 });
 
                 // A backend must emit exactly one terminal event, last
-                // (master spec s4).
+                //.
                 let terminal = match result {
                     Ok(stop_reason) => BackendEvent::Done { stop_reason },
                     Err(e) => BackendEvent::Error(ws_context::backend::BackendError::Engine(
@@ -324,7 +323,7 @@ impl Worker {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -358,7 +357,7 @@ mod tests {
     #[tokio::test]
     async fn generating_without_a_model_still_emits_exactly_one_terminal_event() {
         // The orchestrator waits for a terminal event rather than a timeout
-        // (master spec s4), so this path must not be silent.
+        //, so this path must not be silent.
         let engine = EngineHandle::start(Some(1)).unwrap();
         let (tx, mut rx) = tokio_mpsc::unbounded_channel();
 

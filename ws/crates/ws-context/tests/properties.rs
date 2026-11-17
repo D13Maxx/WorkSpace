@@ -1,4 +1,4 @@
-//! Property tests required by master spec s6.7.
+//! Property tests for the context builder.
 //!
 //! Over randomly generated conversations and window sizes, four invariants
 //! must hold for every view the builder is willing to return:
@@ -8,7 +8,7 @@
 //!   3. the latest user message is always present;
 //!   4. the stored messages are unchanged by building a view.
 
-// Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 mod common;
 
@@ -19,7 +19,7 @@ use ws_context::{
     TokenCounter, ViewPlan, build_view,
 };
 
-/// Reproduces the budget arithmetic of master spec s6.1 for assertions.
+/// Reproduces the context builder's budget arithmetic for assertions.
 fn available_tokens(c: &ModelCapabilities, cfg: &ContextConfig, system: Option<&str>) -> u32 {
     let margin = cfg.safety_margin(c.context_window);
     let system_tokens = system.map_or(0, |s| FixedCounter.count_text(s));

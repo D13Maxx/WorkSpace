@@ -1,6 +1,6 @@
 //! Conversation, branching, draft recovery and round-trip persistence.
 
-// Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;
@@ -170,7 +170,7 @@ fn provider_native_blocks_survive_a_round_trip_byte_for_byte() {
     assert_eq!(opaque[0].payload, payload);
 
     // The raw payload is stored separately and verbatim, because rebuilding it
-    // from parts risks 4xx errors on replay (master spec s5.2).
+    // from parts risks 4xx errors on replay.
     assert_eq!(store.get_raw_payload(id).unwrap(), Some(raw));
 }
 

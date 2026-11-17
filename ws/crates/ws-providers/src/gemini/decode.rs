@@ -1,4 +1,4 @@
-//! Gemini streaming decoder (master spec s7.4).
+//! Gemini streaming decoder.
 //!
 //! Pure: SSE events in, `BackendEvent`s out.
 //!

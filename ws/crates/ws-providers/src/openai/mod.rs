@@ -1,4 +1,4 @@
-//! OpenAI Responses API adapter (master spec s7.3).
+//! OpenAI Responses API adapter.
 
 pub mod client;
 pub mod decode;

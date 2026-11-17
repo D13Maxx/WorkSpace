@@ -1,4 +1,4 @@
-//! OpenAI-compatible (Chat Completions) streaming decoder (spec s7.5).
+//! OpenAI-compatible (Chat Completions) streaming decoder.
 //!
 //! The defining property of this adapter is what it does *not* do: it never
 //! emits an opaque block. Chat Completions has no signed reasoning to replay,
@@ -288,7 +288,7 @@ impl crate::stream::StreamDecoder for CompatDecoder {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

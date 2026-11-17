@@ -28,5 +28,5 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 
 [features]
 # Talks to real provider APIs with real keys. Never enabled in CI
-# (master spec s7.6).
+#.
 live-tests = []

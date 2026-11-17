@@ -1,4 +1,4 @@
-//! Provider adapters (master spec s7).
+//! Provider adapters.
 //!
 //! Each adapter is three pieces: a pure request builder, a pure stream
 //! decoder, and a thin HTTP client. Keeping the first two free of I/O is what

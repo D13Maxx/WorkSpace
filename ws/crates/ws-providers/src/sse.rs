@@ -1,4 +1,4 @@
-//! A Server-Sent Events parser (master spec s7.1).
+//! A Server-Sent Events parser.
 //!
 //! Written in-house because the job is small and the failure mode is subtle:
 //! HTTP chunks do not align with lines, so a naive parser that treats each
@@ -124,7 +124,7 @@ impl SseParser {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

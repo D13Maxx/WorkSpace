@@ -1,4 +1,4 @@
-//! Anthropic Messages API adapter (master spec s7.2).
+//! Anthropic Messages API adapter.
 
 pub mod client;
 pub mod decode;

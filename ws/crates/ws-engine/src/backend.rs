@@ -1,4 +1,4 @@
-//! The local engine as a [`ChatBackend`] (master spec s8.2).
+//! The local engine as a [`ChatBackend`].
 //!
 //! This is the whole point of the trait: from here up, a local GGUF and a
 //! remote API are the same thing. The orchestrator builds a view, hands it to
@@ -102,7 +102,7 @@ impl LocalBackend {
 
     /// The model id a loaded file is served under: its filename.
     ///
-    /// Master spec s7.1 forbids hardcoded model ids, and a local model has no
+    /// Model ids are never hardcoded, and a local model has no
     /// provider to ask, so the file's own name is the only honest identifier.
     #[must_use]
     pub fn loaded_model_id(&self) -> Option<String> {
@@ -125,7 +125,7 @@ fn model_id_for(path: &std::path::Path) -> String {
     )
 }
 
-/// Exact counting, backed by the model's own tokenizer (master spec s6.1).
+/// Exact counting, backed by the model's own tokenizer.
 #[derive(Debug)]
 struct ExactCounter(Arc<EngineTokenizer>);
 
@@ -145,8 +145,8 @@ impl TokenCounter for ExactCounter {
 ///
 /// Images are dropped with a marker rather than silently: a local Llama has no
 /// vision, and a prompt that quietly omitted an image the user can see in the
-/// transcript would be the kind of mismatch master spec s6.3 exists to
-/// prevent.
+/// transcript would be exactly the mismatch the context builder
+/// exists to prevent.
 fn to_template_messages(request: &BackendRequest) -> Vec<TemplateMessage> {
     let mut out = Vec::with_capacity(request.view.messages.len() + 1);
 
@@ -159,7 +159,7 @@ fn to_template_messages(request: &BackendRequest) -> Vec<TemplateMessage> {
             Role::User => "user",
             Role::Assistant => "assistant",
             Role::System => "system",
-            // Defined for later milestones (master spec s3). Chat templates
+            // Defined for later milestones. Chat templates
             // that know the role will handle it; those that do not would
             // reject an unknown one, and "user" is the safer guess.
             Role::Tool => "user",
@@ -175,8 +175,8 @@ fn to_template_messages(request: &BackendRequest) -> Vec<TemplateMessage> {
 
 /// Append one part's contribution to a message's flat content.
 ///
-/// Reasoning and provider-native blocks are dropped outright: master spec s6.3
-/// forbids replaying reasoning to a model that did not produce it, and a local
+/// Reasoning and provider-native blocks are dropped outright: Workspace never
+/// replays reasoning to a model that did not produce it, and a local
 /// Llama produced none of it. Attachments the model cannot read are marked, on
 /// the same principle as images -- a silent omission would leave the model
 /// answering about something it was never shown.
@@ -203,7 +203,7 @@ fn flatten_part(part: &Part, out: &mut String) {
                 flatten_part(inner, out);
             }
         }
-        // Never replayed (master spec s6.3, s6.4).
+        // Never replayed.
         Part::Reasoning { .. } | Part::Opaque(_) => {}
     }
 }
@@ -290,7 +290,7 @@ fn capabilities_for(info: &LoadedInfo) -> ModelCapabilities {
         vision: false,
         tools: false,
         // A local Llama emits no separate reasoning channel, and there is
-        // nothing signed to replay even if it did (master spec s6.4).
+        // nothing signed to replay even if it did.
         reasoning: ReasoningSupport::None,
         ..ModelCapabilities::for_window(info.context_cap)
     }
@@ -298,7 +298,7 @@ fn capabilities_for(info: &LoadedInfo) -> ModelCapabilities {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

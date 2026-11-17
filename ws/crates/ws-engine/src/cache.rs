@@ -1,4 +1,4 @@
-//! KV cache reuse policy (master spec s8.5).
+//! KV cache reuse policy.
 //!
 //! Pure arithmetic over token ids: no tensors, no model, no device. That makes
 //! the rule that actually matters for chat -- *do not re-read the whole
@@ -7,7 +7,7 @@
 //!
 //! ## Why there are two plans
 //!
-//! The spec's rule is truncate-to-longest-common-prefix. That needs a cache
+//! The rule is truncate-to-longest-common-prefix. That needs a cache
 //! whose tensors can be cut to an arbitrary length, which the hand-written
 //! model will have. `candle_transformers`' reference model keeps its per-layer
 //! cache private and exposes only `clear_kv_cache`, so on that path the choice
@@ -101,7 +101,7 @@ pub fn plan(cached: &[u32], prompt: &[u32], ability: CacheAbility) -> CachePlan 
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

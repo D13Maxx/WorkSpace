@@ -1,4 +1,4 @@
-//! Model identity and declared capabilities (master spec s5.2).
+//! Model identity and declared capabilities.
 
 use crate::ids::BackendId;
 use serde::{Deserialize, Serialize};
@@ -53,7 +53,7 @@ pub enum ReasoningSupport {
 ///
 /// `Exact` means a real tokenizer ran over the rendered prompt. `Estimate`
 /// means a heuristic was used and the number may be wrong in either
-/// direction, so the budget keeps a safety margin (master spec s6.1).
+/// direction, so the budget keeps a safety margin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenCounting {
@@ -62,7 +62,7 @@ pub enum TokenCounting {
 }
 
 /// What a model can accept. Sourced from the user-editable model profile
-/// table, never hardcoded per model id (master spec s7.1).
+/// table, never hardcoded per model id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelCapabilities {
     pub context_window: u32,
@@ -71,7 +71,7 @@ pub struct ModelCapabilities {
     pub tools: bool,
     pub reasoning: ReasoningSupport,
     pub token_counting: TokenCounting,
-    /// Flat token cost charged per image when budgeting (master spec s6.1).
+    /// Flat token cost charged per image when budgeting.
     pub image_token_cost: u32,
 }
 
@@ -116,7 +116,7 @@ impl Default for ModelCapabilities {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

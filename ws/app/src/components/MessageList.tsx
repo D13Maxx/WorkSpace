@@ -41,7 +41,7 @@ function Diff({ text }: { text: string }) {
 }
 
 /**
- * Model output is rendered as plain text, never as HTML (master spec s12).
+ * Model output is rendered as plain text, never as HTML.
  * `textContent` assignment via React's children is what guarantees that: no
  * dangerouslySetInnerHTML appears anywhere in this file.
  */

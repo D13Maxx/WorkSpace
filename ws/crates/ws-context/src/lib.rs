@@ -1,7 +1,7 @@
 //! Canonical conversation format and context builder.
 //!
-//! Pure data and pure functions: this crate performs no I/O, so every rule in
-//! master spec s5 and s6 is unit- and property-testable without a database,
+//! Pure data and pure functions: this crate performs no I/O, so every rule about
+//! messages and context views is unit- and property-testable without a database,
 //! a network, or a model.
 
 pub mod backend;

@@ -130,7 +130,7 @@ pub struct ModelOption {
     pub model_id: String,
     pub display_name: String,
     /// True while this model still has only guessed capabilities, so the UI
-    /// can warn (master spec s7.1).
+    /// can warn.
     pub unprofiled: bool,
 }
 
@@ -466,7 +466,7 @@ pub fn set_worker_model(state: State<'_, AppState>, model: Option<ModelRef>) -> 
     Ok(())
 }
 
-/// Regenerate an assistant message as a new sibling (master spec s5.1).
+/// Regenerate an assistant message as a new sibling.
 #[tauri::command]
 pub async fn regenerate(
     app: tauri::AppHandle,
@@ -562,7 +562,7 @@ pub fn get_context_view(
 // ---- models and profiles ----------------------------------------------
 
 /// Model ids come from the providers, merged with anything already profiled.
-/// Never a hardcoded list (master spec s7.1).
+/// Never a hardcoded list.
 ///
 /// One provider being unreachable or unconfigured must not empty the picker,
 /// so failures are logged per backend and the rest still render.
@@ -661,7 +661,7 @@ pub fn list_backends(state: State<'_, AppState>) -> CmdResult<Vec<BackendInfo>> 
     Ok(out)
 }
 
-/// Add or update an OpenAI-compatible endpoint (master spec s7.5).
+/// Add or update an OpenAI-compatible endpoint.
 ///
 /// Takes effect on the next launch: backends are wired up at startup.
 #[tauri::command]
@@ -807,7 +807,7 @@ pub fn set_model_profile(
 
 // ---- secrets ----------------------------------------------------------
 //
-// Master spec s12: the UI can set, replace, delete and check for a key, but
+// The UI can set, replace, delete and check for a key, but
 // there is deliberately no command to read one back.
 
 #[tauri::command]
@@ -827,7 +827,7 @@ pub fn delete_api_key(backend: String) -> CmdResult<()> {
     SecretStore::new().delete_key(&backend).map_err(err)
 }
 
-// ---- the local engine (master spec s8, s11.1) -------------------------
+// ---- the local engine -------------------------
 
 /// What a GGUF says about itself, before anything is loaded.
 #[derive(Debug, Serialize)]
@@ -862,7 +862,7 @@ pub struct LoadedModelDto {
     pub threads: usize,
     pub weights_bytes: u64,
     pub kv_cache_bytes: u64,
-    /// True when a shared prefix can be partially reused (master spec s8.5).
+    /// True when a shared prefix can be partially reused.
     /// False means editing an earlier turn re-reads the prompt.
     pub truncatable_cache: bool,
     /// The largest context cap this build can address.
@@ -952,7 +952,7 @@ pub async fn load_local_model(
 
     // The engine knows its own window exactly, so record it as a profile
     // rather than leaving the model "unprofiled" with conservative defaults
-    // (master spec s7.1).
+    //.
     let model = ModelRef::new(crate::state::LOCAL, file_name_of(&info.path));
     state.profiles.set(
         model,
@@ -1429,7 +1429,7 @@ pub fn undo_edit(state: State<'_, AppState>, call_id: String) -> CmdResult<()> {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::{check_endpoint, coordinate_parts};

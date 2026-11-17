@@ -1,4 +1,4 @@
-//! The Tauri backend (master spec s11).
+//! The Tauri backend.
 //!
 //! Thin by design: every command translates a UI request into one `ws-core`
 //! call. No business logic lives here, so the rules that matter stay in the

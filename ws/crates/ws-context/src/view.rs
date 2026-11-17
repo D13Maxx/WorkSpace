@@ -1,10 +1,10 @@
-//! The context builder (master spec s6).
+//! The context builder.
 //!
 //! Pure: no I/O, no clocks, no randomness. Given a path and a target model it
 //! returns either a finished view or a request for a summary. The stored
 //! conversation is never modified -- only the view sent to a model changes.
 //!
-//! Two details the spec leaves open, decided here and recorded in
+//! Two details the design left open, decided here and recorded in
 //! `docs/adr/001-context-view-shape.md`:
 //!
 //! 1. A summary is injected by appending it to the system prompt rather than
@@ -37,7 +37,7 @@ pub const SUMMARY_HEADER: &str = "## Summary of earlier conversation\n\
 #[serde(rename_all = "snake_case")]
 pub enum ViewMode {
     /// Whole path sent verbatim. Only in this mode may provider-native
-    /// blocks be replayed (master spec s6.4).
+    /// blocks be replayed.
     Full,
     SummaryPlusRecent,
 }
@@ -81,7 +81,7 @@ pub enum OpaqueDropReason {
 }
 
 /// The persistable description of what a model was sent. Stored per assistant
-/// message so the inspector can explain any past reply (master spec s6.6).
+/// message so the inspector can explain any past reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextView {
     pub target: ModelRef,
@@ -124,7 +124,7 @@ pub struct SummaryRequest {
     pub covers_from: MsgId,
     pub covers_to: MsgId,
     /// Preferred author: the outgoing model if one was supplied, else the
-    /// target (master spec s6.5).
+    /// target.
     pub suggested_writer: ModelRef,
     pub budget_tokens: u32,
     /// An existing summary covering a shorter prefix, to extend incrementally.
@@ -150,7 +150,7 @@ pub struct BuildViewParams<'a> {
     pub counter: &'a dyn TokenCounter,
     pub cfg: &'a ContextConfig,
     /// The model being switched away from, if this turn follows a switch.
-    /// Spec s6.5 prefers it as summariser because it still holds the context.
+    /// It is preferred as summariser because it still holds the context.
     pub outgoing: Option<&'a ModelRef>,
 }
 
@@ -168,9 +168,9 @@ fn file_placeholder(name: &str) -> String {
     format!("[File {name:?} {EM_DASH} not readable by this model]")
 }
 
-/// Apply the per-target transformations of master spec s6.3 to one message.
+/// Apply the per-target transformations to one message.
 ///
-/// `allow_opaque` encodes the s6.4 view-mode condition; the model-identity
+/// `allow_opaque` encodes the view-mode condition; the model-identity
 /// condition is checked here.
 fn transform(
     msg: &Message,
@@ -209,7 +209,7 @@ fn transform(
                 parts.push(Part::text(file_placeholder(name)));
             }
 
-            // Never sent to any model, by any target (master spec s6.3).
+            // Never sent to any model, by any target.
             Part::Reasoning { visible_text } => {
                 if visible_text.is_some() {
                     notes.push(TransformNote::ReasoningWithheld { message: msg.id });
@@ -400,7 +400,7 @@ fn assemble(
 /// # Errors
 /// Fails rather than truncating silently when the target has no usable input
 /// budget, when the latest user message cannot fit at all, or when a cached
-/// summary is far over budget (master spec s6.2 step 4).
+/// summary is far over budget.
 pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
     if p.path.is_empty() {
         return Err(ContextError::EmptyPath);
@@ -510,7 +510,7 @@ pub fn build_view(p: BuildViewParams<'_>) -> Result<ViewPlan, ContextError> {
     let target = p.cfg.compaction_target(available);
 
     // Reserve room for a summary, but never at the cost of the latest user
-    // message, which is always sent verbatim (master spec s6.2 step 4).
+    // message, which is always sent verbatim.
     let mut summary_budget = p.cfg.summary_budget(target);
     if latest_cost > available.saturating_sub(summary_budget) {
         summary_budget = available.saturating_sub(latest_cost);

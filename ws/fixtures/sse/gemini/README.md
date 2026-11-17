@@ -1,6 +1,6 @@
 # Gemini SSE fixtures
 
-Streams used to test the decoder without a network (master spec s7.6). Gemini
+Streams used to test the decoder without a network. Gemini
 has no named SSE event types: every `data:` line is a whole
 `GenerateContentResponse`, and the new content is in
 `candidates[0].content.parts`.

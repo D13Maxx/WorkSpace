@@ -1,4 +1,4 @@
-//! Token counting (master spec s6.1).
+//! Token counting.
 
 /// Counts tokens for a target model.
 ///
@@ -9,7 +9,7 @@ pub trait TokenCounter: std::fmt::Debug + Send + Sync {
     fn count_text(&self, text: &str) -> u32;
 }
 
-/// Byte-based estimate: `ceil(utf8_bytes / 3)` plus 10% (master spec s6.1).
+/// Byte-based estimate: `ceil(utf8_bytes / 3)` plus 10%.
 ///
 /// Deliberately conservative for Latin text, where real tokenizers average
 /// closer to 4 bytes per token. It is much tighter for scripts whose
@@ -30,7 +30,7 @@ impl TokenCounter for ByteEstimateCounter {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

@@ -1,4 +1,4 @@
-//! OpenAI Responses streaming decoder (master spec s7.3).
+//! OpenAI Responses streaming decoder.
 //!
 //! Pure: SSE events in, `BackendEvent`s out. No network, no clock.
 //!
@@ -136,7 +136,7 @@ impl OpenAiDecoder {
             .unwrap_or("unknown");
 
         // Every item is kept, recognised or not: dropping one produces an
-        // incomplete input on the next turn (master spec s7.3).
+        // incomplete input on the next turn.
         self.output.push(item.clone());
 
         if item_type != "reasoning" {

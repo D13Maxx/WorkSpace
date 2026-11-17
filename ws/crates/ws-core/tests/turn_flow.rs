@@ -5,7 +5,7 @@
 //! failure both preserving partial text, and the summary path firing when
 //! history will not fit.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::{Arc, Mutex};
@@ -201,7 +201,7 @@ async fn the_raw_provider_payload_is_stored_and_replayed_to_the_same_model() {
 
 #[tokio::test]
 async fn a_different_model_does_not_receive_the_other_models_signed_blocks() {
-    // Master spec s6.4: replay only when the target is the producing model.
+    // Replay only when the target is the producing model.
     let h = harness(vec![
         Scripted::TextWithOpaque {
             deltas: vec!["first".into()],
@@ -484,7 +484,7 @@ async fn an_overflowing_conversation_is_summarised_and_an_unchanged_range_reuses
             view.summary.is_some(),
             "a summarised view must name the summary it used"
         );
-        // The latest user message is always sent verbatim (master spec s6.2).
+        // The latest user message is always sent verbatim.
         let latest_user = path
             .iter()
             .rposition(|m| m.role == ws_context::Role::User)
@@ -527,7 +527,7 @@ async fn an_overflowing_conversation_is_summarised_and_an_unchanged_range_reuses
 
 #[tokio::test]
 async fn an_in_progress_reply_is_checkpointed_so_a_crash_cannot_lose_it() {
-    // Master spec s10: the message row is written once, at the end. Until
+    // The message row is written once, at the end. Until
     // then the partial text lives in `drafts`. Crash recovery depends on that
     // checkpoint actually happening, so this asserts it does.
     use std::time::Duration;

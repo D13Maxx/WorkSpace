@@ -1,11 +1,11 @@
-//! The opaque replay rule (master spec s6.4).
+//! The opaque replay rule.
 //!
 //! Provider-native blocks are replayed only when the target model id matches
 //! the producing model id AND the view is Full. Every other case drops them,
 //! because a signed reasoning block refers to the exact context it was made in
 //! and a summarised prefix is not that context.
 
-// Spec s14 permits unwrap/expect in tests, where a panic is the failure report.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 mod common;
 

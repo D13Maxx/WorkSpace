@@ -1,6 +1,6 @@
-//! OpenAI Responses decoder tests over recorded streams (master spec s7.6).
+//! OpenAI Responses decoder tests over recorded streams.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
@@ -203,7 +203,7 @@ fn decoding_is_identical_however_the_body_is_chunked() {
     }
 }
 
-/// Round trip (master spec s7.6): a recorded response, stored, then replayed
+/// Round trip: a recorded response, stored, then replayed
 /// must produce the input shape the API documents.
 #[test]
 fn a_stored_response_round_trips_into_the_next_requests_input() {

@@ -136,7 +136,7 @@ impl AppState {
 
         let store = Store::open(dir.join("ws.db"))?;
 
-        // Master spec s10: a reply interrupted by a crash becomes a Failed
+        // A reply interrupted by a crash becomes a Failed
         // message keeping its partial text. Run before anything can write.
         match store.recover_drafts() {
             Ok(ids) if !ids.is_empty() => {
@@ -204,7 +204,7 @@ impl AppState {
             )) as Arc<_>);
 
         // Any number of OpenAI-compatible endpoints, each its own backend with
-        // its own id and its own key (master spec s7.5).
+        // its own id and its own key.
         for cfg in load_compat_configs(&store) {
             orchestrator = orchestrator
                 .with_backend(

@@ -1,4 +1,4 @@
-//! Google Gemini adapter (master spec s7.4).
+//! Google Gemini adapter.
 
 pub mod client;
 pub mod decode;

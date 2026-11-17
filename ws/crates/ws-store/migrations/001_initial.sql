@@ -1,4 +1,4 @@
--- Initial schema (master spec s10).
+-- Initial schema.
 --
 -- Timestamps are RFC 3339 UTC text so the database stays readable by hand.
 --
@@ -30,7 +30,7 @@ CREATE TABLE messages (
     parts_json           TEXT NOT NULL,
     -- The provider's own reassembled response content, kept verbatim for
     -- same-model replay. Rebuilding this from parts_json risks 4xx errors on
-    -- providers that sign their reasoning blocks (master spec s5.2).
+    -- providers that sign their reasoning blocks.
     raw_provider_payload TEXT,
     status               TEXT NOT NULL CHECK (status IN ('complete','cancelled','failed')),
     status_reason        TEXT,
@@ -41,7 +41,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, id);
 CREATE INDEX idx_messages_parent ON messages(conversation_id, parent_id, id);
 
--- Invariant 1 (master spec s5.1): messages are immutable once persisted.
+-- Invariant 1: messages are immutable once persisted.
 -- BEFORE UPDATE OF fires only when one of these columns appears in the SET
 -- list, so status corrections and other bookkeeping stay possible while
 -- content, lineage and role cannot change.
@@ -63,7 +63,7 @@ BEGIN
 END;
 
 -- An in-progress reply lives here, checkpointed about once a second, until it
--- completes. On launch, leftovers become Failed messages (master spec s10).
+-- completes. On launch, leftovers become Failed messages.
 CREATE TABLE drafts (
     conversation_id TEXT PRIMARY KEY NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     parent_id       TEXT,
@@ -73,7 +73,7 @@ CREATE TABLE drafts (
     updated_at      TEXT NOT NULL
 ) STRICT;
 
--- What each assistant message was actually sent, for the inspector (s6.6).
+-- What each assistant message was actually sent, for the inspector.
 CREATE TABLE context_views (
     message_id TEXT PRIMARY KEY NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     view_json  TEXT NOT NULL
@@ -96,7 +96,7 @@ CREATE TABLE context_summaries (
 CREATE INDEX idx_summaries_conversation ON context_summaries(conversation_id);
 
 -- Model switches and similar. Rendered inline by the UI, never sent to a
--- model (master spec s5.3).
+-- model.
 CREATE TABLE conversation_events (
     id                TEXT PRIMARY KEY NOT NULL,
     conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -109,7 +109,7 @@ CREATE TABLE conversation_events (
 CREATE INDEX idx_events_conversation ON conversation_events(conversation_id, created_at);
 
 -- Configured providers. Deliberately holds no secrets: API keys live only in
--- the OS credential store (master spec s12).
+-- the OS credential store.
 CREATE TABLE providers (
     id                 TEXT PRIMARY KEY NOT NULL,
     kind               TEXT NOT NULL,
@@ -129,7 +129,7 @@ CREATE TABLE model_profiles (
     PRIMARY KEY (backend, model_id)
 ) STRICT;
 
--- GGUF files are registered by path and never copied (master spec s10).
+-- GGUF files are registered by path and never copied.
 CREATE TABLE local_models (
     id            TEXT PRIMARY KEY NOT NULL,
     path          TEXT NOT NULL UNIQUE,

@@ -1,5 +1,5 @@
 //! Per-model settings, held in memory and backed by the `model_profiles`
-//! table (master spec s7.1).
+//! table.
 //!
 //! Kept in memory rather than read from SQLite on each lookup because
 //! `capabilities` is called during context building, which is synchronous and
@@ -74,7 +74,7 @@ impl ModelProfiles for ProfileTable {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

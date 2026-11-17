@@ -1,4 +1,4 @@
-//! Building an OpenAI Responses request body (master spec s7.3).
+//! Building an OpenAI Responses request body.
 //!
 //! Stateless by design: `store: false`, with
 //! `include: ["reasoning.encrypted_content"]` so the client holds the
@@ -52,7 +52,7 @@ fn encode_part(part: &Part, req: &BackendRequest, role: Role) -> Option<Value> {
             }
         },
 
-        // Never sent to any model (master spec s6.3). The replayable form of
+        // Never sent to any model. The replayable form of
         // reasoning is the encrypted item, handled in `encode_message`.
         Part::Reasoning { .. } => None,
 
@@ -122,7 +122,7 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
         "max_output_tokens": req.max_output_tokens,
         "stream": stream,
         // Stateless: the conversation lives in this app's database, not on
-        // OpenAI's servers (master spec s7.3).
+        // OpenAI's servers.
         "store": false,
         "include": ["reasoning.encrypted_content"],
     });
@@ -159,7 +159,7 @@ pub fn build_body(req: &BackendRequest, stream: bool) -> Value {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn the_request_is_stateless_and_asks_for_encrypted_reasoning() {
-        // Master spec s7.3: the conversation lives here, not on their servers.
+        // The conversation lives here, not on their servers.
         let body = build_body(&request(vec![user("hi")], None), true);
         assert_eq!(body["store"], false);
         assert_eq!(body["include"][0], "reasoning.encrypted_content");

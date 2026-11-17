@@ -51,7 +51,7 @@ export function Sidebar(props: Props) {
                 title="Delete"
                 onClick={async () => {
                   // Deleting a conversation is the only destructive operation
-                  // in the product, so it always confirms (master spec s5.1).
+                  // in the product, so it always confirms.
                   if (await ask(`Delete "${c.title}"? This cannot be undone.`)) {
                     props.onDelete(c.id);
                   }

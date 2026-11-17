@@ -1,4 +1,4 @@
-//! The interface every model source implements (master spec s4).
+//! The interface every model source implements.
 //!
 //! Four API adapters and the local engine sit behind one trait, which is what
 //! makes switching models mid-conversation a matter of picking a different
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-/// How much thinking a model should do. Per master spec s7.2 this lives in the
+/// How much thinking a model should do. This lives in the
 /// model profile and may change only between turns, because providers tie
 /// thinking settings to the shape of the conversation they are replaying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ pub enum ThinkingMode {
 }
 
 /// A model a backend can serve. Merged from the provider's list-models
-/// endpoint and any ids the user added by hand (master spec s7.1).
+/// endpoint and any ids the user added by hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub model: ModelRef,
@@ -55,7 +55,7 @@ pub struct BackendRequest {
     /// Verbatim provider responses for messages being replayed, keyed by
     /// message id.
     ///
-    /// Populated only for a Full view of the same model (master spec s6.4).
+    /// Populated only for a Full view of the same model.
     /// Adapters that must resend a provider's own response shape use this
     /// rather than rebuilding it from canonical parts, because rebuilding is
     /// what produces 4xx errors on providers that sign their reasoning.
@@ -128,7 +128,7 @@ pub enum BackendError {
 impl BackendError {
     /// Whether retrying could plausibly succeed.
     ///
-    /// Master spec s7.1 allows retries only *before* the first streamed byte;
+    /// Retries happen only *before* the first streamed byte;
     /// this says whether the failure itself is the retryable kind. Both
     /// conditions must hold before a retry is attempted, because re-sending
     /// after partial output would duplicate text.
@@ -164,15 +164,15 @@ impl BackendError {
 /// Ordering matters: `OpaqueBlock` is emitted once a provider-native block is
 /// complete, never per delta, because a thinking signature arrives in its own
 /// delta shortly before the block ends and the block is only valid whole
-/// (master spec s7.2).
+///.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
     /// Local engine only: progress reading the prompt.
     ///
     /// `reused_tokens` is how much of the prompt the KV cache already held and
-    /// did not have to read again (master spec s8.5). It is carried separately
-    /// rather than folded into `done_tokens` because master spec s13 C4 asks
-    /// for prefix reuse to be *demonstrated* from these events, and a single
+    /// did not have to read again. It is carried separately
+    /// rather than folded into `done_tokens` because prefix reuse has to
+    /// be *demonstrated* from these events, and a single
     /// counter cannot tell "reused 2,000, read 50" apart from "read 2,050".
     /// It also lets the UI show an honest estimate: only the tokens actually
     /// being read take time.
@@ -186,7 +186,7 @@ pub enum BackendEvent {
     ReasoningDelta(String),
     /// A complete provider-native block, stored verbatim.
     OpaqueBlock(ProviderOpaque),
-    /// Defined now, unused in M1 (master spec s3).
+    /// Defined now, unused in M1.
     ToolCallDelta {
         call_id: String,
         name: Option<String>,
@@ -199,7 +199,7 @@ pub enum BackendEvent {
     /// The provider's own reassembled response content, emitted once just
     /// before `Done`.
     ///
-    /// Master spec s5.2 requires storing this verbatim rather than rebuilding
+    /// This is stored verbatim rather than rebuilding
     /// it from canonical parts, so it has to reach the orchestrator somehow;
     /// carrying it as an event keeps `ChatBackend` to a single output channel.
     RawPayload(serde_json::Value),
@@ -211,7 +211,7 @@ pub enum BackendEvent {
 
 /// Where a backend reads per-model settings.
 ///
-/// Master spec s7.1 forbids hardcoding model names: capabilities come from a
+/// Model names are never hardcoded: capabilities come from a
 /// user-editable profile table, with conservative defaults for ids the user
 /// has not filled in yet.
 pub trait ModelProfiles: Send + Sync + std::fmt::Debug {
@@ -251,7 +251,7 @@ pub trait ChatBackend: Send + Sync + std::fmt::Debug {
     /// falling back to conservative defaults for unknown ids.
     fn capabilities(&self, model: &ModelRef) -> ModelCapabilities;
 
-    /// How tokens are counted for this model (master spec s6.1).
+    /// How tokens are counted for this model.
     ///
     /// API backends keep the default byte estimate: they expose no tokenizer,
     /// and being a little wrong against a 200k window is absorbed by the
@@ -286,7 +286,7 @@ pub trait ChatBackend: Send + Sync + std::fmt::Debug {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

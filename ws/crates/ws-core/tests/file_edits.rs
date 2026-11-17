@@ -1,6 +1,6 @@
 //! Diffs and undo for files an approved tool edits, through the real turn loop.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;

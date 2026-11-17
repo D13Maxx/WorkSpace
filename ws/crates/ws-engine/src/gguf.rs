@@ -1,4 +1,4 @@
-//! GGUF inspection and validation (master spec s8.3).
+//! GGUF inspection and validation.
 //!
 //! **Every GGUF file is untrusted input.** A model file is something a user
 //! downloaded from the internet, and this code runs before any of it is
@@ -27,7 +27,7 @@ const MAX_ELEMENTS: u64 = 1 << 40;
 
 /// RoPE frequency scaling a file asks for.
 ///
-/// This matters far more than its size suggests. Master spec s8.4 calls RoPE
+/// This matters far more than its size suggests. RoPE is
 /// the highest-risk component precisely because getting it wrong is *quiet*:
 /// the model still produces fluent text on short prompts, and only degrades as
 /// the context grows. A silent quality loss is worse than a refusal, so a file
@@ -74,13 +74,13 @@ pub struct GgufInfo {
     pub head_count_kv: Option<u32>,
     pub rope_freq_base: Option<f32>,
     pub rms_norm_eps: Option<f32>,
-    /// Present when the file embeds a chat template (master spec s8.8).
+    /// Present when the file embeds a chat template.
     pub has_chat_template: bool,
     /// Total size of the tensor data, for the memory pre-check.
     pub tensor_bytes: u64,
     /// Present when the file asks for RoPE frequency scaling. The forward pass
     /// in this build does not apply any, so this is a quality warning rather
-    /// than a detail (master spec s8.4).
+    /// than a detail.
     pub rope_scaling: Option<RopeScaling>,
 }
 
@@ -281,7 +281,7 @@ fn validate(content: &gguf_file::Content, path: &str, file_size: u64) -> Result<
         }
 
         // Checked arithmetic: a crafted shape must not wrap into a small
-        // number and then be trusted (master spec s8.3).
+        // number and then be trusted.
         let elements = dims
             .iter()
             .try_fold(1u64, |acc, d| acc.checked_mul(*d as u64))
@@ -324,7 +324,7 @@ fn validate(content: &gguf_file::Content, path: &str, file_size: u64) -> Result<
     Ok(())
 }
 
-/// Reject an architecture this build has no model code for (master spec s8.3).
+/// Reject an architecture this build has no model code for.
 ///
 /// # Errors
 /// Fails for anything but `llama`.
@@ -338,7 +338,7 @@ pub fn require_supported(info: &GgufInfo) -> Result<()> {
     ))
 }
 
-/// SHA-256 of a file, for the verification record (master spec s9).
+/// SHA-256 of a file, for the verification record.
 ///
 /// Streams rather than reading the whole file: these are gigabytes.
 ///

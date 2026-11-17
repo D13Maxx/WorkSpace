@@ -1,7 +1,7 @@
 // The typed surface of the Rust backend.
 //
 // Every call goes through a Tauri command; the webview has no filesystem or
-// network access of its own (master spec s11.2).
+// network access of its own.
 
 import { invoke } from "@tauri-apps/api/core";
 import { Channel } from "@tauri-apps/api/core";

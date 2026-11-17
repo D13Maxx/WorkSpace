@@ -1,4 +1,4 @@
-//! Tokenizer loading and incremental decoding (master spec s8.7).
+//! Tokenizer loading and incremental decoding.
 //!
 //! Hand-written around `tokenizers`: the vocabulary comes from the file, but
 //! every policy decision here -- which stop tokens count, how BOS is handled,
@@ -60,7 +60,7 @@ pub enum TokenizerSource {
 
 impl EngineTokenizer {
     /// Build from GGUF metadata, falling back to a `tokenizer.json` beside the
-    /// model (master spec s8.7).
+    /// model.
     ///
     /// The fallback is not a nicety: candle's GGUF tokenizer handles byte-level
     /// BPE (`tokenizer.ggml.model` of `gpt2`) only, so SentencePiece-based
@@ -193,7 +193,7 @@ fn meta_token_id(content: &gguf_file::Content, key: &str) -> Option<u32> {
 
 /// Turns a stream of token ids into a stream of complete text.
 ///
-/// Master spec s8.6: emit only the newly completed suffix, and hold back while
+/// Emit only the newly completed suffix, and hold back while
 /// the tail is an incomplete UTF-8 sequence. Byte-level BPE can split a
 /// multi-byte character across two tokens, and decoding only the first half
 /// yields U+FFFD -- which, once emitted, cannot be taken back out of the UI.

@@ -1,5 +1,5 @@
 //! Turn orchestration: the layer that turns a user message into a persisted
-//! reply (master spec s4).
+//! reply.
 
 pub mod agents;
 pub mod edits;

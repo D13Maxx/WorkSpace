@@ -1,4 +1,4 @@
-//! Content-addressed blob storage (master spec s10).
+//! Content-addressed blob storage.
 //!
 //! Images and files live on disk at `blobs/{sha[0..2]}/{sha256}`, not in the
 //! database. Content addressing makes writes idempotent: storing the same
@@ -105,7 +105,7 @@ impl BlobStore {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

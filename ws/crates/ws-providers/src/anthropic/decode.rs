@@ -1,9 +1,9 @@
-//! Anthropic streaming decoder (master spec s7.2).
+//! Anthropic streaming decoder.
 //!
 //! A pure state machine: SSE events in, `BackendEvent`s out. No network, no
 //! clock, no I/O, so the whole protocol is testable from recorded fixtures.
 //!
-//! Two rules from the spec shape the design:
+//! Two rules shape the design:
 //!
 //! - A thinking block's signature arrives in its own delta shortly before the
 //!   block closes. The block is only valid whole, so nothing is emitted until
@@ -73,7 +73,7 @@ pub struct AnthropicDecoder {
     input_tokens: u32,
     output_tokens: u32,
     /// Set once any content has been emitted, which forbids a retry
-    /// (master spec s7.1).
+    ///.
     started: bool,
     done: bool,
 }
@@ -294,7 +294,7 @@ impl AnthropicDecoder {
 
         let complete = Value::Object(block.value);
         // Every block type is kept, including ones this build does not
-        // understand (master spec s7.2).
+        // understand.
         self.finished.push(complete.clone());
 
         if !is_provider_native(&block.block_type) {
@@ -360,7 +360,7 @@ impl AnthropicDecoder {
             .unwrap_or("");
 
         // Mid-stream overload is the one error worth distinguishing: it maps
-        // to a retryable status, though s7.1 still forbids retrying once
+        // to a retryable status, though retrying is still never done once
         // content has started.
         let status = match error_type {
             "overloaded_error" => 529,

@@ -1,6 +1,6 @@
 # OpenAI Responses SSE fixtures
 
-Streams used to test the decoder without a network (master spec s7.6). Each
+Streams used to test the decoder without a network. Each
 file is a raw `text/event-stream` body.
 
 - `text_only.sse` — a plain reply, no reasoning.

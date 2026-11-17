@@ -1,4 +1,4 @@
-//! Turn orchestration (master spec s4).
+//! Turn orchestration.
 //!
 //! One turn is: load the path, build the view the target model should see,
 //! ask the backend for a reply, stream it to the UI, and persist exactly once
@@ -7,7 +7,7 @@
 //! Two rules drive the shape of this file:
 //!
 //! - **The message row is written once**, when the reply completes, is
-//!   cancelled, or fails (master spec s10). While it streams, the partial text
+//!   cancelled, or fails. While it streams, the partial text
 //!   lives in the `drafts` table, checkpointed about once a second, so a crash
 //!   loses at most a second of output and never leaves a half-written message.
 //! - **Nothing the user saw is discarded.** Cancel and failure both persist the
@@ -42,7 +42,7 @@ use ws_store::{BlobStore, Draft, FileEdit, NewMessage, Store};
 pub type ModelListResult =
     std::result::Result<Vec<ws_context::ModelInfo>, ws_context::BackendError>;
 
-/// How often an in-progress reply is checkpointed (master spec s10).
+/// How often an in-progress reply is checkpointed.
 const DRAFT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The waits before each retry of a dropped connection, for apps to pass to
@@ -444,7 +444,7 @@ impl Orchestrator {
     ///
     /// Failures are returned per backend rather than aborting: one provider
     /// being unreachable or unconfigured must not empty the whole picker
-    /// (master spec s7.1).
+    ///.
     pub async fn list_all_models(&self) -> Vec<(BackendId, ModelListResult)> {
         let mut out = Vec::new();
         for id in self.backend_ids() {
@@ -514,7 +514,7 @@ impl Orchestrator {
     /// Record a model switch and point the conversation at the new model.
     ///
     /// The switch is an event, not a message: it is rendered inline by the UI
-    /// and never sent to a model (master spec s5.3).
+    /// and never sent to a model.
     ///
     /// # Errors
     /// Fails if the conversation does not exist, or on any database error.
@@ -541,7 +541,7 @@ impl Orchestrator {
 
     /// Prepare a regeneration: move the visible leaf back to the parent of
     /// `message`, so the next turn creates a sibling rather than an overwrite
-    /// (master spec s5.1 invariant 2).
+    ///.
     ///
     /// # Errors
     /// Fails if the message does not exist, or on any database error.
@@ -621,7 +621,7 @@ impl Orchestrator {
             }
         }
 
-        // Master spec s6.4: raw payloads are replayed only for a Full view of
+        // Raw payloads are replayed only for a Full view of
         // the same model. The context builder already decided that; this only
         // fetches what it approved.
         let mut raw_payloads = BTreeMap::new();
@@ -679,7 +679,7 @@ impl Orchestrator {
         let mut caps = self.profiles.capabilities(target);
         caps.tools = self.tools_enabled(target);
         // Ask the backend how it counts. The local engine counts exactly;
-        // API backends fall back to the estimate (master spec s6.1).
+        // API backends fall back to the estimate.
         let counter = self.backend(&target.backend)?.token_counter(target);
         let outgoing = self.with_store(|s| Ok(s.outgoing_model(conv)?))?;
 
@@ -770,7 +770,7 @@ impl Orchestrator {
         Ok(text)
     }
 
-    /// Ask a model to summarise the evicted prefix (master spec s6.5).
+    /// Ask a model to summarise the evicted prefix.
     async fn write_summary(
         &self,
         conv: ConvId,
@@ -2243,7 +2243,7 @@ enum Step {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

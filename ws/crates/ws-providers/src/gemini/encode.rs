@@ -1,4 +1,4 @@
-//! Building a Gemini request body (master spec s7.4).
+//! Building a Gemini request body.
 //!
 //! Roles are `user` and `model`, the system prompt is a separate
 //! `systemInstruction`, and a signed part must go back at the same position it
@@ -39,7 +39,7 @@ fn encode_part(part: &Part, req: &BackendRequest) -> Option<Value> {
         // Replayed exactly, including its thoughtSignature.
         Part::Opaque(o) => Some(o.payload.clone()),
 
-        // Never sent to any model (master spec s6.3).
+        // Never sent to any model.
         Part::Reasoning { .. } => None,
 
         Part::File { name, .. } => Some(json!({
@@ -53,7 +53,7 @@ fn encode_part(part: &Part, req: &BackendRequest) -> Option<Value> {
 fn encode_message(msg: &RenderedMessage, req: &BackendRequest) -> Option<Value> {
     // Replay the model's own stored turn rather than rebuilding it: a
     // thoughtSignature is validated against the exact parts array it came in,
-    // so position and neighbours matter (master spec s7.4).
+    // so position and neighbours matter.
     if msg.role == Role::Assistant {
         if let Some(raw) = req.raw_payloads.get(&msg.source_id) {
             if let Some(parts) = raw.pointer("/content/parts").filter(|p| p.is_array()) {
@@ -119,7 +119,7 @@ pub fn build_body(req: &BackendRequest) -> Value {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

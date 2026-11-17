@@ -1,4 +1,4 @@
-//! Checkpoint C2 scenarios S1 and S2 (master spec s13).
+//! Checkpoint C2 scenarios S1 and S2.
 //!
 //! These are the tests the whole opaque-replay design exists for. They run
 //! against scripted backends rather than live APIs: what is being checked is
@@ -6,7 +6,7 @@
 //! this app's logic, not the provider's. The live counterpart needs real keys
 //! and is recorded separately in the checkpoint notes.
 
-// Spec s14 permits unwrap/expect in tests.
+// Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::{Arc, Mutex};
@@ -127,7 +127,7 @@ fn failures(events: &[TurnEvent]) -> Vec<String> {
         .collect()
 }
 
-/// **Scenario S1** (master spec s13 C2).
+/// **Scenario S1**.
 ///
 /// One conversation walks Anthropic (thinking on) → OpenAI → Gemini →
 /// OpenAI-compatible → back to the *same* Anthropic model. Nothing may fail,
@@ -211,11 +211,7 @@ async fn s1_a_conversation_crosses_every_provider_and_comes_back() {
     let e5 = turn(&w, conv, "fifth question").await;
     assert!(failures(&e5).is_empty(), "{:?}", failures(&e5));
     let v5 = view_of(&e5);
-    assert_eq!(
-        v5.mode,
-        ViewMode::Full,
-        "replay requires a full view (master spec s6.4)"
-    );
+    assert_eq!(v5.mode, ViewMode::Full, "replay requires a full view");
     assert!(
         v5.opaque_replayed,
         "returning to the producing model must restore its own signed blocks"
@@ -251,7 +247,7 @@ async fn s1_a_conversation_crosses_every_provider_and_comes_back() {
     assert_eq!(path.len(), 10, "five questions and five replies");
 }
 
-/// **Scenario S2** (master spec s13 C2).
+/// **Scenario S2**.
 ///
 /// A long conversation with a unique fact planted early is switched to a model
 /// with a small window. The outgoing model writes the summary, and the fact
@@ -332,7 +328,7 @@ async fn s2_a_fact_planted_early_survives_the_switch_to_a_smaller_window() {
     assert_eq!(
         summarising,
         Some(model_for(ANTHROPIC)),
-        "master spec s6.5 prefers the outgoing model, which still holds the context"
+        "the outgoing model is preferred, since it still holds the context"
     );
 
     let view = view_of(&events);

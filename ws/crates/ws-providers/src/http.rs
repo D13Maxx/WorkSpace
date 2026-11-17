@@ -1,4 +1,4 @@
-//! Shared HTTP plumbing for the API adapters (master spec s7.1).
+//! Shared HTTP plumbing for the API adapters.
 
 use std::time::Duration;
 use ws_context::{BackendError, BackendId};
@@ -10,7 +10,7 @@ pub type Header<'a> = (&'a str, String);
 
 /// POST `body` to `url`, retrying only while nothing has been streamed.
 ///
-/// Master spec s7.1 allows retries on 429, 5xx and connect errors, at most
+/// Retries happen on 429, 5xx and connect errors, at most
 /// `policy.max_attempts` times, honouring `retry-after`. Because this returns
 /// before the response body is read, no partial reply can be duplicated: the
 /// retry window structurally cannot overlap the stream.
@@ -37,7 +37,7 @@ pub async fn post_with_retry(
             tokio::time::sleep(wait).await;
         }
         // Only the shape of the request is logged, never its body or headers:
-        // both carry user content and the API key (s7.1).
+        // both carry user content and the API key.
         tracing::debug!(%backend, attempt, "posting");
 
         let mut builder = http.post(url).header("content-type", "application/json");
@@ -103,7 +103,7 @@ pub fn summarise_error(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    // Spec s14 permits unwrap/expect in tests.
+    // Tests may unwrap and expect: a panic is the failure report.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

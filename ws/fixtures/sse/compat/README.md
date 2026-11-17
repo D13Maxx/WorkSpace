@@ -1,6 +1,6 @@
 # OpenAI-compatible (Chat Completions) SSE fixtures
 
-Streams used to test the decoder without a network (master spec s7.6). This
+Streams used to test the decoder without a network. This
 protocol ends with a literal `data: [DONE]` sentinel rather than by closing
 the body.
 
