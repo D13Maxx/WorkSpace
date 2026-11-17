@@ -1,6 +1,7 @@
 name: CI
 
-# Master spec s13 C1: fmt, clippy and tests must pass on windows-latest.
+# Master spec s13 C1: fmt, clippy and tests must pass. Workspace ships for
+# Windows and Linux, so both run.
 on:
   push:
     branches: [main]
@@ -13,12 +14,41 @@ env:
 
 jobs:
   rust:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            features: --all-features
+          # No credential store on a CI Linux box, so not the live keyring tests.
+          - os: ubuntu-22.04
+            features: --features ws-core/testing
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: ws
     steps:
       - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      # The app embeds the built frontend, so it must exist before ws-app compiles.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ws/app/package-lock.json
+
+      - name: Build the frontend
+        working-directory: ws/app
+        run: |
+          npm ci
+          npm run build
+          npm test
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -33,10 +63,10 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
 
       - name: Test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace ${{ matrix.features }}
 
       # Live provider smoke tests need real API keys and are never run in CI
       # (master spec s7.6). Parity tests need multi-GB GGUFs and are gated the

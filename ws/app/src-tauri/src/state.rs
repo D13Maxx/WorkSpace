@@ -159,7 +159,7 @@ impl AppState {
         // Created up front so there is somewhere obvious to clone skills into.
         let skills_dir = dir.join("skills");
         std::fs::create_dir_all(&skills_dir)?;
-        let pipeline = ua_pipeline_dir();
+        let pipeline = ua_pipeline_dir(app.path().resource_dir().ok());
         if pipeline.is_none() {
             tracing::warn!("Understand-Anything pipeline not found; /understand is unavailable");
         }
@@ -272,15 +272,18 @@ impl AppState {
 }
 
 /// Understand-Anything's /understand pipeline (skill, agents, bundled
-/// scripts), built by `scripts/build-ua-pipeline.mjs`. Installed beside the
-/// exe; in a dev build, read from the source tree.
-fn ua_pipeline_dir() -> Option<std::path::PathBuf> {
+/// scripts), built by `scripts/build-ua-pipeline.mjs`. An installer ships it
+/// as a resource (beside the exe on Windows, under /usr/lib on Linux);
+/// install.ps1 puts it beside the exe; a dev build reads the source tree.
+fn ua_pipeline_dir(resources: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
     let beside_exe = std::env::current_exe()
         .ok()
         .and_then(|exe| Some(exe.parent()?.join("ua-pipeline")));
     let source_tree = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ua-pipeline");
-    beside_exe
+    resources
+        .map(|r| r.join("ua-pipeline"))
         .into_iter()
+        .chain(beside_exe)
         .chain([source_tree])
         .find(|dir| dir.join("agents").is_dir())
 }

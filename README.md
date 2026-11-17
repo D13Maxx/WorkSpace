@@ -1,52 +1,73 @@
 # Workspace
 
-A desktop AI workspace with its own inference engine.
+A desktop AI workspace for Windows and Linux: one conversation across API
+models and a local model, a code editor with language servers and a debugger,
+agent teams that plan and build in parallel, and the Workshop for designing
+software visually.
 
-One conversation that moves across API models and a local model, in any order,
-without losing context. When you switch to a model with a smaller window, the
-app writes a summary of the older messages and keeps the recent ones verbatim —
-and shows you exactly what the model received.
+- **Chat with any model, switch freely.** Anthropic, OpenAI, Gemini, any
+  OpenAI-compatible endpoint (OpenRouter, Groq, a local llama.cpp) and a built-in
+  engine for GGUF models. Switching to a model with a smaller window summarises
+  the older messages and keeps the recent ones, and shows you exactly what the
+  model received.
+- **A real editor.** Language servers (definitions, references, rename, code
+  actions), a debugger, git (changed lines, staging, commits, blame), split
+  editors, a terminal, Ctrl+P, Vim mode, your own keymap.
+- **Agent teams.** Tick *Coordinate*: a lead model plans the task and starts
+  workers (on a cheaper model if you like) that run side by side, talk in a team
+  chat you can watch and join, work in their own git copies, and ask you only
+  when it matters.
+- **The Workshop.** Draw a system from parts and connectors, simulate its load,
+  then have the agent build it.
 
-Windows first. Rust throughout, React + TypeScript inside Tauri 2.
+## Download
 
-Full design: [`WORKSPACE_M1_MASTER_SPEC.md`](WORKSPACE_M1_MASTER_SPEC.md).
-Progress against milestone 1: [C1](docs/checkpoints/C1.md), [C2](docs/checkpoints/C2.md),
-[C3](docs/checkpoints/C3.md).
+Get the latest version from the
+[Releases page](https://github.com/D13Maxx/WorkSpace/releases/latest).
 
-## Status
+**Windows 10/11:** download `Workspace_x.y.z_x64-setup.exe` and run it. It
+installs for your user only, no admin rights needed. The installer is not
+signed yet, so Windows SmartScreen may warn: choose *More info → Run anyway*.
 
-Milestone 1, checkpoint C3. All four provider adapters work end to end
-(Anthropic, OpenAI Responses, Gemini, and any number of OpenAI-compatible
-endpoints), and so does the local engine: a GGUF model loads, renders its own
-chat template, tokenizes with its own vocabulary, and streams a reply, reusing
-its KV cache across turns.
-
-The forward pass is still `candle-transformers`' reference implementation
-behind `ws-engine`'s own wrapper. Everything around it -- validation, the
-tokenizer, the chat template, the sampler, the cache policy, the threading --
-is hand-written and stays when the model is replaced. Two limits come from that
-choice and are reported rather than hidden: a 4,096-token context cap, and a KV
-cache that cannot be partially rewound.
-[`docs/checkpoints/C3.md`](docs/checkpoints/C3.md) has the details.
-
-## Install a desktop shortcut
+**Linux (Ubuntu 22.04+, Debian 12+, Mint and other Debian-based systems):**
+download `Workspace_x.y.z_amd64.deb`, then
 
 ```bash
-powershell -ExecutionPolicy Bypass -File ws/app/scripts/install.ps1
+sudo apt install ./Workspace_*_amd64.deb
 ```
 
-Builds a release copy into `%LOCALAPPDATA%\Programs\Workspace` and puts an
-Workspace shortcut on the desktop. Run it again after changing the app to
-update what the shortcut opens (close the app first).
+API keys are kept in your system's credential store: Windows Credential
+Manager, or on Linux the desktop keyring (GNOME Keyring or KWallet), which
+most desktops run already.
 
-## Requirements
+### What else to install
 
-- Rust stable (1.85+) with the `x86_64-pc-windows-msvc` toolchain
-- Visual Studio Build Tools with the C++ workload (for the MSVC linker)
-- Node 20+ and npm
-- WebView2 runtime (present on current Windows 11 by default)
+Workspace itself needs nothing else to chat, edit files and run agents. Some
+features use tools from your system, found on PATH:
 
-## Build and run
+| To use | Install |
+| --- | --- |
+| Git features, agent workers in their own copies | Git |
+| Running `.py` files, AI knowledge graphs | Python 3, Node.js |
+| Running `.js` / `.ts` files, tool servers started with `npx` | Node.js |
+| Running C/C++ | gcc/g++ or clang |
+| Language servers | the server for each language, e.g. `rust-analyzer`, `pyright`, `typescript-language-server`, `clangd` |
+| The debugger | `lldb-dap` (from LLVM) |
+
+On Windows, `winget` installs most of these (`winget install Git.Git
+OpenJS.NodeJS Python.Python.3.13 LLVM.LLVM`); on Linux, use your package
+manager (`sudo apt install git nodejs python3 clangd lldb`).
+
+## Build from source
+
+Rust stable (1.85+) and Node 20+. On Windows, Visual Studio Build Tools with the
+C++ workload and the WebView2 runtime (already on Windows 11). On Linux:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+```
+
+Then:
 
 ```bash
 cd ws/app
@@ -54,12 +75,26 @@ npm install
 npm run tauri dev
 ```
 
-For a release build and the Windows installer:
+An installer (`.exe` on Windows, `.deb` on Linux), with the Understand-Anything
+pipeline built first:
 
 ```bash
 cd ws/app
-npm run tauri build
+node scripts/build-ua-pipeline.mjs
+npm run tauri build -- --bundles nsis   # or: --bundles deb
 ```
+
+On Windows, `powershell -ExecutionPolicy Bypass -File ws/app/scripts/install.ps1`
+builds and installs a copy into `%LOCALAPPDATA%\Programs\Workspace` with a
+desktop shortcut, for working on the app itself.
+
+### Releasing
+
+Push a tag such as `v0.2.0` (after setting the same version in
+`ws/app/src-tauri/tauri.conf.json`). GitHub Actions builds the Windows installer
+and the `.deb` and attaches them to a draft release; check it and publish.
+
+Full design: [`WORKSPACE_M1_MASTER_SPEC.md`](WORKSPACE_M1_MASTER_SPEC.md).
 
 ## Test
 
@@ -150,8 +185,9 @@ ask where, in the folder picker, then for a name.
 
 Code (and config) files and Markdown open in the editor in the middle pane;
 Ctrl+S saves, and the agent can change the same files (the view reloads when
-it does, unless you have unsaved changes). Other files (PDFs, Word, plain
-text, images…) show in the tree but do not open in Workspace.
+it does, unless you have unsaved changes). Plain text (`.txt`, `.log`) opens
+too. Other files (PDFs, Word, images…) are left out of the tree, since they do
+not open in Workspace.
 
 Markdown is highlighted, and **Preview** (on by default) shows it rendered
 beside the editor as you type. The preview is sanitized, since a Markdown
@@ -303,7 +339,8 @@ shows its diff with an **Undo** button that puts the file back byte for byte.
 Undo refuses if the file has changed again since, rather than discard that
 change. Diffs need `--project` in the server's args, as above; with
 `--project-from-cwd` the app cannot tell which file was edited. Tool calling works with Anthropic models
-today; the other adapters still flatten tool history to text.
+and OpenAI-compatible endpoints (OpenRouter, Groq…); the OpenAI (Responses) and
+Gemini adapters still flatten tool history to text.
 
 ## Skills
 
@@ -359,7 +396,8 @@ v2.9.0, installs with scripts disabled, and bundles each script with esbuild;
 
 ## Add a provider
 
-API keys live in Windows Credential Manager and nowhere else — not in the
+API keys live in the system credential store (Windows Credential Manager, or
+the Linux desktop keyring) and nowhere else — not in the
 database, not in logs, not in exports. The app can tell you whether a key is
 set, but cannot read one back.
 

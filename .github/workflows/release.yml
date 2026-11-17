@@ -1,0 +1,71 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the Windows installer and the Linux .deb and
+# attach them to a draft GitHub Release. Check the draft, then publish it.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+          # 22.04, not latest: a .deb built against older libraries installs on
+          # more distributions.
+          - os: ubuntu-22.04
+            bundles: deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ws/app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ws
+
+      - name: Install the frontend's packages
+        working-directory: ws/app
+        run: npm ci
+
+      # Understand-Anything's /understand pipeline ships inside the installer.
+      - name: Build the Understand-Anything pipeline
+        working-directory: ws/app
+        run: node scripts/build-ua-pipeline.mjs
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ws/app
+          args: --bundles ${{ matrix.bundles }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: Workspace ${{ github.ref_name }}
+          releaseBody: |
+            **Windows:** download the `-setup.exe` and run it. Windows SmartScreen may warn because the installer isn't signed yet: choose *More info → Run anyway*.
+
+            **Linux (Ubuntu, Debian, Mint…):** download the `.deb` and install it with `sudo apt install ./Workspace_*.deb`.
+
+            See the README for what else to install (git, Node, Python, language servers) to use every feature.
+          releaseDraft: true
+          prerelease: false
