@@ -344,8 +344,7 @@ async fn a_tiny_model_loads_and_reports_itself() {
 #[tokio::test]
 async fn the_template_renders_and_the_prompt_carries_exactly_one_bos() {
     // The file sets add_bos_token AND the template writes one. Encoding with
-    // special tokens enabled would produce two and shift every position
-    //.
+    // special tokens enabled would produce two and shift every position.
     let f = Fixture::new();
     let engine = f.engine().await;
     let (_, bos, ..) = vocabulary();

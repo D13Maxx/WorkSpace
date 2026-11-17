@@ -1,8 +1,5 @@
 //! Proof that the database itself enforces the message immutability
 //! invariants, rather than trusting callers to respect them.
-//!
-//! Required by checkpoint C1: "test proving the immutability trigger rejects
-//! updates".
 
 // Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

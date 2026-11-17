@@ -72,8 +72,7 @@ pub struct AnthropicDecoder {
     stop_reason: Option<StopReason>,
     input_tokens: u32,
     output_tokens: u32,
-    /// Set once any content has been emitted, which forbids a retry
-    ///.
+    /// Set once any content has been emitted, which forbids a retry.
     started: bool,
     done: bool,
 }

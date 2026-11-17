@@ -443,8 +443,7 @@ impl Orchestrator {
     /// Ask every backend for its models.
     ///
     /// Failures are returned per backend rather than aborting: one provider
-    /// being unreachable or unconfigured must not empty the whole picker
-    ///.
+    /// being unreachable or unconfigured must not empty the whole picker.
     pub async fn list_all_models(&self) -> Vec<(BackendId, ModelListResult)> {
         let mut out = Vec::new();
         for id in self.backend_ids() {
@@ -540,8 +539,7 @@ impl Orchestrator {
     }
 
     /// Prepare a regeneration: move the visible leaf back to the parent of
-    /// `message`, so the next turn creates a sibling rather than an overwrite
-    ///.
+    /// `message`, so the next turn creates a sibling rather than an overwrite.
     ///
     /// # Errors
     /// Fails if the message does not exist, or on any database error.

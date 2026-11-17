@@ -5,8 +5,8 @@ models and a local model, a code editor with language servers and a debugger,
 agent teams that plan and build in parallel, and the Workshop for designing
 software visually.
 
-<!-- Screenshot: put the image in docs/images/ and uncomment.
-![Workspace](docs/images/workspace.png)
+<!-- Screenshot: put the image in images/ and uncomment.
+![Workspace](images/workspace.png)
 -->
 
 - **Chat with any model, switch freely.** Anthropic, OpenAI, Gemini, any
@@ -84,7 +84,7 @@ Restart Workspace after installing so it sees the new PATH.
 4. For a bigger task, tick **Coordinate** under the message box and the model
    runs it as a team.
 
-The [guide](docs/GUIDE.md) covers each feature in detail: providers, agent
+The [guide](GUIDE.md) covers each feature in detail: providers, agent
 teams, local models, running code, the Workshop, tool servers, skills and
 knowledge graphs.
 
@@ -100,7 +100,7 @@ settings and your parts inventory live in the app data folder:
 
 ## Build from source
 
-See [DEVELOPING.md](docs/DEVELOPING.md) for building, testing, releasing and
+See [DEVELOPING.md](DEVELOPING.md) for building, testing, releasing and
 how the code is laid out.
 
 ## License

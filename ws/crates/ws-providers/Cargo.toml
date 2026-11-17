@@ -27,6 +27,5 @@ bytes.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 [features]
-# Talks to real provider APIs with real keys. Never enabled in CI
-#.
+# Talks to real provider APIs with real keys. Never enabled in CI.
 live-tests = []

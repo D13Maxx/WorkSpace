@@ -1,8 +1,8 @@
 //! File access for the explorer, the editor and the agent's file tools.
 //!
 //! Every path is a project root plus a path relative to it, and nothing may
-//! resolve outside the root: the webview has no filesystem access of its own
-//!, and these commands must not quietly become one.
+//! resolve outside the root: the webview has no filesystem access of its own,
+//! and these commands must not quietly become one.
 
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};

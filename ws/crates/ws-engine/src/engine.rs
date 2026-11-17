@@ -299,8 +299,7 @@ impl Worker {
                     generate(model, &prompt_tokens, &params, opts, &cancel, &mut emit)
                 });
 
-                // A backend must emit exactly one terminal event, last
-                //.
+                // A backend must emit exactly one terminal event, last.
                 let terminal = match result {
                     Ok(stop_reason) => BackendEvent::Done { stop_reason },
                     Err(e) => BackendEvent::Error(ws_context::backend::BackendError::Engine(
@@ -356,8 +355,8 @@ mod tests {
 
     #[tokio::test]
     async fn generating_without_a_model_still_emits_exactly_one_terminal_event() {
-        // The orchestrator waits for a terminal event rather than a timeout
-        //, so this path must not be silent.
+        // The orchestrator waits for a terminal event rather than a timeout,
+        // so this path must not be silent.
         let engine = EngineHandle::start(Some(1)).unwrap();
         let (tx, mut rx) = tokio_mpsc::unbounded_channel();
 

@@ -4,7 +4,7 @@
 //! against scripted backends rather than live APIs: what is being checked is
 //! the *decision* — which provider-native blocks go back to whom — and that is
 //! this app's logic, not the provider's. The live counterpart needs real keys
-//! and is recorded separately in the checkpoint notes.
+//! and is run by hand.
 
 // Tests may unwrap and expect: a panic is the failure report.
 #![allow(clippy::unwrap_used, clippy::expect_used)]

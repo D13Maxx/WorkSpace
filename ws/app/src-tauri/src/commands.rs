@@ -951,8 +951,7 @@ pub async fn load_local_model(
         .map_err(err)?;
 
     // The engine knows its own window exactly, so record it as a profile
-    // rather than leaving the model "unprofiled" with conservative defaults
-    //.
+    // rather than leaving the model "unprofiled" with conservative defaults.
     let model = ModelRef::new(crate::state::LOCAL, file_name_of(&info.path));
     state.profiles.set(
         model,

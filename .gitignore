@@ -29,3 +29,8 @@ ws/app/src-tauri/ua-pipeline/
 
 # Claude Code: local settings and worktrees
 .claude/
+
+# Private design notes, kept on this machine only.
+/docs/
+/ws/docs/
+/WORKSPACE_M1_MASTER_SPEC.md

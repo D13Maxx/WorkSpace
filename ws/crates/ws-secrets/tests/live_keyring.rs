@@ -1,6 +1,6 @@
-//! Round-trip against the real OS credential store (checkpoint C1).
+//! Round-trip against the real OS credential store.
 //!
-//! Gated behind `live-tests` because it writes to Windows Credential Manager.
+//! Gated behind `live-tests` because it writes to the real credential store.
 //! Run with: cargo test -p ws-secrets --features live-tests
 #![cfg(feature = "live-tests")]
 // Tests may unwrap and expect: a panic is the failure report.

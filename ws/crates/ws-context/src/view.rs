@@ -4,8 +4,7 @@
 //! returns either a finished view or a request for a summary. The stored
 //! conversation is never modified -- only the view sent to a model changes.
 //!
-//! Two details the design left open, decided here and recorded in
-//! `docs/adr/001-context-view-shape.md`:
+//! Two details the design left open, decided here:
 //!
 //! 1. A summary is injected by appending it to the system prompt rather than
 //!    as a synthetic message, so it cannot disturb user/assistant alternation

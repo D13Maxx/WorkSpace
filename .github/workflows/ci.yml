@@ -68,6 +68,6 @@ jobs:
       - name: Test
         run: cargo test --workspace --no-fail-fast ${{ matrix.features }}
 
-      # Live provider smoke tests need real API keys and are never run in CI
-      #. Parity tests need multi-GB GGUFs and are gated the
-      # same way; see docs/checkpoints for how they are run locally.
+      # Live provider smoke tests need real API keys and are never run in CI.
+      # Parity tests need multi-GB GGUFs and are gated the
+      # same way and run locally.

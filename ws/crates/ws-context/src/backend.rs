@@ -163,8 +163,7 @@ impl BackendError {
 ///
 /// Ordering matters: `OpaqueBlock` is emitted once a provider-native block is
 /// complete, never per delta, because a thinking signature arrives in its own
-/// delta shortly before the block ends and the block is only valid whole
-///.
+/// delta shortly before the block ends and the block is only valid whole.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
     /// Local engine only: progress reading the prompt.
