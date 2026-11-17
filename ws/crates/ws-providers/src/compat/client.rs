@@ -83,8 +83,11 @@ impl CompatBackend {
                     backend: self.config.id.clone(),
                 });
             }
-            // A local server that needs no key is the normal case here.
+            // A local server that needs no key is the normal case here, and it
+            // must work on a machine with no credential store at all (a Linux
+            // box without a desktop keyring).
             Ok(None) => {}
+            Err(ws_secrets::SecretError::NoStore(_)) if !self.config.requires_key => {}
             Err(e) => {
                 return Err(BackendError::Transport {
                     backend: self.config.id.clone(),

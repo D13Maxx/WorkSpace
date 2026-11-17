@@ -283,7 +283,14 @@ mod tests {
                 .unwrap_err()
                 .contains("already exists")
         );
-        for escape in ["../outside.txt", "src/../../x", "C:/Windows/x.txt", ""] {
+        // An absolute path in this OS's own form: on Linux, "C:/Windows/x.txt"
+        // is just a relative path inside the project.
+        let absolute = if cfg!(windows) {
+            "C:/Windows/x.txt"
+        } else {
+            "/etc/x.txt"
+        };
+        for escape in ["../outside.txt", "src/../../x", absolute, ""] {
             assert!(
                 write_text(&root, escape, "x").is_err(),
                 "{escape} must be refused"
