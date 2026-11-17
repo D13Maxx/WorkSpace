@@ -18,7 +18,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-license = "MIT"
+license = "Apache-2.0"
 authors = ["Debargha Das"]
 
 # Shared dependency versions. Pinned from crates.io at scaffold time (2026-09-12).

@@ -463,3 +463,8 @@ for p in ws-context ws-store ws-secrets ws-providers ws-core; do cargo test -p $
 ```
 
 Excluding `ws/target` in McAfee's settings resolves it.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE). The bundled Ponytail and
+Understand-Anything skills and pipeline are MIT, with their licences alongside.
