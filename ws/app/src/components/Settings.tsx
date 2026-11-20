@@ -480,8 +480,11 @@ function McpSection() {
       <h3>Tool servers (MCP)</h3>
       <p className="muted">
         Configured in <code>{status.config_path}</code> using the same <code>mcpServers</code>{" "}
-        format as Claude Code. Changes apply on the next launch. Every tool asks before running unless
-        you list it in that server's <code>autoApprove</code>; tools that run commands always ask.
+        format as Claude Code. Changes apply on the next launch. Models reach these tools in Code
+        Mode: they search them and call them by writing short scripts, so many servers cost no more
+        context than one. Every tool asks before running unless you list it in that server's{" "}
+        <code>autoApprove</code>; tools that run commands always ask, and a script that uses one asks
+        once, showing the script.
       </p>
       {status.servers.length === 0 ? (
         <p className="muted">No tool servers configured.</p>

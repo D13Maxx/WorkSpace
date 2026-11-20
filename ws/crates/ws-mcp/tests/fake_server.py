@@ -1,5 +1,6 @@
 """A minimal MCP server over stdio, for tests: two tools, Serena-style annotations."""
 import json
+import os
 import sys
 
 TOOLS = [
@@ -24,6 +25,12 @@ for line in sys.stdin:
         result = {"tools": TOOLS}
     elif method == "tools/call":
         p = msg["params"]
+        args = p.get("arguments", {})
+        # Serena-style editing: writes `body` to `relative_path` under --project.
+        if p["name"] == "replace_symbol_body" and "--project" in sys.argv and "body" in args:
+            root = sys.argv[sys.argv.index("--project") + 1]
+            with open(os.path.join(root, args["relative_path"]), "w") as f:
+                f.write(args["body"])
         result = {"content": [{"type": "text",
                                "text": f"{p['name']} {json.dumps(p.get('arguments', {}), sort_keys=True)}"}],
                   "isError": False}

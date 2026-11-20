@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 ws-context.workspace = true
 ws-core.workspace = true
+ws-codemode.workspace = true
 rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,4 +21,5 @@ async-trait.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }

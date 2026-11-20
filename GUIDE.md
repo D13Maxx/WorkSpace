@@ -308,12 +308,33 @@ data folder (Settings → Tool servers shows the exact path), in the same
 Install Serena first with `uv tool install -p 3.13 serena-agent`. Servers start
 in the background at launch; changes to `mcp.json` apply on the next launch.
 
-Read-only tools run straight away. Anything that can edit files or run
-commands stops and asks you first. Once an approved edit runs, the thread
-shows its diff with an **Undo** button that puts the file back byte for byte.
-Undo refuses if the file has changed again since, rather than discard that
-change. Diffs need `--project` in the server's args, as above; with
-`--project-from-cwd` the app cannot tell which file was edited. Tool calling works with Anthropic models
+**Code Mode.** Models do not see each server's tools one by one: a large
+server such as Playwright would fill their context before the task starts.
+They get three tools instead, whatever you connect:
+
+- `mcp_search` runs a short JavaScript function over the catalog of every
+  server's tools, so the model finds the ones it needs.
+- `mcp_execute` runs a function that calls them (`await call("playwright",
+  "browser_navigate", {url})`), chaining and looping over calls and returning
+  only what the model asked for.
+- `mcp_call` makes one plain call, for a model whose scripts keep failing.
+
+Scripts run inside Workspace in a sandbox (QuickJS) with no file system,
+network or process access of their own: all a script can do is call your
+tool servers. Its memory, running time and number of calls are capped.
+
+**Approval.** A tool you list in that server's `autoApprove` runs without
+asking (unless it runs commands); every other tool asks first. A script asks
+once, showing the whole script, when it names a tool that asks; a script
+that names only auto-approved tools runs straight away, and such a script
+cannot call anything else, even by building a tool's name as it runs.
+
+Once an approved edit runs, the thread shows its diff with an **Undo** button
+that puts the file back byte for byte; a script that edits several files shows
+each with its own Undo. Undo refuses if the file has changed again since,
+rather than discard that change. Diffs need `--project` in the server's args,
+as above; with `--project-from-cwd` the app cannot tell which file was
+edited. Tool calling works with Anthropic models
 and OpenAI-compatible endpoints (OpenRouter, Groq…); the OpenAI (Responses) and
 Gemini adapters still flatten tool history to text.
 

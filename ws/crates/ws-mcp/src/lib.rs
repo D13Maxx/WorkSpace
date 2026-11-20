@@ -8,6 +8,9 @@
 //! { "mcpServers": { "serena": { "command": "serena", "args": ["start-mcp-server"] } } }
 //! ```
 
+mod codemode;
+pub use codemode::CodeMode;
+
 use rmcp::ServiceExt as _;
 use rmcp::model::{CallToolRequestParams, Tool};
 use rmcp::service::{Peer, RoleClient, RunningService};

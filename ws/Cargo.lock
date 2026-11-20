@@ -6876,8 +6876,10 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
+ "ws-codemode",
  "ws-context",
  "ws-core",
 ]

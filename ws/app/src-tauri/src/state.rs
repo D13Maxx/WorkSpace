@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use ws_context::{BackendId, ConvId, ModelCapabilities};
 use ws_core::{Orchestrator, Profile, ProfileTable};
 use ws_engine::{LocalBackend, backend::LOCAL_BACKEND_ID};
-use ws_mcp::{McpConfig, McpTools, ServerStatus};
+use ws_mcp::{CodeMode, McpConfig, McpTools, ServerStatus};
 use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
 use ws_store::{BlobStore, Store};
 
@@ -368,7 +368,9 @@ fn load_compat_configs(store: &Arc<Mutex<Store>>) -> Vec<CompatConfig> {
     }
 }
 
-/// MCP tools that arrive after launch.
+/// MCP tools that arrive after launch, offered in Code Mode: models search
+/// and call every server's tools with scripts (`mcp_search`, `mcp_execute`)
+/// rather than seeing each tool's schema.
 ///
 /// Serena starts language servers before it answers, which can take seconds.
 /// Connecting in the background keeps the window responsive; until it is
@@ -376,7 +378,7 @@ fn load_compat_configs(store: &Arc<Mutex<Store>>) -> Vec<CompatConfig> {
 #[derive(Debug)]
 pub struct LateTools {
     pub config_path: std::path::PathBuf,
-    tools: std::sync::OnceLock<McpTools>,
+    tools: std::sync::OnceLock<CodeMode>,
     status: Mutex<Vec<ServerStatus>>,
 }
 
@@ -406,7 +408,7 @@ impl LateTools {
             Err(_) => return, // no file: no tool servers configured
         };
         let (host, status) = McpTools::connect(&config).await;
-        let _ = self.tools.set(host);
+        let _ = self.tools.set(CodeMode::new(host));
         self.set_status(status);
     }
 
