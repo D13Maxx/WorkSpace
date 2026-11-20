@@ -71,22 +71,23 @@ impl CodeMode {
             .collect()
     }
 
-    /// Each server and its tools' names, for the descriptions.
+    /// Each server and its tools, with their required arguments, for the
+    /// descriptions: `context7 (resolve-library-id(libraryName, query), …)`.
     fn summary(&self) -> String {
         let mut out = Vec::new();
         let mut listed = 0;
         for (i, server) in self.tools.servers.iter().enumerate() {
-            let names: Vec<&str> = self
-                .tools
-                .tools
-                .iter()
-                .filter(|t| t.server == i)
-                .map(|t| t.tool_name.as_str())
-                .collect();
-            let shown: Vec<&str> = names
+            let names: Vec<&Offered> = self.tools.tools.iter().filter(|t| t.server == i).collect();
+            let shown: Vec<String> = names
                 .iter()
                 .take(MAX_NAMES.saturating_sub(listed))
-                .copied()
+                .map(|t| {
+                    let required: Vec<&str> = t.spec.input_schema["required"]
+                        .as_array()
+                        .map(|r| r.iter().filter_map(|a| a.as_str()).collect())
+                        .unwrap_or_default();
+                    format!("{}({})", t.tool_name, required.join(", "))
+                })
                 .collect();
             listed += shown.len();
             let more = names.len() - shown.len();
@@ -206,7 +207,7 @@ impl ToolHost for CodeMode {
                      arrow function over `catalog`, an array of {{server, tool, description, \
                      input_schema, asks_first}}; return only what you need, e.g. \
                      async () => catalog.filter(t => /click|type/.test(t.tool)).map(t => [t.server, t.tool]). \
-                     Servers: {servers}."
+                     Servers, with each tool's required arguments: {servers}."
                 ),
                 code_schema("JavaScript async arrow function over `catalog`"),
             ),
@@ -220,7 +221,7 @@ impl ToolHost for CodeMode {
                      unsure of its shape, first return a short slice of it to look. \
                      Chain calls, loop, use Promise.all, and return only what you need. A script \
                      asks the user once if it names a tool that asks first; write tool names as \
-                     plain strings. Servers: {servers}."
+                     plain strings. Servers, with each tool's required arguments: {servers}."
                 ),
                 code_schema(
                     "JavaScript async arrow function using `await call(server, tool, args)`",

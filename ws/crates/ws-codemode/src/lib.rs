@@ -257,6 +257,17 @@ async fn sandbox(
         // The model's function, called; or a bare expression's value.
         let value: Value = match ctx.eval::<Value, _>(format!("(\n{code}\n)")).catch(&ctx) {
             Ok(v) => v,
+            // Statements, not a function: run them as one's body. It failed to
+            // parse, so nothing ran twice.
+            Err(e) if is_syntax_error(&e) => {
+                match ctx
+                    .eval::<Value, _>(format!("(async () => {{\n{code}\n}})"))
+                    .catch(&ctx)
+                {
+                    Ok(v) => v,
+                    Err(e) => return Err(describe(e)),
+                }
+            }
             Err(e) => return Err(describe(e)),
         };
         let value = match value.as_function() {
@@ -325,6 +336,11 @@ fn stop_message(why: usize, limits: &Limits) -> String {
 }
 
 /// A thrown error as the model should read it: message, then stack.
+fn is_syntax_error(e: &CaughtError<'_>) -> bool {
+    matches!(e, CaughtError::Exception(ex)
+        if ex.get::<_, String>("name").is_ok_and(|n| n == "SyntaxError"))
+}
+
 fn describe(e: CaughtError<'_>) -> String {
     match e {
         CaughtError::Exception(ex) => {
@@ -399,6 +415,18 @@ mod tests {
         assert_eq!(out.result, Ok(r#"["first",1]"#.to_owned()));
         assert_eq!(out.calls, 2);
         assert_eq!(out.logs, [r#"done {"n":2}"#]);
+    }
+
+    #[tokio::test]
+    async fn bare_statements_run_as_a_function_body() {
+        let out =
+            go("const a = await call('first', {x: 1});\nconsole.log('once');\nreturn a.echo[0];")
+                .await;
+        assert_eq!(out.result, Ok(r#""first""#.to_owned()));
+        assert_eq!(out.calls, 1);
+        assert_eq!(out.logs, ["once"]);
+        let out = go("const x = ;").await;
+        assert!(out.result.is_err(), "a real syntax error is still one");
     }
 
     #[tokio::test]

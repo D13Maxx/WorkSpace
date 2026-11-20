@@ -5,7 +5,8 @@ import sys
 
 TOOLS = [
     {"name": "find_symbol", "description": "Find a symbol",
-     "inputSchema": {"type": "object", "properties": {"name_path": {"type": "string"}}},
+     "inputSchema": {"type": "object", "properties": {"name_path": {"type": "string"}},
+                     "required": ["name_path"]},
      "annotations": {"readOnlyHint": True, "destructiveHint": False}},
     {"name": "replace_symbol_body", "description": "Replace a symbol body",
      "inputSchema": {"type": "object"},

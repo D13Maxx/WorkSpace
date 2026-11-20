@@ -105,8 +105,8 @@ async fn code_mode_offers_three_tools_and_searches_the_catalog() {
     assert!(
         mode.specs()[0]
             .description
-            .contains("fake (find_symbol, replace_symbol_body)"),
-        "the descriptions name every server's tools"
+            .contains("fake (find_symbol(name_path), replace_symbol_body())"),
+        "the descriptions name every server's tools and their required arguments"
     );
     let out = mode
         .call(
