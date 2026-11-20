@@ -215,6 +215,9 @@ impl ToolHost for CodeMode {
                 format!(
                     "Run JavaScript that calls tool servers' tools: `await call(server, tool, args)` \
                      resolves to the tool's result (parsed JSON when it is JSON) and throws on error. \
+                     Most tools answer in plain text (Markdown or prose, not HTML or JSON), so the \
+                     result is usually a string: search it with regexes or string methods, and if \
+                     unsure of its shape, first return a short slice of it to look. \
                      Chain calls, loop, use Promise.all, and return only what you need. A script \
                      asks the user once if it names a tool that asks first; write tool names as \
                      plain strings. Servers: {servers}."
