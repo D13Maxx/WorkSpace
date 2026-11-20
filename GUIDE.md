@@ -38,9 +38,12 @@ real values.
 
 Tick **Coordinate** under the message box before you send. The model you chat
 with becomes the lead: it writes a plan in the project's `.ws/plan.md`, then
-hands parts of the task to workers that run side by side, each in its own git
-copy of the project. With Coordinate on, sending an empty message carries on
-with the saved plan.
+hands parts of the task to workers that run side by side. In a git project the
+whole team works in one copy of it, so each worker sees the others' changes;
+when the run ends they are saved on one branch, and a worker's card in the
+chat shows them with **Merge into my files** and **Discard**. Your files
+change only when you merge. With Coordinate on, sending an empty message
+carries on with the saved plan.
 
 - **Six roles.** The team has fixed roles, and the lead decides which gets
   what and when: the **explorer** maps the code, **implementers** build,

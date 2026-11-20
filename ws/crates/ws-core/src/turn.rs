@@ -22,7 +22,7 @@ use crate::events::TurnEvent;
 use crate::profiles::ProfileTable;
 use crate::rules::ApprovalRules;
 use crate::team::{Report, TEAM_WAIT, Team};
-use crate::tools::{ToolHost, ToolOutput};
+use crate::tools::{Isolated, ToolHost, ToolOutput};
 use chrono::Utc;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -238,6 +238,9 @@ pub struct Orchestrator {
     /// What each team role's copy has done this run, by conversation and
     /// copy name, so a role picks up where it left off. Cleared when the run ends.
     memories: Mutex<HashMap<(ConvId, String), Vec<RenderedMessage>>>,
+    /// Each team run's one copy of the project, shared by all its workers so
+    /// each sees the others' changes. Sealed onto its branch when the run ends.
+    team_copies: Mutex<HashMap<ConvId, Arc<Isolated>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -276,6 +279,7 @@ impl Orchestrator {
             rules: std::sync::RwLock::default(),
             questions: Mutex::default(),
             memories: Mutex::default(),
+            team_copies: Mutex::default(),
         }
     }
 
@@ -932,7 +936,41 @@ impl Orchestrator {
         if let Ok(mut m) = self.memories.lock() {
             m.retain(|(c, _), _| *c != conv);
         }
+        let copy = self
+            .team_copies
+            .lock()
+            .ok()
+            .and_then(|mut c| c.remove(&conv));
+        if let Some(copy) = copy {
+            if let Err(e) = (copy.seal)("Workspace team run") {
+                tracing::warn!(error = %e, folder = %copy.folder, "could not save the team's work");
+            }
+        }
         result
+    }
+
+    /// Where a helper works: in a team run, the run's one copy, made for the
+    /// first worker and shared by the rest; otherwise a copy of its own.
+    /// The flag says whether it is shared.
+    fn copy_for(
+        &self,
+        conv: ConvId,
+        id: &str,
+    ) -> Option<std::result::Result<(Arc<Isolated>, bool), String>> {
+        let tools = self.tools.as_ref()?;
+        if !self.team_convs.lock().is_ok_and(|t| t.contains(&conv)) {
+            return tools.isolate(id).map(|r| r.map(|i| (Arc::new(i), false)));
+        }
+        // Held while git makes it, so workers starting together get one copy.
+        let mut copies = self.team_copies.lock().ok()?;
+        if let Some(copy) = copies.get(&conv) {
+            return Some(Ok((copy.clone(), true)));
+        }
+        Some(tools.isolate(&format!("team-{id}"))?.map(|i| {
+            let i = Arc::new(i);
+            copies.insert(conv, i.clone());
+            (i, true)
+        }))
     }
 
     async fn turn_loop<'s>(
@@ -1456,8 +1494,8 @@ impl Orchestrator {
         )
         .await;
 
-        let isolated = match self.tools.as_ref().and_then(|t| t.isolate(&call.call_id)) {
-            Some(Ok(iso)) => {
+        let isolated = match self.copy_for(conv, &call.call_id) {
+            Some(Ok((iso, shared))) => {
                 step(
                     events,
                     call,
@@ -1471,7 +1509,7 @@ impl Orchestrator {
                     },
                 )
                 .await;
-                Some(iso)
+                Some((iso, shared))
             }
             Some(Err(e)) => {
                 // Not fatal: it works in the project, as outside git.
@@ -1488,11 +1526,18 @@ impl Orchestrator {
                 events,
                 cancel,
                 &mut log,
-                isolated.as_ref().map(|i| &i.host),
+                isolated.as_ref().map(|(i, _)| &i.host),
             )
             .await;
 
-        if let Some(iso) = &isolated {
+        if let Some((iso, true)) = &isolated {
+            out.text.push_str(&format!(
+                "
+
+[{agent} worked in the team's shared copy of the project. The team's changes go on branch {} when the run ends, not into the project's files until the user merges them.]",
+                iso.branch
+            ));
+        } else if let Some((iso, false)) = &isolated {
             let summary = field("prompt").lines().next().unwrap_or_default();
             let summary: String = summary.chars().take(72).collect();
             match (iso.seal)(&format!("{agent}: {summary}")) {

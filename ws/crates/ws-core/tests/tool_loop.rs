@@ -1557,3 +1557,59 @@ async fn a_role_runs_as_two_copies_at_most() {
     assert!(heard(&lead[1], "implementer is busy"), "no third copy");
     assert_eq!(to_model(&h, "fake-2").len(), 2);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_team_run_shares_one_copy_and_saves_it_once_at_the_end() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let copy = Arc::new(FakeTools::default());
+    h.tools.copy.lock().unwrap().replace(copy.clone());
+    let lead = |s| h.backend.script_for("fake-1", s);
+    let worker = |s| h.backend.script_for("fake-2", s);
+    lead(Scripted::CallsTools(
+        ["explorer", "implementer"]
+            .iter()
+            .enumerate()
+            .map(|(i, role)| {
+                (
+                    format!("d{}", i + 1),
+                    "dispatch_agent".to_owned(),
+                    serde_json::json!({"agent": role, "prompt": "do it"}).to_string(),
+                )
+            })
+            .collect(),
+    ));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    worker(Scripted::Text(vec!["mapped".to_owned()]));
+    worker(Scripted::Text(vec!["built".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    assert_eq!(
+        *h.tools.sealed.lock().unwrap(),
+        ["Workspace team run"],
+        "saved once, when the run ended"
+    );
+    let branches: Vec<String> = h
+        .store
+        .lock()
+        .unwrap()
+        .list_events(conv)
+        .unwrap()
+        .into_iter()
+        .flat_map(|e| match e.kind {
+            ws_context::EventKind::HelperLog { entries, .. } => entries,
+            _ => Vec::new(),
+        })
+        .filter_map(|e| match e {
+            ws_context::HelperEntry::Isolated { branch, .. } => Some(branch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(branches, ["ws/team-d1", "ws/team-d1"], "one copy for both");
+    let lead = to_model(&h, "fake-1");
+    assert!(heard(lead.last().unwrap(), "the team's shared copy"));
+}
