@@ -9,6 +9,7 @@ members = [
     "crates/ws-engine-cli",
     "crates/ws-core",
     "crates/ws-mcp",
+    "crates/ws-codemode",
     "crates/ws-tools",
     "crates/ws-cli",
     "app/src-tauri",
@@ -73,6 +74,11 @@ similar = "3.2.0"
 # features pull in the server side, which this app does not need.
 rmcp = { version = "3.5.1", default-features = false, features = ["client", "transport-child-process"] }
 
+# Code Mode: models write JavaScript that searches and calls tools, run in an
+# embedded QuickJS with no file, network or process access. "futures" makes
+# host functions async (a tool call is awaited by the script).
+rquickjs = { version = "0.14.0", default-features = false, features = ["futures"] }
+
 # dev
 proptest = "1.11.0"
 tempfile = "3.27.0"
@@ -85,6 +91,7 @@ ws-providers = { path = "crates/ws-providers" }
 ws-engine = { path = "crates/ws-engine" }
 ws-core = { path = "crates/ws-core" }
 ws-mcp = { path = "crates/ws-mcp" }
+ws-codemode = { path = "crates/ws-codemode" }
 ws-tools = { path = "crates/ws-tools" }
 
 [workspace.lints.rust]
