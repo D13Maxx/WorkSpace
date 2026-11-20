@@ -244,6 +244,7 @@ fn reported(out: &ws_codemode::Outcome) -> ToolOutput {
     ToolOutput {
         text: out.report(),
         is_error: out.result.is_err(),
+        changes: Vec::new(),
     }
 }
 

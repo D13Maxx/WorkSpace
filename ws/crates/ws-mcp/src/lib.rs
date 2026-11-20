@@ -258,6 +258,7 @@ impl ToolHost for McpTools {
                 ToolOutput {
                     text,
                     is_error: result.is_error.unwrap_or(false),
+                    changes: Vec::new(),
                 }
             }
             Err(e) => ToolOutput::error(format!("{name} failed: {e}")),

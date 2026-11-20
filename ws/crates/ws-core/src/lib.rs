@@ -23,5 +23,5 @@ pub use error::{CoreError, Result};
 pub use events::TurnEvent;
 pub use profiles::{Profile, ProfileTable};
 pub use skills::{Skill, Skills};
-pub use tools::{Isolated, ToolHost, ToolOutput, ToolSet};
+pub use tools::{Change, Isolated, ToolHost, ToolOutput, ToolSet};
 pub use turn::{EditView, ModelListResult, Orchestrator, RECONNECT_WAITS};

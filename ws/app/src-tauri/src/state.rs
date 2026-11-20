@@ -434,6 +434,12 @@ impl ws_core::ToolHost for LateTools {
         self.tools.get().is_none_or(|t| t.needs_approval(name))
     }
 
+    fn needs_approval_for(&self, name: &str, args: &serde_json::Value) -> bool {
+        self.tools
+            .get()
+            .is_none_or(|t| t.needs_approval_for(name, args))
+    }
+
     fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
         self.tools.get().and_then(|t| t.file_for(name, args))
     }

@@ -1291,7 +1291,7 @@ impl Orchestrator {
         }
 
         let allowed = self.rules.read().is_ok_and(|r| r.allows(&call.name, &args));
-        if host.needs_approval(&call.name) && !allowed {
+        if host.needs_approval_for(&call.name, &args) && !allowed {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut m) = self.approvals.lock() {
                 m.insert(call.call_id.clone(), tx);
@@ -1348,6 +1348,20 @@ impl Orchestrator {
                 }
                 Ok(_) => {}
                 Err(e) => tracing::warn!(error = %e, "could not read a file after editing it"),
+            }
+        }
+        // Files the host saw the call change (a script's edits): each its own
+        // record, `call#1`, `call#2`, so each has its own Undo.
+        // shortcut: these are not under file_lock, so two agents' scripts could interleave on one file; lock per path if teams script edits.
+        for (n, change) in std::mem::take(&mut out.changes).into_iter().enumerate() {
+            if change.before == change.after {
+                continue;
+            }
+            let key = format!("{}#{}", call.call_id, n + 1);
+            if let Err(e) =
+                self.record_edit(conv, &key, &change.path, &change.before, &change.after)
+            {
+                tracing::warn!(error = %e, "could not record a file edit; it cannot be undone");
             }
         }
         if out.text.chars().count() > MAX_TOOL_OUTPUT_CHARS {

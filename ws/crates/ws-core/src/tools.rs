@@ -11,6 +11,21 @@ use ws_context::ToolSpec;
 pub struct ToolOutput {
     pub text: String,
     pub is_error: bool,
+    /// Files the call changed, when the host saw it happen: a script that
+    /// edits several. Each is recorded with a diff and Undo; the model never
+    /// sees them. A host that names one file up front uses `file_for` instead.
+    pub changes: Vec<Change>,
+}
+
+/// One file a tool call changed. `path` must be inside the project: Undo
+/// writes `before` back to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    pub path: std::path::PathBuf,
+    /// None: the call created the file.
+    pub before: Option<Vec<u8>>,
+    /// None: the call deleted it.
+    pub after: Option<Vec<u8>>,
 }
 
 impl ToolOutput {
@@ -19,6 +34,7 @@ impl ToolOutput {
         Self {
             text: text.into(),
             is_error: false,
+            changes: Vec::new(),
         }
     }
 
@@ -27,6 +43,7 @@ impl ToolOutput {
         Self {
             text: text.into(),
             is_error: true,
+            changes: Vec::new(),
         }
     }
 }
@@ -39,6 +56,13 @@ pub trait ToolHost: Send + Sync + std::fmt::Debug {
     /// Whether the user must approve a call before it runs. Anything that can
     /// change files or run commands must answer true.
     fn needs_approval(&self, name: &str) -> bool;
+
+    /// The same, for one call with its arguments, where what it does depends
+    /// on them (a script naming the tools it calls). Must be at least as strict
+    /// as the host enforces when the call runs unapproved.
+    fn needs_approval_for(&self, name: &str, _args: &serde_json::Value) -> bool {
+        self.needs_approval(name)
+    }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput;
 
@@ -117,6 +141,11 @@ impl ToolHost for ToolSet {
         self.owner(name).is_none_or(|h| h.needs_approval(name))
     }
 
+    fn needs_approval_for(&self, name: &str, args: &serde_json::Value) -> bool {
+        self.owner(name)
+            .is_none_or(|h| h.needs_approval_for(name, args))
+    }
+
     fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
         self.owner(name).and_then(|h| h.file_for(name, args))
     }
@@ -192,5 +221,39 @@ mod tests {
         assert!(set.needs_approval("serena__edit"));
         assert!(set.needs_approval("missing"), "unknown asks");
         assert!(set.call("missing", serde_json::json!({})).await.is_error);
+    }
+
+    #[test]
+    fn a_tool_set_asks_the_owner_about_a_call_with_its_arguments() {
+        /// Asks only when the call says `risky`.
+        #[derive(Debug)]
+        struct Picky;
+        #[async_trait::async_trait]
+        impl ToolHost for Picky {
+            fn specs(&self) -> Vec<ToolSpec> {
+                One("execute", true).specs()
+            }
+            fn needs_approval(&self, _: &str) -> bool {
+                true
+            }
+            fn needs_approval_for(&self, _: &str, args: &serde_json::Value) -> bool {
+                args["risky"] == true
+            }
+            async fn call(&self, _: &str, _: serde_json::Value) -> ToolOutput {
+                ToolOutput::ok("")
+            }
+        }
+        let set = ToolSet::new(vec![Arc::new(One("load_skill", false)), Arc::new(Picky)]);
+        let args = |risky: bool| serde_json::json!({ "risky": risky });
+        assert!(!set.needs_approval_for("execute", &args(false)));
+        assert!(set.needs_approval_for("execute", &args(true)));
+        assert!(
+            set.needs_approval_for("missing", &args(false)),
+            "unknown asks"
+        );
+        assert!(
+            !set.needs_approval_for("load_skill", &args(true)),
+            "a host without its own rule keeps its name-only answer"
+        );
     }
 }

@@ -53,7 +53,8 @@ export interface ThreadMessage {
     call_id: string;
     text: string;
     is_error: boolean;
-    edit: { path: string; diff: string; undone: boolean } | null;
+    /** Files the call changed: `id` is what Undo takes. */
+    edits: { id: string; path: string; diff: string; undone: boolean }[];
   }[];
 }
 

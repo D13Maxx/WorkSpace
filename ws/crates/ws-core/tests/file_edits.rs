@@ -47,6 +47,17 @@ struct Harness {
 }
 
 fn harness(replies: Vec<Scripted>) -> Harness {
+    harness_with(replies, |root| {
+        Arc::new(EditingTools {
+            root: root.to_path_buf(),
+        }) as Arc<_>
+    })
+}
+
+fn harness_with(
+    replies: Vec<Scripted>,
+    tools: impl FnOnce(&std::path::Path) -> Arc<dyn ToolHost>,
+) -> Harness {
     let db = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(Mutex::new(Store::open(db.path().join("ws.db")).unwrap()));
@@ -59,9 +70,7 @@ fn harness(replies: Vec<Scripted>) -> Harness {
     let orch = Orchestrator::new(store, blobs, profiles)
         .with_backend(Arc::new(backend) as Arc<_>)
         .with_agents(Arc::new(ws_core::Agents::default().with_worker()))
-        .with_tools(Arc::new(EditingTools {
-            root: root.path().to_path_buf(),
-        }) as Arc<_>);
+        .with_tools(tools(root.path()));
     Harness {
         orch: Arc::new(orch),
         root,
@@ -217,5 +226,114 @@ async fn two_workers_that_reuse_a_call_id_both_get_their_edit_recorded_and_undoa
     assert!(
         h.file("a.rs").exists() && !h.file("b.rs").exists(),
         "undo touched only its own edit"
+    );
+}
+
+/// `script {files: [{path, content}], ask}`: writes several files and reports
+/// what changed, as a Code Mode script does; asks first only when `ask` is set.
+#[derive(Debug)]
+struct ScriptTools {
+    root: PathBuf,
+}
+
+#[async_trait::async_trait]
+impl ToolHost for ScriptTools {
+    fn specs(&self) -> Vec<ToolSpec> {
+        vec![ToolSpec {
+            name: "script".to_owned(),
+            description: String::new(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }]
+    }
+    fn needs_approval(&self, _: &str) -> bool {
+        true
+    }
+    fn needs_approval_for(&self, _: &str, args: &serde_json::Value) -> bool {
+        args["ask"].as_bool().unwrap_or(true)
+    }
+    async fn call(&self, _: &str, args: serde_json::Value) -> ToolOutput {
+        let mut out = ToolOutput::ok("ran");
+        for f in args["files"].as_array().unwrap() {
+            let path = self.root.join(f["path"].as_str().unwrap());
+            let before = std::fs::read(&path).ok();
+            std::fs::write(&path, f["content"].as_str().unwrap()).unwrap();
+            out.changes.push(ws_core::Change {
+                after: std::fs::read(&path).ok(),
+                before,
+                path,
+            });
+        }
+        out
+    }
+}
+
+fn script(files: serde_json::Value, ask: bool) -> Vec<Scripted> {
+    vec![
+        Scripted::calls(
+            "s1",
+            "script",
+            &serde_json::json!({"files": files, "ask": ask}).to_string(),
+        ),
+        Scripted::Text(vec!["done".to_owned()]),
+    ]
+}
+
+#[tokio::test]
+async fn each_file_a_script_changes_gets_its_own_diff_and_undo() {
+    let files = serde_json::json!([
+        {"path": "a.rs", "content": "A2"},
+        {"path": "b.rs", "content": "B1"},
+        {"path": "same.rs", "content": "same"},
+    ]);
+    let h = harness_with(script(files, true), |root| {
+        Arc::new(ScriptTools {
+            root: root.to_path_buf(),
+        }) as Arc<_>
+    });
+    std::fs::write(h.file("a.rs"), "A1").unwrap();
+    std::fs::write(h.file("same.rs"), "same").unwrap();
+    let conv = h.turn(true).await;
+
+    let edits = h.orch.file_edits(conv).unwrap();
+    let ids: Vec<&str> = edits.iter().map(|e| e.call_id.as_str()).collect();
+    assert_eq!(ids, ["s1#1", "s1#2"], "an unchanged file is not an edit");
+    assert!(edits[0].diff.contains("-A1") && edits[0].diff.contains("+A2"));
+
+    h.orch.undo_edit("s1#2").unwrap();
+    assert!(
+        !h.file("b.rs").exists(),
+        "undoing a creation removes the file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(h.file("a.rs")).unwrap(),
+        "A2",
+        "the other edit stays"
+    );
+    h.orch.undo_edit("s1#1").unwrap();
+    assert_eq!(std::fs::read_to_string(h.file("a.rs")).unwrap(), "A1");
+}
+
+#[tokio::test]
+async fn approval_can_depend_on_what_a_call_will_do() {
+    let files = serde_json::json!([{"path": "a.rs", "content": "quiet"}]);
+    let h = harness_with(script(files, false), |root| {
+        Arc::new(ScriptTools {
+            root: root.to_path_buf(),
+        }) as Arc<_>
+    });
+    // Declines everything: a call that needs no approval runs regardless.
+    h.turn(false).await;
+    assert_eq!(std::fs::read_to_string(h.file("a.rs")).unwrap(), "quiet");
+
+    let files = serde_json::json!([{"path": "b.rs", "content": "loud"}]);
+    let h = harness_with(script(files, true), |root| {
+        Arc::new(ScriptTools {
+            root: root.to_path_buf(),
+        }) as Arc<_>
+    });
+    h.turn(false).await;
+    assert!(
+        !h.file("b.rs").exists(),
+        "a call that asks and is declined never runs"
     );
 }

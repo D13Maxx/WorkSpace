@@ -147,21 +147,21 @@ export function MessageList(props: Props) {
           )}
           {m.tool_results.map((r) => (
             <div key={r.call_id}>
-              {r.edit && (
-                <div className={`file-edit ${r.edit.undone ? "undone" : ""}`}>
+              {r.edits.map((edit) => (
+                <div key={edit.id} className={`file-edit ${edit.undone ? "undone" : ""}`}>
                   <header>
-                    <code>{r.edit.path}</code>
-                    {r.edit.undone ? (
+                    <code>{edit.path}</code>
+                    {edit.undone ? (
                       <span className="muted">Undone</span>
                     ) : (
-                      <button onClick={() => props.onUndo(r.call_id)} disabled={props.busy}>
+                      <button onClick={() => props.onUndo(edit.id)} disabled={props.busy}>
                         Undo
                       </button>
                     )}
                   </header>
-                  <Diff text={r.edit.diff} />
+                  <Diff text={edit.diff} />
                 </div>
-              )}
+              ))}
               <details className={`tool-result ${r.is_error ? "failure" : ""}`}>
                 <summary>{r.is_error ? "Tool error" : "Tool result"}</summary>
                 <pre>{r.text}</pre>

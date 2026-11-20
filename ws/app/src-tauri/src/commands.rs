@@ -84,12 +84,15 @@ pub struct ToolResultDto {
     pub call_id: String,
     pub text: String,
     pub is_error: bool,
-    /// The file this call changed, if it changed one.
-    pub edit: Option<EditDto>,
+    /// The files this call changed: one for a tool that edits a file, any
+    /// number for a script.
+    pub edits: Vec<EditDto>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct EditDto {
+    /// What Undo names: the call's id, or `call#n` for a script's nth edit.
+    pub id: String,
     pub path: String,
     pub diff: String,
     pub undone: bool,
@@ -232,13 +235,12 @@ pub fn delete_conversation(state: State<'_, AppState>, conversation: String) -> 
 pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResult<Thread> {
     let id = conv_id(&conversation)?;
     // Read before locking the store below: this takes the same lock.
-    let mut edits: std::collections::HashMap<String, ws_core::EditView> = state
-        .orchestrator
-        .file_edits(id)
-        .map_err(err)?
-        .into_iter()
-        .map(|e| (e.call_id.clone(), e))
-        .collect();
+    let mut edits: std::collections::HashMap<String, Vec<ws_core::EditView>> =
+        std::collections::HashMap::new();
+    for e in state.orchestrator.file_edits(id).map_err(err)? {
+        let call = e.call_id.split('#').next().unwrap_or_default().to_owned();
+        edits.entry(call).or_default().push(e);
+    }
     let store = state.store.lock().map_err(|_| "store unavailable")?;
 
     let conv = store
@@ -314,11 +316,17 @@ pub fn load_thread(state: State<'_, AppState>, conversation: String) -> CmdResul
                         call_id: call_id.clone(),
                         text: content.iter().filter_map(Part::as_text).collect(),
                         is_error: *is_error,
-                        edit: edits.remove(call_id).map(|e| EditDto {
-                            path: e.path,
-                            diff: e.diff,
-                            undone: e.undone,
-                        }),
+                        edits: edits
+                            .remove(call_id)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|e| EditDto {
+                                id: e.call_id,
+                                path: e.path,
+                                diff: e.diff,
+                                undone: e.undone,
+                            })
+                            .collect(),
                     }),
                     _ => None,
                 })
