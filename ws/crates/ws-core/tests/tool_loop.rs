@@ -1449,7 +1449,10 @@ async fn team_only_tools_reach_the_lead_and_workers_and_never_a_plain_chat() {
         .iter()
         .filter(|e| matches!(e, TurnEvent::ApprovalRequired { name, .. } if name == "rea_call"))
         .count();
-    assert_eq!(asked, 2, "every team-only call asks, the lead's and the worker's");
+    assert_eq!(
+        asked, 2,
+        "every team-only call asks, the lead's and the worker's"
+    );
 
     let has = |r: &ws_context::BackendRequest| r.tools.iter().any(|t| t.name == "rea_call");
     let (lead, worker) = (to_model(&h, "fake-1"), to_model(&h, "fake-2"));
