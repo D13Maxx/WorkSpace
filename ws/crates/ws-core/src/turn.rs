@@ -207,6 +207,8 @@ pub struct Orchestrator {
     cfg: ContextConfig,
     draft_interval: Duration,
     tools: Option<Arc<dyn ToolHost>>,
+    /// Tools offered only to a team, lead and workers: Reverse Engineer Anything.
+    team_tools: Option<Arc<dyn ToolHost>>,
     /// Helpers the model may dispatch, offered as `dispatch_agent`.
     agents: Option<Arc<Agents>>,
     /// Calls waiting on the user, by call id. Resolved by `resolve_approval`.
@@ -259,6 +261,7 @@ impl Orchestrator {
             cfg: ContextConfig::default(),
             draft_interval: DRAFT_CHECKPOINT_INTERVAL,
             tools: None,
+            team_tools: None,
             agents: None,
             approvals: Mutex::new(HashMap::new()),
             file_locks: Mutex::new(HashMap::new()),
@@ -286,6 +289,19 @@ impl Orchestrator {
     pub fn with_tools(mut self, host: Arc<dyn ToolHost>) -> Self {
         self.tools = Some(host);
         self
+    }
+
+    /// Offer `host` in coordinated turns only, to the lead and its workers.
+    #[must_use]
+    pub fn with_team_tools(mut self, host: Arc<dyn ToolHost>) -> Self {
+        self.team_tools = Some(host);
+        self
+    }
+
+    /// The team-only tools, while a team is working in `conv`.
+    fn team_host(&self, conv: ConvId) -> Option<&Arc<dyn ToolHost>> {
+        let team = self.team_convs.lock().is_ok_and(|t| t.contains(&conv));
+        self.team_tools.as_ref().filter(|_| team)
     }
 
     /// Offer `agents` to the model through `dispatch_agent`.
@@ -650,6 +666,9 @@ impl Orchestrator {
             tools: match &self.tools {
                 Some(host) if self.tools_enabled(target) => {
                     let mut specs = host.specs();
+                    if let Some(kit) = self.team_tools.as_ref().filter(|_| team) {
+                        specs.extend(kit.specs());
+                    }
                     if let Some(agents) = self.agents.as_ref().filter(|a| !a.is_empty()) {
                         specs.push(agents.spec());
                         if team {
@@ -1216,7 +1235,10 @@ impl Orchestrator {
         // A helper's own copy of the tools, working in its copy of the project.
         scope: Option<&Arc<dyn ToolHost>>,
     ) -> ToolOutput {
-        let Some(host) = scope.or(self.tools.as_ref()) else {
+        let kit = self
+            .team_host(conv)
+            .filter(|k| k.specs().iter().any(|s| s.name == call.name));
+        let Some(host) = kit.or(scope).or(self.tools.as_ref()) else {
             return ToolOutput::error("no tools are available");
         };
         if cancel.is_cancelled() {
@@ -1630,7 +1652,12 @@ impl Orchestrator {
                 thinking: self.profiles.thinking(&target),
                 raw_payloads: BTreeMap::new(),
                 blobs: BTreeMap::new(),
-                tools: tools.clone(),
+                // The team's own tools are read each step: the lead may switch REA on mid-task.
+                tools: tools
+                    .iter()
+                    .cloned()
+                    .chain(self.team_host(conv).map(|k| k.specs()).unwrap_or_default())
+                    .collect(),
             };
             let mut text = String::new();
             let mut opaque = Vec::new();

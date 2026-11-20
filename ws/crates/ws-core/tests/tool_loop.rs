@@ -60,11 +60,36 @@ impl ToolHost for FakeTools {
     }
 }
 
+/// Tools only a team is offered, as Reverse Engineer Anything is. Asks first.
+#[derive(Debug, Default)]
+struct TeamKit {
+    calls: Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl ToolHost for TeamKit {
+    fn specs(&self) -> Vec<ToolSpec> {
+        vec![ToolSpec {
+            name: "rea_call".to_owned(),
+            description: "team-only tool for tests".to_owned(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }]
+    }
+    fn needs_approval(&self, _name: &str) -> bool {
+        true
+    }
+    async fn call(&self, name: &str, _args: serde_json::Value) -> ToolOutput {
+        self.calls.lock().unwrap().push(name.to_owned());
+        ToolOutput::ok("decompiled")
+    }
+}
+
 struct Harness {
     orch: Arc<Orchestrator>,
     store: Arc<Mutex<Store>>,
     backend: Arc<FakeBackend>,
     tools: Arc<FakeTools>,
+    kit: Arc<TeamKit>,
     _dir: tempfile::TempDir,
 }
 
@@ -103,9 +128,11 @@ fn harness_full(
     }
     let backend = Arc::new(backend);
     let tools = Arc::new(FakeTools::default());
+    let kit = Arc::new(TeamKit::default());
     let mut orch = Orchestrator::new(store.clone(), blobs, profiles)
         .with_backend(backend.clone() as Arc<_>)
         .with_tools(tools.clone() as Arc<_>)
+        .with_team_tools(kit.clone() as Arc<_>)
         .with_reconnect_waits(reconnect_waits);
     if let Some(agents) = agents {
         orch = orch.with_agents(agents);
@@ -115,6 +142,7 @@ fn harness_full(
         store,
         backend,
         tools,
+        kit,
         _dir: dir,
     }
 }
@@ -1396,4 +1424,49 @@ async fn a_note_from_the_user_reaches_the_lead_and_the_workers() {
         heard(&worker[1], "from you: use metric units"),
         "and so do the workers"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn team_only_tools_reach_the_lead_and_workers_and_never_a_plain_chat() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    let worker = |s| h.backend.script_for("fake-2", s);
+    lead(Scripted::calls(
+        "k1",
+        "rea_call",
+        r#"{"tool":"binary_overview"}"#,
+    ));
+    lead(dispatch("d1", "worker"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    worker(Scripted::calls("k2", "rea_call", r#"{"tool":"xrefs"}"#));
+    worker(Scripted::Text(vec!["found it".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let has = |r: &ws_context::BackendRequest| r.tools.iter().any(|t| t.name == "rea_call");
+    let (lead, worker) = (to_model(&h, "fake-1"), to_model(&h, "fake-2"));
+    assert!(has(&lead[0]), "the lead is offered the team's tools");
+    assert!(has(&worker[0]), "so are its workers");
+    assert!(
+        heard(&lead[1], "decompiled"),
+        "the lead's call ran in the kit"
+    );
+    assert_eq!(*h.kit.calls.lock().unwrap(), ["rea_call", "rea_call"]);
+    assert!(
+        h.tools.calls.lock().unwrap().is_empty(),
+        "nothing went to the ordinary tools"
+    );
+
+    // The same chat without Coordinate: no team, so no team tools.
+    h.backend
+        .script_for("fake-1", Scripted::Text(vec!["plain".to_owned()]));
+    h.orch
+        .append_user_message(conv, vec![Part::text("and now?")])
+        .unwrap();
+    run(&h, conv, true).await;
+    let last = to_model(&h, "fake-1").pop().unwrap();
+    assert!(!has(&last), "a plain turn is not offered them");
 }

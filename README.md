@@ -21,7 +21,9 @@ software visually.
 - **Agent teams.** Tick *Coordinate*: a lead model plans the task and starts
   workers (on a cheaper model if you like) that run side by side, talk in a team
   chat you can watch and join, work in their own git copies, and ask you only
-  when it matters.
+  when it matters. Ask a team how some app, binary or website does something,
+  and it switches on the bundled [Reverse Engineer Anything](https://github.com/morluto/rea)
+  to inspect it without its source.
 - **The Workshop.** Draw a system from parts and connectors, simulate its load
   to find bugs and bottlenecks, then have the agent build it and measure the
   real thing.
@@ -54,6 +56,7 @@ features use tools from your system, found on PATH:
 | Git features, agent workers in their own copies | Git |
 | Running `.py` files, AI knowledge graphs | Python 3, Node.js |
 | Running `.js` / `.ts` files, tool servers started with `npx` | Node.js |
+| Reverse engineering in agent teams | Node.js 22.23.4+, 24.22.1+ or 26.12.1+; for native binaries also Ghidra, IDA or Hopper |
 | Running C/C++ | gcc/g++ or clang |
 | Language servers | the server for each language, e.g. `rust-analyzer`, `pyright`, `typescript-language-server`, `clangd` |
 | The debugger | `lldb-dap` (from LLVM) |
@@ -106,4 +109,6 @@ how the code is laid out.
 ## License
 
 Apache License 2.0; see [LICENSE](LICENSE). The bundled Ponytail and
-Understand-Anything skills and pipeline are MIT, with their licences alongside.
+Understand-Anything skills and pipeline, and Reverse Engineer Anything, are MIT,
+with their licences alongside. Reverse Engineer Anything is for software you
+own or are allowed to examine.

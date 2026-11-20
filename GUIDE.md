@@ -58,6 +58,32 @@ message carries on with the saved plan.
   `cargo test -p core`), without asking. Everything else still asks, and a
   command with quotes, pipes, `;`, `&`, `>` or `$` always asks.
 
+### Reverse engineering
+
+Workspace bundles [Reverse Engineer Anything](https://github.com/morluto/rea)
+(REA) 6.10.1, and only agent teams can use it. Ask a team how existing
+software does something ("how does this app's search work", "what does this
+.exe call", "trace this Electron app's clipboard bridge") and the lead
+switches REA on by itself: REA starts on your Node.js, the lead gets REA's
+workflow guide, and the lead and every worker it starts after that can use it.
+
+REA inspects native binaries (pseudocode, assembly, strings, calls), Electron
+and JavaScript apps, .NET assemblies, Android APKs, websites, firmware and
+packaged apps, and returns the evidence behind each finding. It has 263 tools,
+too many to hand a model at once, so a team gets three: `rea_find_tools` finds
+one by what it does, `rea_call` runs it, and `rea_guide` reads REA's guides.
+Plain chats never see any of it.
+
+- **Needs** Node.js 22.23.4+, 24.22.1+ or 26.12.1+. If yours is older, the
+  lead says so in the chat. Static JavaScript, .NET and APK manifest work
+  needs nothing else; decompiling native binaries needs Ghidra, IDA or
+  Hopper installed, and Android classes need JADX.
+- **Asks first.** Every `rea_call` asks for approval, since runtime capture
+  runs or interacts with the target; **Allow all for this reply** saves
+  clicking through a long investigation.
+- **Your responsibility.** REA is for software you own or are authorised to
+  examine, and for lawful research and interoperability.
+
 ## Run a local model
 
 Open **Settings**, paste the path to a `.gguf` file under **Local model** and

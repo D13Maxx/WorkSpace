@@ -3,6 +3,8 @@ fn main() {
     // scripts/build-ua-pipeline.mjs and gitignored. Tauri refuses to build when
     // a resource is missing, so a fresh clone or a CI check gets an empty
     // folder: the app then just offers no AI graph. Release builds the real one.
+    // Reverse Engineer Anything (scripts/build-rea.mjs) is bundled the same way.
     let _ = std::fs::create_dir_all("ua-pipeline");
+    let _ = std::fs::create_dir_all("rea");
     tauri_build::build();
 }

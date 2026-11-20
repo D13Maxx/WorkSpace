@@ -49,6 +49,17 @@ $installedPipeline = Join-Path $dest 'ua-pipeline'
 if (Test-Path $installedPipeline) { Remove-Item $installedPipeline -Recurse -Force }
 Copy-Item $pipeline $installedPipeline -Recurse
 
+# Reverse Engineer Anything, for agent teams, also found beside the exe.
+$rea = Join-Path $app 'src-tauri\rea'
+if (-not (Test-Path (Join-Path $rea 'scripts\rea.mjs'))) {
+    Write-Host 'Bundling Reverse Engineer Anything (downloads it from npm once)...'
+    node (Join-Path $PSScriptRoot 'build-rea.mjs')
+    if ($LASTEXITCODE -ne 0) { throw "bundling REA failed (exit $LASTEXITCODE)" }
+}
+# 10,000 files: mirror, so a reinstall copies only what changed.
+robocopy $rea (Join-Path $dest 'rea') /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "copying REA failed (robocopy exit $LASTEXITCODE)" }
+
 $link = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Workspace.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($link)

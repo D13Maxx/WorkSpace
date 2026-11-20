@@ -20,11 +20,12 @@ npm run tauri dev
 ```
 
 An installer (`.exe` on Windows, `.deb` on Linux), with the Understand-Anything
-pipeline built first:
+pipeline and Reverse Engineer Anything bundled first:
 
 ```bash
 cd ws/app
 node scripts/build-ua-pipeline.mjs
+node scripts/build-rea.mjs
 npm run tauri build -- --bundles nsis   # or: --bundles deb
 ```
 
@@ -85,6 +86,21 @@ is built by `node ws/app/scripts/build-ua-pipeline.mjs`, which clones UA
 v2.9.0, installs with scripts disabled, and bundles each script with esbuild;
 `install.ps1` builds it when missing and copies it next to `Workspace.exe`;
 the release installers carry it as a bundled resource.
+
+## Reverse Engineer Anything
+
+`node ws/app/scripts/build-rea.mjs` installs the pinned `rea-agents` npm
+package (about 200 MB, scripts disabled, the optional `frida` add-on left out)
+into `ws/app/src-tauri/rea` (gitignored). The installers carry it as a
+resource and `install.ps1` mirrors it next to `Workspace.exe`. The app starts
+it with the system's Node.js only when a team's lead calls
+`start_reverse_engineering` (`app/src-tauri/src/rea.rs`). To try the real
+thing end to end, with a supported Node.js:
+
+```bash
+cd ws
+cargo test -p ws-app rea_starts -- --ignored --nocapture
+```
 
 ## Layout
 

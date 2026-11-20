@@ -14,6 +14,7 @@ mod commands;
 mod graph;
 mod graph_builder;
 mod launch;
+mod rea;
 mod run;
 mod sandbox;
 mod state;

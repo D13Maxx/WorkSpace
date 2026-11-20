@@ -53,6 +53,11 @@ jobs:
         working-directory: ws/app
         run: node scripts/build-ua-pipeline.mjs
 
+      # Reverse Engineer Anything, for agent teams, ships inside the installer too.
+      - name: Bundle Reverse Engineer Anything
+        working-directory: ws/app
+        run: node scripts/build-rea.mjs
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -160,6 +160,10 @@ impl AppState {
         let skills_dir = dir.join("skills");
         std::fs::create_dir_all(&skills_dir)?;
         let pipeline = ua_pipeline_dir(app.path().resource_dir().ok());
+        let rea = bundled(app.path().resource_dir().ok(), "rea", "scripts/rea.mjs");
+        if rea.is_none() {
+            tracing::warn!("Reverse Engineer Anything is not bundled; teams cannot use it");
+        }
         if pipeline.is_none() {
             tracing::warn!("Understand-Anything pipeline not found; /understand is unavailable");
         }
@@ -183,6 +187,7 @@ impl AppState {
 
         let mut orchestrator = Orchestrator::new(store.clone(), blobs, profiles.clone())
             .with_agents(agents)
+            .with_team_tools(Arc::new(crate::rea::Rea::new(rea)))
             .with_reconnect_waits(ws_core::RECONNECT_WAITS.to_vec())
             .with_backend(local.clone() as Arc<_>)
             .with_tools(Arc::new(ws_core::ToolSet::new(vec![
@@ -276,16 +281,26 @@ impl AppState {
 /// as a resource (beside the exe on Windows, under /usr/lib on Linux);
 /// install.ps1 puts it beside the exe; a dev build reads the source tree.
 fn ua_pipeline_dir(resources: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    bundled(resources, "ua-pipeline", "agents")
+}
+
+/// A bundled folder: among the installed resources, beside the exe (install.ps1
+/// copies it there), or in the source tree for `tauri dev`. `marker` must be in it.
+fn bundled(
+    resources: Option<std::path::PathBuf>,
+    name: &str,
+    marker: &str,
+) -> Option<std::path::PathBuf> {
     let beside_exe = std::env::current_exe()
         .ok()
-        .and_then(|exe| Some(exe.parent()?.join("ua-pipeline")));
-    let source_tree = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ua-pipeline");
+        .and_then(|exe| Some(exe.parent()?.join(name)));
+    let source_tree = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(name);
     resources
-        .map(|r| r.join("ua-pipeline"))
+        .map(|r| r.join(name))
         .into_iter()
         .chain(beside_exe)
         .chain([source_tree])
-        .find(|dir| dir.join("agents").is_dir())
+        .find(|dir| dir.join(marker).exists())
 }
 
 /// Load saved model profiles into memory. Missing or malformed rows fall back

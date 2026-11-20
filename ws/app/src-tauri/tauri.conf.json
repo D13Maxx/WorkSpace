@@ -33,7 +33,8 @@
     "shortDescription": "A desktop AI workspace: chat, code editor and agent teams",
     "longDescription": "Workspace is a desktop AI workspace: one conversation across API and local models, a code editor with language servers and a debugger, agent teams that plan and build in parallel, and the Workshop for designing software visually.",
     "resources": {
-      "ua-pipeline/": "ua-pipeline/"
+      "ua-pipeline/": "ua-pipeline/",
+      "rea/": "rea/"
     },
     "fileAssociations": [
       { "ext": ["blueprint"], "name": "Workspace blueprint", "description": "A Workspace blueprint", "role": "Editor" }
