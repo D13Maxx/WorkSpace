@@ -126,14 +126,33 @@ fn snapshot(top: &str) -> Result<String, String> {
     git(top, &args)
 }
 
-/// Commit everything the helper left in its worktree. Returns whether there
-/// was anything to commit.
+/// What tools leave behind when they run, never a helper's work: left out of
+/// its commit even in a project with no `.gitignore` for them. Only folders
+/// and files no one writes by hand, so `build/` or `dist/` are not here.
+const JUNK: [&str; 10] = [
+    ":(exclude,glob)**/__pycache__/**",
+    ":(exclude,glob)**/*.pyc",
+    ":(exclude,glob)**/*.pyo",
+    ":(exclude,glob)**/.pytest_cache/**",
+    ":(exclude,glob)**/.mypy_cache/**",
+    ":(exclude,glob)**/.ruff_cache/**",
+    ":(exclude,glob)**/node_modules/**",
+    ":(exclude,glob)**/.DS_Store",
+    ":(exclude,glob)**/Thumbs.db",
+    ":(exclude,glob)**/*.tsbuildinfo",
+];
+
+/// Commit what the helper left in its worktree, less [`JUNK`]. Returns
+/// whether there was anything to commit.
 ///
 /// # Errors
 /// Git fails.
 pub fn seal(top: &str, message: &str) -> Result<bool, String> {
-    git(top, &["add", "-A"])?;
-    if git(top, &["status", "--porcelain"])?.is_empty() {
+    let mut add = vec!["add", "-A", "--", "."];
+    add.extend(JUNK);
+    git(top, &add)?;
+    // What was staged, not the status: junk left out still shows as untracked.
+    if git(top, &["diff", "--cached", "--name-only"])?.is_empty() {
         return Ok(false);
     }
     let mut args: Vec<&str> = IDENTITY.to_vec();
@@ -347,6 +366,37 @@ mod tests {
         assert_eq!(read(root, "a.txt"), "one\ntwo\n");
         assert!(!Path::new(&wt.top).exists());
         assert_eq!(changes(root, &wt.base, &wt.branch).unwrap(), None);
+    }
+
+    #[test]
+    fn build_junk_is_left_out_of_a_helpers_work() {
+        let Some(dir) = repo() else { return };
+        let root = dir.path().to_str().unwrap();
+        let wt = create(root, "j1").unwrap().unwrap();
+        let put = |rel: &str| {
+            let path = Path::new(&wt.folder).join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "x").unwrap();
+        };
+        for junk in [
+            "__pycache__/calc.cpython-314.pyc",
+            "pkg/__pycache__/m.pyc",
+            "loose.pyc",
+            ".pytest_cache/v/cache",
+            "web/node_modules/left-pad/index.js",
+        ] {
+            put(junk);
+        }
+        assert!(
+            !seal(&wt.top, "worker").unwrap(),
+            "only junk: nothing to save"
+        );
+
+        put("calc.py");
+        assert!(seal(&wt.top, "worker").unwrap());
+        let changed = changes(root, &wt.base, &wt.branch).unwrap().unwrap();
+        let paths: Vec<_> = changed.iter().map(|c| c.path.as_str()).collect();
+        assert_eq!(paths, ["calc.py"]);
     }
 
     #[test]
