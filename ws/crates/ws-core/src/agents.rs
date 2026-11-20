@@ -64,7 +64,7 @@ pub fn save_worker_fallbacks(data_dir: &Path, models: &[ModelRef]) -> std::io::R
 /// root, so a run that stops can be picked up again.
 pub const PLAN_FILE: &str = ".ws/plan.md";
 
-const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Then dispatch a worker for each part: dispatch_agent starts it in the background and returns at once, so they run at the same time. Give each worker the full task, its files, the interfaces it must keep, and who else is working on what. You lead a team chat: workers message one another and you with post_message, and you answer questions, settle disagreements and correct course with post_message too; every running worker reads every message. Call wait_for_team to hear from them: it returns their messages, and their reports as they finish. When a worker reports, check its result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and dispatch a worker again for anything that is wrong. Keep the plan current: it is how a stopped run resumes. Messages from the user (from: you) also arrive through wait_for_team: they come first. Decide routine things yourself; use ask_user only at a milestone worth a check, or for a decision that is the user's (something destructive, outside the task, or a real choice between approaches). Do not finish while anyone is still working: keep calling wait_for_team until every worker has reported. When the task is to find out how existing software works from its shipped files or its behaviour (reverse engineering: an app, a binary, an APK, a website) and start_reverse_engineering is offered, call it first and follow the guide it returns; split the investigation by target or feature, and tell each worker to use rea_search and rea_execute. Finish with a short summary for the user.";
+const COORDINATOR_PROMPT: &str = "You are the coordinator. Do not edit files yourself, except the plan file .ws/plan.md. Read enough of the project to plan, split the task into parts that touch different files, and write the plan to .ws/plan.md before dispatching: the task, one checklist line per part (`- [ ] part: its files`), and how you will check the result. Your team has six fixed roles, listed in dispatch_agent: explorer, implementer, tester, debugger, reviewer and docs-writer. You decide which role gets which part and when, for example: the explorer to map code you do not know yet; implementers to build parts that touch different files; the tester to write and run tests; the debugger for a failure; the reviewer to check finished changes; the docs-writer when behaviour or interfaces change. dispatch_agent starts a role in the background and returns at once, so roles work at the same time: up to two copies of a role (implementer and implementer-2), six workers in all. A role remembers its earlier tasks in this run, so send a fix or a review finding to the copy that did the work. Give each the full task, its files, the interfaces it must keep, and who else is working on what. You lead a team chat: workers message one another and you with post_message, and you answer questions, settle disagreements and correct course with post_message too; every running worker reads every message. Call wait_for_team to hear from them: it returns their messages, and their reports as they finish. When a worker reports, check its result (read the changes, run the build or tests), tick what is done in the plan (`- [x]`) with a line on what you found, and send anything that is wrong back to the role that did it, or to the debugger. Keep the plan current: it is how a stopped run resumes. Messages from the user (from: you) also arrive through wait_for_team: they come first. Decide routine things yourself; use ask_user only at a milestone worth a check, or for a decision that is the user's (something destructive, outside the task, or a real choice between approaches). Do not finish while anyone is still working: keep calling wait_for_team until every worker has reported. When the task is to find out how existing software works from its shipped files or its behaviour (reverse engineering: an app, a binary, an APK, a website) and start_reverse_engineering is offered, call it first and follow the guide it returns; split the investigation by target or feature, and tell each worker to use rea_search and rea_execute. Finish with a short summary for the user.";
 
 /// What makes the model the coordinator, with the plan a previous run left.
 #[must_use]
@@ -192,6 +192,108 @@ impl Agents {
                 "required": ["agent", "prompt"]
             }),
         }
+    }
+}
+
+/// A team's fixed roles: name, what the lead sees, the worker's instructions.
+const ROLES: [(&str, &str, &str); 6] = [
+    (
+        "explorer",
+        "Reads and maps the code: where things are, how they connect, what a change would touch. Changes no files.",
+        "You are the team's explorer. Read the code the task points at and map it: the files, functions and interfaces involved, how they connect, and what a change there would touch or break. Do not change any file. Report the map: paths, names and the facts the others need, short enough to act on.",
+    ),
+    (
+        "implementer",
+        "Builds the feature or change in the files it is given.",
+        "You are one of the team's implementers. Build exactly the part you were given, in its files, and stay out of other files. Read before you edit, keep the interfaces you were told to keep, and check that it builds before you report.",
+    ),
+    (
+        "tester",
+        "Writes and runs tests for a change, and reports what passes and what fails.",
+        "You are the team's tester. Write tests for the behaviour you were given, in the project's own test style, then run them and the existing tests. Change only test files. Report what passes and, for each failure, the test, the error and what you think is wrong.",
+    ),
+    (
+        "debugger",
+        "Finds the root cause of a failure or bug and fixes it.",
+        "You are the team's debugger. Reproduce the failure you were given, find its root cause (not just the symptom), fix it in the fewest lines, and run the failing check again to prove the fix. Report the cause, the fix and how you checked it.",
+    ),
+    (
+        "reviewer",
+        "Reviews changes for bugs, security and quality, and reports what to fix. Changes no files.",
+        "You are the team's reviewer. Read the changes you were given and the code they touch. Look for bugs, unhandled errors, security holes, missing tests and needless complexity. Do not change any file. Report each finding with its file and line, why it matters and the fix, most serious first; say so plainly if you found nothing.",
+    ),
+    (
+        "docs-writer",
+        "Updates documentation, comments and READMEs to match a change.",
+        "You are the team's docs writer. Update the documentation the change affects: READMEs, guides, doc comments and examples, in the project's own voice. Change only documentation and comments. Report what you updated.",
+    ),
+];
+
+/// What every role is told about working in the team.
+const ROLE_NOTE: &str = "You work in a team led by a coordinator, beside other workers. Post with post_message what you are changing if it touches shared code, and act on messages you receive. If you are stuck or a decision is not yours to make, ask the lead with post_message (to: lead) and go on with what you can meanwhile. You keep your memory for this run: when the lead gives you another task, your earlier work is above it. Finish with a short report: what you did, what you checked, and anything left open.";
+
+/// At most this many copies of one role work at once.
+pub const MAX_ROLE_COPIES: usize = 2;
+
+/// A team role by name, as an agent.
+#[must_use]
+pub fn role(name: &str) -> Option<AgentDef> {
+    ROLES
+        .iter()
+        .find(|(n, ..)| *n == name)
+        .map(|(n, description, body)| AgentDef {
+            name: (*n).to_owned(),
+            description: (*description).to_owned(),
+            body: format!("{body} {ROLE_NOTE}"),
+            model: None,
+        })
+}
+
+/// The role a team dispatch names, and which copy if it names one:
+/// `implementer` is either copy, `implementer-2` the second.
+#[must_use]
+pub fn role_and_copy(name: &str) -> Option<(&'static str, Option<usize>)> {
+    ROLES.iter().find_map(|(role, ..)| {
+        if name == *role {
+            return Some((*role, None));
+        }
+        let copy: usize = name.strip_prefix(role)?.strip_prefix('-')?.parse().ok()?;
+        (1..=MAX_ROLE_COPIES)
+            .contains(&copy)
+            .then_some((*role, Some(copy)))
+    })
+}
+
+/// A copy's name: the role for the first, `role-2` for the second.
+#[must_use]
+pub fn copy_name(role: &str, copy: usize) -> String {
+    if copy == 1 {
+        role.to_owned()
+    } else {
+        format!("{role}-{copy}")
+    }
+}
+
+/// The lead's `dispatch_agent`: the team's roles.
+#[must_use]
+pub fn team_spec() -> ToolSpec {
+    let menu: String = ROLES
+        .iter()
+        .map(|(name, description, _)| format!("\n- {name}: {description}"))
+        .collect();
+    ToolSpec {
+        name: DISPATCH_AGENT.to_owned(),
+        description: format!(
+            "Give a task to one of your team's roles. It starts in the background and this returns at once; call wait_for_team for its report. Up to {MAX_ROLE_COPIES} copies of a role work at once: `implementer` takes whichever copy is free, `implementer-2` names the second. A role remembers its earlier tasks in this run, so send follow-ups to the copy that did the work; put everything else it needs in the prompt. If a skill names another agent, dispatch that one as it says. Roles:{menu}"
+        ),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent": {"type": "string", "description": "A role, or a role's copy such as implementer-2."},
+                "prompt": {"type": "string", "description": "The task, with its files, the interfaces to keep, and who else is working on what."}
+            },
+            "required": ["agent", "prompt"]
+        }),
     }
 }
 
@@ -337,6 +439,27 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn a_dispatch_names_a_role_and_maybe_its_copy() {
+        assert_eq!(role_and_copy("implementer"), Some(("implementer", None)));
+        assert_eq!(
+            role_and_copy("docs-writer-2"),
+            Some(("docs-writer", Some(2)))
+        );
+        assert_eq!(role_and_copy("tester-1"), Some(("tester", Some(1))));
+        for not in ["tester-3", "tester-", "testers", "worker", ""] {
+            assert_eq!(role_and_copy(not), None, "{not}");
+        }
+        assert_eq!(copy_name("tester", 1), "tester");
+        assert_eq!(copy_name("tester", 2), "tester-2");
+        assert!(
+            role("reviewer")
+                .unwrap()
+                .body
+                .contains("Do not change any file")
+        );
+    }
 
     #[test]
     fn the_built_in_worker_is_offered_unless_replaced() {

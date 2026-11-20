@@ -38,9 +38,18 @@ real values.
 
 Tick **Coordinate** under the message box before you send. The model you chat
 with becomes the lead: it writes a plan in the project's `.ws/plan.md`, then
-hands parts of the task to workers that run side by side (up to five at once),
-each in its own git copy of the project. With Coordinate on, sending an empty
-message carries on with the saved plan.
+hands parts of the task to workers that run side by side, each in its own git
+copy of the project. With Coordinate on, sending an empty message carries on
+with the saved plan.
+
+- **Six roles.** The team has fixed roles, and the lead decides which gets
+  what and when: the **explorer** maps the code, **implementers** build,
+  the **tester** writes and runs tests, the **debugger** fixes failures, the
+  **reviewer** checks changes, and the **docs-writer** updates documentation.
+  The explorer and reviewer only read. Up to two copies of a role work at
+  once (`implementer` and `implementer-2`), six workers in all. A role
+  remembers its earlier tasks in the run, so the lead sends a fix back to
+  the copy that wrote the code.
 
 - **Team chat.** The lead's briefs, the workers' notes, questions and reports
   appear in the chat as they happen. Every worker reads every note, so they

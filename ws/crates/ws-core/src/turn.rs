@@ -75,7 +75,7 @@ const MAX_AGENT_ROUNDS: usize = 50;
 
 /// Helpers dispatched in one reply run side by side, at most this many at a
 /// time (Understand-Anything asks for five).
-const MAX_PARALLEL_AGENTS: usize = 5;
+const MAX_PARALLEL_AGENTS: usize = 6;
 
 /// The lead's name in the team's messages.
 const LEAD: &str = "lead";
@@ -235,6 +235,9 @@ pub struct Orchestrator {
     rules: std::sync::RwLock<ApprovalRules>,
     /// The lead's questions waiting on the user, by call id.
     questions: Mutex<HashMap<String, oneshot::Sender<String>>>,
+    /// What each team role's copy has done this run, by conversation and
+    /// copy name, so a role picks up where it left off. Cleared when the run ends.
+    memories: Mutex<HashMap<(ConvId, String), Vec<RenderedMessage>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -272,6 +275,7 @@ impl Orchestrator {
             team_convs: Mutex::default(),
             rules: std::sync::RwLock::default(),
             questions: Mutex::default(),
+            memories: Mutex::default(),
         }
     }
 
@@ -670,7 +674,11 @@ impl Orchestrator {
                         specs.extend(kit.specs());
                     }
                     if let Some(agents) = self.agents.as_ref().filter(|a| !a.is_empty()) {
-                        specs.push(agents.spec());
+                        specs.push(if team {
+                            crate::agents::team_spec()
+                        } else {
+                            agents.spec()
+                        });
                         if team {
                             specs.push(wait_spec());
                             specs.push(lead_post_spec());
@@ -921,6 +929,9 @@ impl Orchestrator {
             t.remove(&conv);
         }
         self.channel.clear(conv);
+        if let Ok(mut m) = self.memories.lock() {
+            m.retain(|(c, _), _| *c != conv);
+        }
         result
     }
 
@@ -1045,20 +1056,43 @@ impl Orchestrator {
         if team.cancel.is_cancelled() {
             return ToolOutput::error("cancelled by the user before it ran");
         }
-        let agent = serde_json::from_str::<serde_json::Value>(&call.args)
-            .ok()
-            .and_then(|a| a.get("agent")?.as_str().map(str::to_owned))
-            .unwrap_or_default();
-        if self.agents.as_ref().and_then(|a| a.get(&agent)).is_none() {
-            return ToolOutput::error(format!("there is no agent called {agent}"));
-        }
-        if team.running().len() >= MAX_PARALLEL_AGENTS {
+        let mut args = serde_json::from_str::<serde_json::Value>(&call.args).unwrap_or_default();
+        let asked = args["agent"].as_str().unwrap_or_default().to_owned();
+        let running = team.running();
+        if running.len() >= MAX_PARALLEL_AGENTS {
             return ToolOutput::error(format!(
                 "{MAX_PARALLEL_AGENTS} workers are already running; call wait_for_team until one reports"
             ));
         }
+        let busy = |name: &str| running.iter().any(|(_, a)| a == name);
+        // A role runs as one of its copies, each with its own memory; any
+        // other agent (one a skill names) runs as before.
+        let agent = if let Some((role, copy)) = crate::agents::role_and_copy(&asked) {
+            let free = match copy {
+                Some(c) => Some(c).filter(|&c| !busy(&crate::agents::copy_name(role, c))),
+                None => (1..=crate::agents::MAX_ROLE_COPIES)
+                    .find(|&c| !busy(&crate::agents::copy_name(role, c))),
+            };
+            let Some(c) = free else {
+                return ToolOutput::error(format!(
+                    "{asked} is busy; call wait_for_team until it reports, or give the task to another copy or role"
+                ));
+            };
+            let name = crate::agents::copy_name(role, c);
+            args["agent"] = name.clone().into();
+            args["role"] = role.into();
+            name
+        } else if self.agents.as_ref().and_then(|a| a.get(&asked)).is_some() {
+            asked
+        } else {
+            return ToolOutput::error(format!("there is no agent called {asked}"));
+        };
         let id = call.call_id.clone();
-        let (call, events, cancel) = (call.clone(), events.clone(), team.cancel.clone());
+        let call = PendingCall {
+            args: args.to_string(),
+            ..call.clone()
+        };
+        let (events, cancel) = (events.clone(), team.cancel.clone());
         let name = agent.clone();
         team.start(
             id.clone(),
@@ -1527,7 +1561,13 @@ impl Orchestrator {
         let (Some(agent), Some(prompt)) = (field("agent"), field("prompt")) else {
             return ToolOutput::error("dispatch_agent needs \"agent\" and \"prompt\"");
         };
-        let Some(def) = self.agents.as_ref().and_then(|a| a.get(agent)).cloned() else {
+        // A team role's copy: `agent` names the copy, `role` its instructions.
+        let role = field("role");
+        let def = match role {
+            Some(role) => crate::agents::role(role),
+            None => self.agents.as_ref().and_then(|a| a.get(agent)).cloned(),
+        };
+        let Some(def) = def else {
             return ToolOutput::error(format!("there is no agent called {agent}"));
         };
         let chat = match self.with_store(|s| Ok(s.get_conversation(conv)?)) {
@@ -1607,11 +1647,21 @@ impl Orchestrator {
             (max_output, budget)
         };
         let (mut max_output, mut budget) = limits(&target);
-        let mut messages = vec![RenderedMessage {
+        // A role's copy goes on from its earlier tasks in this run.
+        let mut messages = match role {
+            Some(_) => self
+                .memories
+                .lock()
+                .ok()
+                .and_then(|mut m| m.remove(&(conv, agent.to_owned())))
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+        messages.push(RenderedMessage {
             source_id: MsgId::new(),
             role: Role::User,
             parts: vec![Part::text(prompt)],
-        }];
+        });
         let mut reconnects = 0;
 
         for _ in 0..MAX_AGENT_ROUNDS {
@@ -1809,6 +1859,16 @@ impl Orchestrator {
                 } else {
                     text
                 };
+                // Kept only after a clean finish, which leaves no call without its
+                // result. Signed reasoning is dropped: the next task may run on another model.
+                if role.is_some() {
+                    for m in &mut messages {
+                        m.parts.retain(|p| !matches!(p, Part::Opaque(_)));
+                    }
+                    if let Ok(mut m) = self.memories.lock() {
+                        m.insert((conv, agent.to_owned()), messages);
+                    }
+                }
                 // The coordinator should know another model finished the work.
                 return ToolOutput::ok(if target == first {
                     report

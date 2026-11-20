@@ -1478,3 +1478,82 @@ async fn team_only_tools_reach_the_lead_and_workers_and_never_a_plain_chat() {
     let last = to_model(&h, "fake-1").pop().unwrap();
     assert!(!has(&last), "a plain turn is not offered them");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_team_role_remembers_its_earlier_task_in_the_run() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    let worker = |s| h.backend.script_for("fake-2", s);
+    lead(dispatch("d1", "implementer"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(dispatch("d2", "implementer"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    worker(Scripted::Text(vec!["built the parser".to_owned()]));
+    worker(Scripted::Text(vec!["fixed the parser".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let (lead, worker) = (to_model(&h, "fake-1"), to_model(&h, "fake-2"));
+    let dispatch_spec = lead[0]
+        .tools
+        .iter()
+        .find(|t| t.name == "dispatch_agent")
+        .unwrap();
+    assert!(
+        dispatch_spec.description.contains("docs-writer"),
+        "the lead is offered the roles"
+    );
+    assert!(
+        worker[0]
+            .view
+            .system
+            .as_deref()
+            .unwrap()
+            .starts_with("You are one of the team's implementers"),
+        "the role's own instructions"
+    );
+    assert_eq!(
+        worker[1].view.messages.len(),
+        3,
+        "its first task, its report, the new task"
+    );
+    assert!(
+        heard(&worker[1], "built the parser"),
+        "it remembers its work"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_role_runs_as_two_copies_at_most() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    let worker = |s| h.backend.script_for("fake-2", s);
+    let three = (1..=3)
+        .map(|i| {
+            (
+                format!("d{i}"),
+                "dispatch_agent".to_owned(),
+                serde_json::json!({"agent": "implementer", "prompt": "do it"}).to_string(),
+            )
+        })
+        .collect();
+    lead(Scripted::CallsTools(three));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    worker(Scripted::Text(vec!["one".to_owned()]));
+    worker(Scripted::Text(vec!["two".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let lead = to_model(&h, "fake-1");
+    assert!(heard(&lead[1], "Started implementer (d1)"));
+    assert!(heard(&lead[1], "Started implementer-2 (d2)"));
+    assert!(heard(&lead[1], "implementer is busy"), "no third copy");
+    assert_eq!(to_model(&h, "fake-2").len(), 2);
+}
