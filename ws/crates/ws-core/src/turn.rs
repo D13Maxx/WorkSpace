@@ -1677,9 +1677,9 @@ impl Orchestrator {
         let me = format!("{agent} ({})", call.call_id);
         let mut seen = 0;
         let mut system = format!("{}\n\n{AGENT_NOTE}", def.body.trim());
-        // A worker starts with only its brief: the project outline saves it
-        // exploring folder by folder.
-        if let Some(context) = self.tools.as_ref().and_then(|t| t.context()) {
+        // A worker starts with only its brief: the outline of where it works
+        // (its copy, if it has one) saves it exploring folder by folder.
+        if let Some(context) = scope.or(self.tools.as_ref()).and_then(|t| t.context()) {
             system.push_str("\n\n");
             system.push_str(&context);
         }

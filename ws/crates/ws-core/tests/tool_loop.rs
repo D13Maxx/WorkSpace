@@ -20,6 +20,8 @@ struct FakeTools {
     copy: Mutex<Option<Arc<FakeTools>>>,
     /// The messages helpers' work was sealed with.
     sealed: Arc<Mutex<Vec<String>>>,
+    /// Told apart in the outline: a copy says where it is.
+    place: &'static str,
 }
 
 #[async_trait::async_trait]
@@ -37,7 +39,7 @@ impl ToolHost for FakeTools {
         name == "write_file"
     }
     fn context(&self) -> Option<String> {
-        Some("OUTLINE: src/main.rs: fn main".to_owned())
+        Some(format!("OUTLINE{}: src/main.rs: fn main", self.place))
     }
     async fn call(&self, name: &str, args: serde_json::Value) -> ToolOutput {
         self.calls.lock().unwrap().push((name.to_owned(), args));
@@ -1563,7 +1565,10 @@ async fn a_team_run_shares_one_copy_and_saves_it_once_at_the_end() {
     let h = harness_with(Vec::new(), worker_agents());
     h.orch
         .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
-    let copy = Arc::new(FakeTools::default());
+    let copy = Arc::new(FakeTools {
+        place: " of the copy",
+        ..FakeTools::default()
+    });
     h.tools.copy.lock().unwrap().replace(copy.clone());
     let lead = |s| h.backend.script_for("fake-1", s);
     let worker = |s| h.backend.script_for("fake-2", s);
@@ -1610,6 +1615,16 @@ async fn a_team_run_shares_one_copy_and_saves_it_once_at_the_end() {
         })
         .collect();
     assert_eq!(branches, ["ws/team-d1", "ws/team-d1"], "one copy for both");
+    for w in to_model(&h, "fake-2") {
+        assert!(
+            w.view
+                .system
+                .as_deref()
+                .unwrap()
+                .contains("OUTLINE of the copy"),
+            "a worker is shown where it works, not the project"
+        );
+    }
     let lead = to_model(&h, "fake-1");
     assert!(heard(lead.last().unwrap(), "the team's shared copy"));
 }

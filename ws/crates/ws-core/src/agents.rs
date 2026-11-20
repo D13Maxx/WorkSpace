@@ -230,7 +230,7 @@ const ROLES: [(&str, &str, &str); 6] = [
 ];
 
 /// What every role is told about working in the team.
-const ROLE_NOTE: &str = "You work in a team led by a coordinator, beside other workers. Post with post_message what you are changing if it touches shared code, and act on messages you receive. If you are stuck or a decision is not yours to make, ask the lead with post_message (to: lead) and go on with what you can meanwhile. All workers in this run share one copy of the project, so you see one another's changes as you make them. You keep your memory for this run: when the lead gives you another task, your earlier work is above it. Finish with a short report: what you did, what you checked, and anything left open.";
+const ROLE_NOTE: &str = "You work in a team led by a coordinator, beside other workers. Post with post_message what you are changing if it touches shared code, and act on messages you receive. If you are stuck or a decision is not yours to make, ask the lead with post_message (to: lead) and go on with what you can meanwhile. All workers in this run share one copy of the project, so you see one another's changes as you make them. Work only in your own folder, the one your outline names: run commands there, without cd to another path, even one the lead's brief mentions. You keep your memory for this run: when the lead gives you another task, your earlier work is above it. Finish with a short report: what you did, what you checked, and anything left open.";
 
 /// At most this many copies of one role work at once.
 pub const MAX_ROLE_COPIES: usize = 2;
