@@ -25,6 +25,7 @@ ws-secrets.workspace = true
 ws-providers.workspace = true
 ws-engine.workspace = true
 ws-mcp.workspace = true
+ws-codemode.workspace = true
 ws-tools.workspace = true
 async-trait.workspace = true
 tauri = { version = "2.11", features = ["tray-icon"] }

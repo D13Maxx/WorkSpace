@@ -6759,6 +6759,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ulid",
+ "ws-codemode",
  "ws-context",
  "ws-core",
  "ws-engine",

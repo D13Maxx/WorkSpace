@@ -70,17 +70,30 @@ workflow guide, and the lead and every worker it starts after that can use it.
 REA inspects native binaries (pseudocode, assembly, strings, calls), Electron
 and JavaScript apps, .NET assemblies, Android APKs, websites, firmware and
 packaged apps, and returns the evidence behind each finding. It has 263 tools,
-too many to hand a model at once, so a team gets three: `rea_find_tools` finds
-one by what it does, `rea_call` runs it, and `rea_guide` reads REA's guides.
-Plain chats never see any of it.
+about 90,000 tokens of descriptions, too many to hand a model at once. So
+teams use it in **Code Mode**: the model writes a short JavaScript function
+instead of picking from a tool list.
+
+- `rea_search` runs a function over REA's catalog of tools, so the model finds
+  the few it needs without the whole list entering its context.
+- `rea_execute` runs a function that calls REA (`await rea(tool, args)`): it
+  can chain calls, loop over results and run several at once, and returns only
+  what the model asked for. Two inspections that answer with 47,000 characters
+  of evidence can come back as a two-line summary.
+- `rea_call` makes one plain call, for a model whose scripts keep failing, and
+  `rea_guide` reads REA's guides.
+
+Scripts run inside Workspace in a sandbox (QuickJS) that has no file system,
+network or process access: all a script can do is call REA. Memory, running
+time and the number of calls are capped. Plain chats never see any of it.
 
 - **Needs** Node.js 22.23.4+, 24.22.1+ or 26.12.1+. If yours is older, the
   lead says so in the chat. Static JavaScript, .NET and APK manifest work
   needs nothing else; decompiling native binaries needs Ghidra, IDA or
   Hopper installed, and Android classes need JADX.
-- **Asks first.** Every `rea_call` asks for approval, since runtime capture
-  runs or interacts with the target; **Allow all for this reply** saves
-  clicking through a long investigation.
+- **Asks first.** Each `rea_execute` script asks once, showing the script, and
+  allowing it allows every REA call it makes; each `rea_call` asks too. Runtime
+  capture runs or interacts with the target, so read what a script does.
 - **Your responsibility.** REA is for software you own or are authorised to
   examine, and for lawful research and interoperability.
 
