@@ -9,7 +9,7 @@ use ws_core::{Orchestrator, Profile, ProfileTable};
 use ws_engine::{LocalBackend, backend::LOCAL_BACKEND_ID};
 use ws_mcp::{CodeMode, McpConfig, McpTools, ServerStatus};
 use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
-use ws_store::{BlobStore, Store};
+use ws_store::Store;
 
 /// Ids for the three built-in adapters. Each is also the account name its API
 /// key is stored under in the OS credential store.
@@ -134,7 +134,8 @@ impl AppState {
         let dir = app.path().app_data_dir()?;
         std::fs::create_dir_all(&dir)?;
 
-        let store = Store::open(dir.join("ws.db"))?;
+        // Encrypted unless the user turned it off; converted here if that changed.
+        let (store, blobs) = ws_store::open_data(&dir)?;
 
         // A reply interrupted by a crash becomes a Failed
         // message keeping its partial text. Run before anything can write.
@@ -147,7 +148,7 @@ impl AppState {
         }
 
         let store = Arc::new(Mutex::new(store));
-        let blobs = Arc::new(BlobStore::new(dir.join("blobs"))?);
+        let blobs = Arc::new(blobs);
         let profiles = Arc::new(ProfileTable::new());
         load_profiles(&store, &profiles);
 

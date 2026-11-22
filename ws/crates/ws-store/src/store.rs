@@ -133,6 +133,17 @@ impl Store {
         Self::configure(conn)
     }
 
+    /// Open the SQLCipher database at `path` with `key`, creating it
+    /// encrypted if it does not exist.
+    ///
+    /// # Errors
+    /// The key is wrong, the file is not encrypted with it, or as [`Store::open`].
+    pub fn open_encrypted(path: impl AsRef<Path>, key: &crate::DataKey) -> Result<Self> {
+        let conn = Connection::open(path)?;
+        conn.execute_batch(&format!("PRAGMA key = {};", key.sql()))?;
+        Self::configure(conn)
+    }
+
     /// An in-memory database, for tests.
     ///
     /// # Errors

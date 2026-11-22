@@ -28,7 +28,7 @@ use ws_core::{
     Agents, Orchestrator, PLAN_FILE, Profile, ProfileTable, ToolSet, TurnEvent, coordinator_message,
 };
 use ws_providers::{AnthropicBackend, CompatBackend, CompatConfig, GeminiBackend, OpenAiBackend};
-use ws_store::{BlobStore, Store};
+use ws_store::Store;
 
 /// The desktop app's data folder, so keys, providers and profiles are shared.
 fn default_data_dir() -> std::path::PathBuf {
@@ -230,8 +230,9 @@ async fn main() -> Result<()> {
     }
 
     std::fs::create_dir_all(&cli.data_dir)?;
-    let store = Store::open(cli.data_dir.join("ws.db"))?;
-    let blobs = Arc::new(BlobStore::new(cli.data_dir.join("blobs"))?);
+    // The app's chats, encrypted as its setting says.
+    let (store, blobs) = ws_store::open_data(&cli.data_dir)?;
+    let blobs = Arc::new(blobs);
     let profiles = Arc::new(ProfileTable::new());
     load_profiles(&store, &profiles);
     let configs = compat_configs(&store);
@@ -390,6 +391,7 @@ mod tests {
 
     use super::*;
     use ws_core::testing::{FakeBackend, Scripted};
+    use ws_store::BlobStore;
 
     fn args(list: &[&str]) -> impl Iterator<Item = String> {
         list.iter()

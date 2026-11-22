@@ -101,6 +101,15 @@ settings and your parts inventory live in the app data folder:
 - Windows: `%APPDATA%\dev.debargha.friday`
 - Linux: `~/.local/share/dev.debargha.friday`
 
+Chats, images and attachments there are encrypted, with a random key kept in
+the same credential store. That protects copies and backups of the folder and
+other users of the computer, not someone signed in as you. **Settings → Chat
+encryption** turns it off, or on again, at the next start. Without a credential
+store, as on a headless Linux box, chats stay unencrypted.
+
+Nothing leaves the computer except what you send to a model's provider and to
+tool servers you connect; with a local model, nothing does.
+
 ## Build from source
 
 See [DEVELOPING.md](DEVELOPING.md) for building, testing, releasing and

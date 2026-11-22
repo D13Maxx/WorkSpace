@@ -101,6 +101,13 @@ export interface Thread {
 }
 
 /** Routine calls that run without asking. */
+export interface ChatEncryption {
+  /** What the user chose; applies at the next start. */
+  wanted: boolean;
+  /** Whether chats are encrypted now. */
+  on: boolean;
+}
+
 export interface ApprovalRules {
   /** Edits inside the project folder; each can be undone. */
   edits: boolean;
@@ -409,6 +416,11 @@ export const api = {
   workerModel: () => invoke<ModelChoice | null>("worker_model"),
 
   setWorkerModel: (model: ModelChoice | null) => invoke<void>("set_worker_model", { model }),
+
+  chatEncryption: () => invoke<ChatEncryption>("chat_encryption"),
+
+  /** Takes effect at the next start. */
+  setChatEncryption: (encrypt: boolean) => invoke<void>("set_chat_encryption", { encrypt }),
 
   listBackends: () => invoke<BackendInfo[]>("list_backends"),
 

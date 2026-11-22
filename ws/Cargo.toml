@@ -38,7 +38,11 @@ futures-util = "0.3.34"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-util = "0.7.19"
 tokio-stream = "0.1.17"
-rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
+# SQLCipher, so chats can be encrypted on disk. Its OpenSSL is built from
+# source: on Windows that needs Strawberry Perl (GitHub's runners have it).
+rusqlite = { version = "0.40.2", features = ["bundled-sqlcipher-vendored-openssl", "chrono"] }
+# Seals blobs (images, attachments, file snapshots) with the same key.
+chacha20poly1305 = "0.10.1"
 keyring = "4.2.0"
 # reqwest 0.13 renamed the rustls feature from "rustls-tls" to "rustls".
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "stream", "http2", "charset"] }
@@ -97,6 +101,9 @@ ws-tools = { path = "crates/ws-tools" }
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
+# SQLCipher's vendored OpenSSL ships no debug symbols, so MSVC's linker says
+# so (LNK4099) for every test binary; that is not a problem in our code.
+linker_messages = "allow"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"

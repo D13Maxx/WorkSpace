@@ -30,6 +30,9 @@ pub enum StoreError {
 
     #[error("blob {expected} does not match its contents (got {actual})")]
     BlobCorrupt { expected: String, actual: String },
+
+    #[error("chat encryption: {0}")]
+    Encryption(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;

@@ -5,7 +5,12 @@ Building, testing and releasing the app, and how the code is laid out.
 ## Build from source
 
 Rust stable (1.85+) and Node 20+. On Windows, Visual Studio Build Tools with the
-C++ workload and the WebView2 runtime (already on Windows 11). On Linux:
+C++ workload, the WebView2 runtime (already on Windows 11), and
+[Strawberry Perl](https://strawberryperl.com)
+(`winget install StrawberryPerl.StrawberryPerl`): the chat database is
+SQLCipher, whose OpenSSL is built from source, and Git's own Perl cannot build
+it. If another Perl comes first on `PATH`, set
+`PERL=C:\Strawberry\perl\bin\perl.exe`. On Linux:
 
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf

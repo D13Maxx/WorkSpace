@@ -93,6 +93,8 @@ pub fn run() {
             commands::set_api_key,
             commands::has_api_key,
             commands::delete_api_key,
+            commands::chat_encryption,
+            commands::set_chat_encryption,
             commands::get_context_view,
             commands::siblings_of,
             commands::select_branch,

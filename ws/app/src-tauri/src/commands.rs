@@ -818,21 +818,55 @@ pub fn set_model_profile(
 // The UI can set, replace, delete and check for a key, but
 // there is deliberately no command to read one back.
 
+/// The chats' encryption key sits beside the API keys: the UI may not touch it.
+fn api_account(backend: &str) -> CmdResult<&str> {
+    if backend == ws_store::encryption::KEY_ACCOUNT {
+        return Err(err("that name is reserved for the chats' encryption key"));
+    }
+    Ok(backend)
+}
+
 #[tauri::command]
 pub fn set_api_key(backend: String, key: String) -> CmdResult<()> {
     SecretStore::new()
-        .set_key(&backend, &Secret::new(key))
+        .set_key(api_account(&backend)?, &Secret::new(key))
         .map_err(err)
 }
 
 #[tauri::command]
 pub fn has_api_key(backend: String) -> CmdResult<bool> {
-    SecretStore::new().has_key(&backend).map_err(err)
+    SecretStore::new()
+        .has_key(api_account(&backend)?)
+        .map_err(err)
 }
 
 #[tauri::command]
 pub fn delete_api_key(backend: String) -> CmdResult<()> {
-    SecretStore::new().delete_key(&backend).map_err(err)
+    SecretStore::new()
+        .delete_key(api_account(&backend)?)
+        .map_err(err)
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatEncryption {
+    /// What the user chose; takes effect at the next start.
+    pub wanted: bool,
+    /// Whether the chats are encrypted now.
+    pub on: bool,
+}
+
+#[tauri::command]
+pub fn chat_encryption(state: State<'_, AppState>) -> CmdResult<ChatEncryption> {
+    let state_now = ws_store::encryption::file_state(&state.data_dir.join("ws.db")).map_err(err)?;
+    Ok(ChatEncryption {
+        wanted: ws_store::encryption::wanted(&state.data_dir),
+        on: state_now == ws_store::encryption::FileState::Encrypted,
+    })
+}
+
+#[tauri::command]
+pub fn set_chat_encryption(state: State<'_, AppState>, encrypt: bool) -> CmdResult<()> {
+    ws_store::encryption::set_wanted(&state.data_dir, encrypt).map_err(err)
 }
 
 // ---- the local engine -------------------------

@@ -15,6 +15,10 @@ if (Get-Process Workspace, FRIDAY -ErrorAction SilentlyContinue) {
     throw 'Workspace is running. Close it, then run this again.'
 }
 
+# SQLCipher's OpenSSL builds only with a native Perl, not Git's.
+$strawberry = 'C:\Strawberry\perl\bin\perl.exe'
+if (-not $env:PERL -and (Test-Path $strawberry)) { $env:PERL = $strawberry }
+
 Write-Host 'Building a release copy (several minutes the first time)...'
 Push-Location $app
 try {

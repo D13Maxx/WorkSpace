@@ -3,6 +3,7 @@ import {
   api,
   ask,
   type ApprovalRules,
+  type ChatEncryption,
   type BackendInfo,
   type CompatProvider,
   type ModelChoice,
@@ -295,6 +296,46 @@ function ApprovalRulesSection() {
         placeholder={"cargo test\nnpm test"}
         aria-label="Commands that run without asking"
       />
+      {error && <p className="failure">{error}</p>}
+    </section>
+  );
+}
+
+/** Whether chats are encrypted on this computer; a change applies at the next start. */
+function EncryptionSection() {
+  const [state, setState] = useState<ChatEncryption | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .chatEncryption()
+      .then(setState)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const save = (encrypt: boolean) => {
+    if (!state) return;
+    setState({ ...state, wanted: encrypt });
+    api.setChatEncryption(encrypt).then(() => setError(null), (e) => setError(String(e)));
+  };
+  if (!state) return error ? <p className="failure">{error}</p> : null;
+
+  return (
+    <section>
+      <h3>Chat encryption</h3>
+      <p className="muted">
+        Chats, images and attachments are encrypted on disk, with a key kept in Windows
+        Credential Manager beside your API keys. Anyone signed in to this Windows account can
+        still open Workspace and read them. Chats are {state.on ? "encrypted" : "not encrypted"}{" "}
+        now.
+      </p>
+      <label className="row">
+        <input type="checkbox" checked={state.wanted} onChange={(e) => save(e.target.checked)} />
+        Encrypt chats on this computer
+      </label>
+      {state.wanted !== state.on && (
+        <p className="muted">Restart Workspace to {state.wanted ? "encrypt" : "decrypt"} your chats.</p>
+      )}
       {error && <p className="failure">{error}</p>}
     </section>
   );
@@ -650,6 +691,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
       <ApprovalRulesSection />
+      <EncryptionSection />
       <WorkerModelSection models={models} />
       <FallbackSection models={models} />
       <CompatSection onChanged={refreshBackends} />
