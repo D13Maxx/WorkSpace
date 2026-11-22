@@ -241,7 +241,7 @@ impl Search {
         if !cfg!(windows) {
             return Self { path: own };
         }
-        let read = tokio::process::Command::new("powershell")
+        let read = no_window(Path::new("powershell"))
             .args([
                 "-NoProfile",
                 "-Command",
@@ -291,7 +291,7 @@ impl Search {
     }
 
     fn command(&self, program: &Path) -> tokio::process::Command {
-        let mut cmd = tokio::process::Command::new(program);
+        let mut cmd = no_window(program);
         cmd.env("PATH", &self.path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -349,6 +349,16 @@ impl Search {
             }
         }
     }
+}
+
+/// A command that opens no console window of its own, which a GUI app's
+/// children otherwise each flash up on Windows.
+fn no_window(program: &Path) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000);
+    cmd
 }
 
 /// Folders tools install into without always adding them to PATH.
