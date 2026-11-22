@@ -50,6 +50,13 @@ pub fn run() {
         // First, so a second launch hands over to this one and exits before
         // it opens the database.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // Setup ran while Workspace was open: show its chooser here instead.
+            if argv.iter().any(|a| a == packs::CHOOSE_FLAG) {
+                if let Err(e) = packs::open_chooser(app, false) {
+                    tracing::warn!("could not open the language chooser: {e}");
+                }
+                return;
+            }
             // Also brings it back from the tray.
             tray::show_main(app);
             blueprint::open_from_args(app, &argv, &cwd);
@@ -59,8 +66,12 @@ pub fn run() {
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
         // closing it closes Workspace. It asks first about unsaved blueprints.
         .on_window_event(|window, event| {
-            // The installer's chooser is the whole app in that run: closing it quits.
-            let closes_app = matches!(window.label(), "main" | "languages");
+            // The installer's chooser quits too when it was all that run showed.
+            let closes_app = match window.label() {
+                "main" => true,
+                "languages" => packs::chooser_only(),
+                _ => false,
+            };
             if closes_app && matches!(event, tauri::WindowEvent::Destroyed) {
                 tray::quit_now(window.app_handle());
             }
@@ -72,7 +83,7 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             // The main window starts hidden, so the installer's run never flashes it.
             if args.iter().any(|a| a == packs::CHOOSE_FLAG) {
-                packs::open_chooser(app.handle())?;
+                packs::open_chooser(app.handle(), true)?;
                 return Ok(());
             }
             tray::show_main(app.handle());

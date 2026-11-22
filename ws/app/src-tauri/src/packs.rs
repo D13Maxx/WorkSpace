@@ -8,9 +8,10 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter as _};
+use tauri::{AppHandle, Emitter as _, Manager as _};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
 /// The flag the installer starts Workspace with to show only the chooser.
@@ -522,8 +523,23 @@ pub async fn install_language_pack(app: AppHandle, id: String) -> Result<(), Str
     Ok(())
 }
 
-/// The window the installer opens: only the chooser, and closing it quits.
-pub fn open_chooser(app: &AppHandle) -> tauri::Result<()> {
+/// Set when this run of Workspace is only the installer's chooser.
+static CHOOSER_ONLY: AtomicBool = AtomicBool::new(false);
+
+/// Whether closing the chooser should quit: it was all this run showed.
+pub fn chooser_only() -> bool {
+    CHOOSER_ONLY.load(Ordering::Relaxed)
+}
+
+/// The window the installer opens. `alone` when this run is only the
+/// chooser; otherwise setup found Workspace open and it shows there too.
+pub fn open_chooser(app: &AppHandle, alone: bool) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("languages") {
+        return window.set_focus();
+    }
+    if alone {
+        CHOOSER_ONLY.store(true, Ordering::Relaxed);
+    }
     tauri::WebviewWindowBuilder::new(
         app,
         "languages",
