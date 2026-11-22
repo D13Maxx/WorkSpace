@@ -101,6 +101,12 @@ export interface Thread {
 }
 
 /** Routine calls that run without asking. */
+export interface LanguagePacks {
+  packs: { id: string; name: string; about: string; parts: { name: string; present: boolean }[] }[];
+  /** Whether Workspace can install them here (winget, on Windows). */
+  can_install: boolean;
+}
+
 export interface ChatEncryption {
   /** What the user chose; applies at the next start. */
   wanted: boolean;
@@ -418,6 +424,11 @@ export const api = {
   setWorkerModel: (model: ModelChoice | null) => invoke<void>("set_worker_model", { model }),
 
   chatEncryption: () => invoke<ChatEncryption>("chat_encryption"),
+
+  languagePacks: () => invoke<LanguagePacks>("language_packs"),
+
+  /** Installs the pack's missing parts; progress arrives as language-pack-progress events. */
+  installLanguagePack: (id: string) => invoke<void>("install_language_pack", { id }),
 
   /** Takes effect at the next start. */
   setChatEncryption: (encrypt: boolean) => invoke<void>("set_chat_encryption", { encrypt }),

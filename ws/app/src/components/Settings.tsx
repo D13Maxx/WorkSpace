@@ -13,6 +13,7 @@ import {
   type ModelProfile,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
+import { Languages } from "./Languages";
 import { setVimEnabled, vimEnabled } from "../vim";
 
 interface Props {
@@ -690,6 +691,10 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />
       <ProfileSection models={models} onSaved={onModelsChanged} />
+      <section>
+        <h3>Languages</h3>
+        <Languages />
+      </section>
       <ApprovalRulesSection />
       <EncryptionSection />
       <WorkerModelSection models={models} />

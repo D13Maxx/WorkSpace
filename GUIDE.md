@@ -137,15 +137,30 @@ terminal, so programs can ask for input.
 | `.rs` | `cargo run` inside a Cargo project, otherwise `rustc` then the program |
 | `.tex` | `tectonic`, or `pdflatex` twice; the PDF is written beside it |
 
-Workspace ships no compilers; it uses whatever is on PATH. For C/C++ and LaTeX
-on Windows:
+Workspace ships no compilers; it uses whatever is on PATH.
 
-```powershell
-winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT
-winget install -e --id MiKTeX.MiKTeX
-```
+### Language packs
 
-On Linux:
+On Windows, Workspace installs what each language needs with winget. The
+installer asks which languages you want once Workspace is installed, and
+**Settings → Languages** adds more later or retries one that failed. Each pack
+shows what is already on your computer and installs only what is missing.
+
+| Pack | Installs |
+| --- | --- |
+| Core | Git (agent teams' copies, the Changes panel), Node.js LTS (Reverse Engineer Anything, knowledge graphs, running `.js`) |
+| Python | Python 3.14, debugpy, Pyright |
+| JavaScript and TypeScript | TypeScript and its language server (npm) |
+| C and C++ | WinLibs (GCC and GDB), LLVM (clangd) |
+| Rust | Microsoft's C++ build tools, rustup, rust-analyzer, LLVM (lldb-dap) |
+| Go | Go, gopls |
+| LaTeX | MiKTeX |
+
+Some of these ask for admin rights, and Microsoft's C++ build tools are a
+download of several gigabytes. Restart Workspace afterwards so it finds the new
+tools. Silent installs and updates skip the question.
+
+On Linux, install them with your package manager, for example:
 
 ```bash
 sudo apt install build-essential texlive-latex-base

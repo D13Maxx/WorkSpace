@@ -2720,3 +2720,54 @@ body.resizing-v {
   flex-basis: 100%;
   margin: 0;
 }
+
+/* ---- language packs (Settings, and the installer's chooser) ---- */
+
+.languages-window {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 22px 20px;
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.languages-window h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+.language-pack {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 11px;
+  margin-top: 9px;
+}
+.language-pack p {
+  margin: 4px 0 0;
+}
+.language-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.language-head input {
+  width: auto;
+  margin: 0;
+}
+.language-name {
+  font-weight: 600;
+  flex: 1;
+}
+.language-parts {
+  list-style: none;
+  padding: 0;
+  margin: 5px 0 0;
+  font-size: 12px;
+}
+.language-line {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

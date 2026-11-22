@@ -6,6 +6,7 @@
 
 use serde::Serialize;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -14,6 +15,40 @@ use std::sync::{LazyLock, Mutex};
 
 /// The last of a program's stderr kept, to say why it stopped.
 const STDERR_TAIL: usize = 4_000;
+
+/// gdb's debug adapter answers reliably from 15 on; 14's times out on launch.
+const GDB_MIN: u32 = 15;
+
+/// The major version from `gdb --version`, whose first line ends with it:
+/// "GNU gdb (GDB for MinGW-W64 x86_64, built by Brecht Sanders, r8) 14.2".
+fn gdb_major(version: &str) -> Option<u32> {
+    let last = version.lines().next()?.split_whitespace().last()?;
+    last.split(['.', '-']).next()?.parse().ok()
+}
+
+/// The newest gdb on `path` that can debug, or `None`. Other software
+/// (Strawberry Perl, an old MinGW) often puts an older gdb first on PATH.
+pub fn newest_gdb(path: &OsStr) -> Option<PathBuf> {
+    ws_tools::find_all("gdb", path)
+        .into_iter()
+        .filter_map(|gdb| {
+            let mut cmd = Command::new(&gdb);
+            cmd.arg("--version").stdin(Stdio::null());
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+            let out = cmd.output().ok()?;
+            let major = gdb_major(&String::from_utf8_lossy(&out.stdout))?;
+            (major >= GDB_MIN).then_some((major, gdb))
+        })
+        // Reversed so that of equal versions the first on PATH wins.
+        .rev()
+        .max_by_key(|(major, _)| *major)
+        .map(|(_, gdb)| gdb)
+}
+
+fn gdb_on_path() -> Option<PathBuf> {
+    newest_gdb(&std::env::var_os("PATH")?)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -289,8 +324,8 @@ pub fn debugger(file: &Path) -> Result<Debug, String> {
             };
             let cc =
                 ws_tools::find(compilers).ok_or("no C/C++ compiler is installed (gcc or clang)")?;
-            let gdb = ws_tools::find(&["gdb"]).ok_or(
-                "debugging C and C++ needs gdb 14 or newer; install it (MinGW's gdb works)",
+            let gdb = gdb_on_path().ok_or(
+                "debugging C and C++ needs gdb 15 or newer; install the C and C++ language pack in Settings",
             )?;
             let exe = file.with_extension(std::env::consts::EXE_EXTENSION);
             build(
@@ -431,6 +466,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gdb_versions_are_read_from_the_end_of_the_first_line() {
+        let mingw =
+            "GNU gdb (GDB for MinGW-W64 x86_64, built by Brecht Sanders, r8) 14.2\nCopyright";
+        assert_eq!(gdb_major(mingw), Some(14));
+        assert_eq!(
+            gdb_major("GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git"),
+            Some(15)
+        );
+        assert_eq!(gdb_major("GNU gdb (Fedora Linux) 14.2-1.fc40"), Some(14));
+        assert_eq!(gdb_major("not gdb"), None);
+        assert_eq!(gdb_major(""), None);
+    }
+
+    #[test]
     fn frames_round_trip_and_extra_headers_are_ignored() {
         let mut buf = Vec::new();
         write_frame(&mut buf, r#"{"id":1}"#).unwrap();
@@ -500,7 +549,7 @@ sys.stderr.write('bye'); sys.exit(3)
 
     #[test]
     fn a_c_file_is_built_with_debug_information_for_gdb() {
-        if ws_tools::find(&["gcc"]).is_none() || ws_tools::find(&["gdb"]).is_none() {
+        if ws_tools::find(&["gcc"]).is_none() || gdb_on_path().is_none() {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -517,7 +566,7 @@ sys.stderr.write('bye'); sys.exit(3)
 
     #[test]
     fn gdb_stops_at_a_breakpoint_and_reports_the_frame() {
-        if ws_tools::find(&["gcc"]).is_none() || ws_tools::find(&["gdb"]).is_none() {
+        if ws_tools::find(&["gcc"]).is_none() || gdb_on_path().is_none() {
             return;
         }
         let dir = tempfile::tempdir().unwrap();

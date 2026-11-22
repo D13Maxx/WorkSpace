@@ -14,6 +14,7 @@ mod commands;
 mod graph;
 mod graph_builder;
 mod launch;
+mod packs;
 mod rea;
 mod run;
 mod sandbox;
@@ -58,7 +59,9 @@ pub fn run() {
         // Blueprint windows belong to the main one, as Simulink's do to MATLAB:
         // closing it closes Workspace. It asks first about unsaved blueprints.
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            // The installer's chooser is the whole app in that run: closing it quits.
+            let closes_app = matches!(window.label(), "main" | "languages");
+            if closes_app && matches!(event, tauri::WindowEvent::Destroyed) {
                 tray::quit_now(window.app_handle());
             }
         })
@@ -67,6 +70,12 @@ pub fn run() {
             app.manage(state);
             let cwd = std::env::current_dir().unwrap_or_default();
             let args: Vec<String> = std::env::args().collect();
+            // The main window starts hidden, so the installer's run never flashes it.
+            if args.iter().any(|a| a == packs::CHOOSE_FLAG) {
+                packs::open_chooser(app.handle())?;
+                return Ok(());
+            }
+            tray::show_main(app.handle());
             blueprint::open_from_args(app.handle(), &args, &cwd.to_string_lossy());
             launch::hold(&args, &cwd.to_string_lossy());
             Ok(())
@@ -94,6 +103,8 @@ pub fn run() {
             commands::has_api_key,
             commands::delete_api_key,
             commands::chat_encryption,
+            packs::language_packs,
+            packs::install_language_pack,
             commands::set_chat_encryption,
             commands::get_context_view,
             commands::siblings_of,

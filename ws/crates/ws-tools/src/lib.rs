@@ -7,11 +7,19 @@ pub mod index;
 pub mod workspace;
 pub mod worktree;
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 /// The first of `names` on PATH.
 pub fn find(names: &[&str]) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    names
+        .iter()
+        .find_map(|name| find_all(name, &path).into_iter().next())
+}
+
+/// Every `name` program on `path`, in PATH order.
+pub fn find_all(name: &str, path: &OsStr) -> Vec<PathBuf> {
     let exts: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".EXE;.CMD;.BAT".to_owned())
@@ -21,11 +29,12 @@ pub fn find(names: &[&str]) -> Option<PathBuf> {
     } else {
         vec![String::new()]
     };
-    names.iter().find_map(|name| {
-        std::env::split_paths(&path).find_map(|dir| {
+    std::env::split_paths(path)
+        .flat_map(|dir| {
             exts.iter()
                 .map(|ext| dir.join(format!("{name}{ext}")))
-                .find(|p| p.is_file())
+                .collect::<Vec<_>>()
         })
-    })
+        .filter(|p| p.is_file())
+        .collect()
 }
