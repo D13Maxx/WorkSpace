@@ -48,7 +48,8 @@
     },
     "linux": {
       "deb": {
-        "depends": ["libayatana-appindicator3-1"]
+        "depends": ["libayatana-appindicator3-1", "git", "nodejs"],
+        "recommends": ["npm"]
       }
     }
   }

@@ -47,7 +47,7 @@ pub fn newest_gdb(path: &OsStr) -> Option<PathBuf> {
 }
 
 fn gdb_on_path() -> Option<PathBuf> {
-    newest_gdb(&std::env::var_os("PATH")?)
+    newest_gdb(&ws_tools::search_path()?)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -239,8 +239,22 @@ fn server_for(ext: &str) -> Option<(Candidates, &'static str)> {
 
 /// `name` on PATH, or where its usual installer puts it without adding it to
 /// PATH (LLVM's Windows installer does that by default).
+/// lldb's debug adapter: Ubuntu's LLVM packages name it after their version.
+pub const LLDB_DAP: &[&str] = &[
+    "lldb-dap",
+    "lldb-dap-21",
+    "lldb-dap-20",
+    "lldb-dap-19",
+    "lldb-dap-18",
+];
+
 fn installed(name: &str) -> Option<PathBuf> {
-    ws_tools::find(&[name]).or_else(|| {
+    let names: &[&str] = if name == "lldb-dap" {
+        LLDB_DAP
+    } else {
+        &[name]
+    };
+    ws_tools::find(names).or_else(|| {
         let program_files = std::env::var_os("ProgramFiles")?;
         let path = match name {
             "clangd" | "lldb-dap" => {
@@ -372,7 +386,7 @@ pub fn debugger(file: &Path) -> Result<Debug, String> {
         }
         "rs" => {
             let lldb = installed("lldb-dap").ok_or(
-                "debugging Rust needs lldb-dap, which comes with LLVM: winget install LLVM.LLVM",
+                "debugging Rust needs lldb-dap, which comes with LLVM: install the Rust language pack in Settings",
             )?;
             let exe = rust_build(&file, &cwd)?;
             let mut adapter = Command::new(lldb);

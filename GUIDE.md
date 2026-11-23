@@ -160,13 +160,25 @@ Some of these ask for admin rights, and Microsoft's C++ build tools are a
 download of several gigabytes. Restart Workspace afterwards so it finds the new
 tools. Silent installs and updates skip the question.
 
-On Linux, install them with your package manager, for example:
+On Ubuntu and Debian, the `.deb` brings Git and Node.js with it, and Workspace
+opens the same chooser the first time it starts. It installs with apt, asking
+for your password once per part; rustup, npm's language servers and gopls go
+into your home folder (`~/.cargo`, `~/.local`) and need no password.
 
-```bash
-sudo apt install build-essential texlive-latex-base
-```
+| Pack | Installs (Ubuntu, Debian) |
+| --- | --- |
+| Core | git, nodejs, npm |
+| Python | python3, python3-debugpy, Pyright |
+| JavaScript and TypeScript | TypeScript and its language server |
+| C and C++ | gcc, g++, gdb, clangd |
+| Rust | build-essential, rustup, rust-analyzer, lldb |
+| Go | golang-go, gopls |
+| LaTeX | TeX Live (texlive-latex-base, texlive-latex-recommended) |
 
-then restart Workspace so it sees the new PATH.
+Ubuntu 22.04's own gdb and Node.js are too old for debugging C and for the
+language servers; use Ubuntu 24.04 or newer, or install newer ones yourself. On
+other Linux systems, install the same programs with your package manager, then
+restart Workspace.
 
 ### Packages (numpy and friends)
 

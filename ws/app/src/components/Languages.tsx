@@ -67,8 +67,8 @@ export function Languages({ setup = false }: { setup?: boolean }) {
     <div className="languages">
       {!packs.can_install && (
         <p className="muted">
-          Workspace installs these with winget, on Windows. Here, install the programs listed with your
-          package manager.
+          Workspace installs these with winget on Windows and with apt on Ubuntu and Debian. Here,
+          install the programs listed with your package manager.
         </p>
       )}
       {packs.packs.map((pack) => {

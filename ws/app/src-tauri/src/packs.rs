@@ -1,6 +1,8 @@
 //! Language packs: what each language needs, whether it is on this computer,
-//! and installing what is missing with winget. Settings → Languages and the
-//! installer's chooser window (`--choose-languages`) both use these.
+//! and installing what is missing: with winget on Windows, with apt (through
+//! pkexec's password prompt) on Ubuntu and Debian. Settings → Languages and the
+//! chooser window both use these; the Windows installer opens the chooser
+//! (`--choose-languages`), and on Linux Workspace offers it at first launch.
 //!
 //! A program installed here is on the PATH that new programs get, not on the
 //! one Workspace started with: the packs re-read PATH as they go, and the
@@ -26,13 +28,14 @@ enum Probe {
     /// A component rustup lists as installed (its proxy is always on PATH).
     RustupComponent(&'static str),
     /// Microsoft's C++ build tools, which Rust's default toolchain links with.
+    #[cfg(windows)]
     MsvcTools,
     /// A gdb new enough to debug with.
     Gdb,
 }
 
-/// One install step: a program and its arguments. `winget` and `npm` and the
-/// like are found on the refreshed PATH when the step runs.
+/// One install step: a program and its arguments. `winget`, `sh` and the like
+/// are found on the refreshed PATH when the step runs.
 type Step = (&'static str, &'static [&'static str]);
 
 struct Part {
@@ -60,6 +63,7 @@ const WINGET: &[&str] = &[
     "--id",
 ];
 
+#[cfg(windows)]
 macro_rules! winget {
     ($id:literal) => {
         (
@@ -78,6 +82,10 @@ macro_rules! winget {
     };
 }
 
+/// Python, by the names it goes by; Linux has only `python3`.
+const PYTHON: &[&str] = &["python", "python3", "py"];
+
+#[cfg(windows)]
 const PACKS: &[Pack] = &[
     Pack {
         id: "core",
@@ -103,7 +111,7 @@ const PACKS: &[Pack] = &[
         parts: &[
             Part {
                 name: "Python",
-                probe: Probe::Program(&["python", "py"]),
+                probe: Probe::Program(PYTHON),
                 steps: &[winget!("Python.Python.3.14")],
             },
             Part {
@@ -192,7 +200,7 @@ const PACKS: &[Pack] = &[
             },
             Part {
                 name: "lldb-dap (LLVM debugger)",
-                probe: Probe::Program(&["lldb-dap"]),
+                probe: Probe::Program(crate::bridge::LLDB_DAP),
                 steps: &[winget!("LLVM.LLVM")],
             },
         ],
@@ -226,6 +234,171 @@ const PACKS: &[Pack] = &[
     },
 ];
 
+/// Update apt's lists and install `$pkgs` as root, after one password prompt.
+#[cfg(not(windows))]
+macro_rules! apt {
+    ($pkgs:literal) => {
+        (
+            "pkexec",
+            &[
+                "sh",
+                "-c",
+                concat!(
+                    "apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q ",
+                    $pkgs
+                ),
+            ],
+        )
+    };
+}
+
+/// npm packages for this user only, in ~/.local (its bin is searched; see
+/// `ws_tools::search_path`): a global install would need root.
+#[cfg(not(windows))]
+macro_rules! npm_user {
+    ($pkgs:literal) => {
+        (
+            "sh",
+            &[
+                "-c",
+                concat!("npm install --global --prefix \"$HOME/.local\" ", $pkgs),
+            ],
+        )
+    };
+}
+
+#[cfg(not(windows))]
+const PACKS: &[Pack] = &[
+    Pack {
+        id: "core",
+        name: "Core",
+        about: "Git for agent teams' copies and the Changes panel; Node.js for Reverse Engineer Anything, knowledge graphs and running JavaScript.",
+        parts: &[
+            Part {
+                name: "Git",
+                probe: Probe::Program(&["git"]),
+                steps: &[apt!("git")],
+            },
+            Part {
+                name: "Node.js and npm",
+                probe: Probe::Program(&["npm"]),
+                steps: &[apt!("nodejs npm")],
+            },
+        ],
+    },
+    Pack {
+        id: "python",
+        name: "Python",
+        about: "Run, debug and edit Python with a language server.",
+        parts: &[
+            Part {
+                name: "Python and debugpy",
+                probe: Probe::PythonModule("debugpy"),
+                steps: &[apt!("python3 python3-debugpy")],
+            },
+            Part {
+                name: "Pyright (language server)",
+                probe: Probe::Program(&["pyright-langserver"]),
+                steps: &[npm_user!("pyright")],
+            },
+        ],
+    },
+    Pack {
+        id: "typescript",
+        name: "JavaScript and TypeScript",
+        about: "A language server for .js and .ts files. Running them needs only Core's Node.js.",
+        parts: &[Part {
+            name: "TypeScript language server",
+            probe: Probe::Program(&["typescript-language-server"]),
+            steps: &[npm_user!("typescript typescript-language-server")],
+        }],
+    },
+    Pack {
+        id: "c",
+        name: "C and C++",
+        about: "Compile, run and debug C and C++ with GCC and GDB; clangd for the editor. Debugging needs gdb 15, which Ubuntu has from 24.04.",
+        parts: &[
+            Part {
+                name: "GCC and GDB",
+                probe: Probe::Gdb,
+                steps: &[apt!("gcc g++ gdb")],
+            },
+            Part {
+                name: "clangd",
+                probe: Probe::Program(&["clangd"]),
+                steps: &[apt!("clangd")],
+            },
+        ],
+    },
+    Pack {
+        id: "rust",
+        name: "Rust",
+        about: "Build, run and debug Rust. rustup installs it for you alone, in ~/.cargo.",
+        parts: &[
+            Part {
+                name: "C linker (build-essential)",
+                probe: Probe::Program(&["cc"]),
+                steps: &[apt!("build-essential curl")],
+            },
+            Part {
+                name: "Rust (rustup)",
+                probe: Probe::Program(&["cargo"]),
+                steps: &[(
+                    "sh",
+                    &[
+                        "-c",
+                        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+                    ],
+                )],
+            },
+            Part {
+                name: "rust-analyzer",
+                probe: Probe::RustupComponent("rust-analyzer"),
+                steps: &[("rustup", &["component", "add", "rust-analyzer"])],
+            },
+            Part {
+                name: "lldb-dap (LLVM debugger)",
+                probe: Probe::Program(crate::bridge::LLDB_DAP),
+                steps: &[apt!("lldb")],
+            },
+        ],
+    },
+    Pack {
+        id: "go",
+        name: "Go",
+        about: "Go and gopls, for editing Go files.",
+        parts: &[
+            Part {
+                name: "Go",
+                probe: Probe::Program(&["go"]),
+                steps: &[apt!("golang-go")],
+            },
+            Part {
+                name: "gopls (language server)",
+                probe: Probe::Program(&["gopls"]),
+                // Into ~/.local/bin, which Workspace searches, not ~/go/bin.
+                steps: &[(
+                    "sh",
+                    &[
+                        "-c",
+                        "GOBIN=\"$HOME/.local/bin\" go install golang.org/x/tools/gopls@latest",
+                    ],
+                )],
+            },
+        ],
+    },
+    Pack {
+        id: "latex",
+        name: "LaTeX",
+        about: "Build .tex files into PDFs with TeX Live.",
+        parts: &[Part {
+            name: "TeX Live",
+            probe: Probe::Program(&["pdflatex", "tectonic"]),
+            steps: &[apt!("texlive-latex-base texlive-latex-recommended")],
+        }],
+    },
+];
+
 /// Where to look for programs: PATH as the system has it now, then the
 /// folders installers use without always adding them to PATH.
 #[derive(Debug, Clone)]
@@ -235,11 +408,15 @@ struct Search {
 
 impl Search {
     /// PATH as it is now, read from the registry on Windows so tools installed
-    /// since Workspace started are found; the process's own elsewhere.
+    /// since Workspace started are found; elsewhere the process's own, with
+    /// the user's own bin folders.
     async fn now() -> Self {
         let own = std::env::var("PATH").unwrap_or_default();
         if !cfg!(windows) {
-            return Self { path: own };
+            let path = ws_tools::search_path().map(|p| p.to_string_lossy().into_owned());
+            return Self {
+                path: path.unwrap_or(own),
+            };
         }
         let read = no_window(Path::new("powershell"))
             .args([
@@ -311,7 +488,7 @@ impl Search {
         match probe {
             Probe::Program(names) => self.find(names).is_some(),
             Probe::Gdb => crate::bridge::newest_gdb(std::ffi::OsStr::new(&self.path)).is_some(),
-            Probe::PythonModule(module) => match self.find(&["python", "py"]) {
+            Probe::PythonModule(module) => match self.find(PYTHON) {
                 Some(python) => self
                     .quietly_succeeds(&python, &["-c", &format!("import {module}")])
                     .await
@@ -325,6 +502,7 @@ impl Search {
                     .is_some_and(|list| list.lines().any(|l| l.starts_with(component))),
                 None => false,
             },
+            #[cfg(windows)]
             Probe::MsvcTools => {
                 let Some(base) = std::env::var_os("ProgramFiles(x86)") else {
                     return false;
@@ -426,7 +604,16 @@ pub async fn language_packs() -> Packs {
     }
     Packs {
         packs,
-        can_install: cfg!(windows) && search.find(&["winget"]).is_some(),
+        can_install: can_install(&search),
+    }
+}
+
+/// winget on Windows; elsewhere apt, run as root through pkexec's prompt.
+fn can_install(search: &Search) -> bool {
+    if cfg!(windows) {
+        search.find(&["winget"]).is_some()
+    } else {
+        search.find(&["pkexec"]).is_some() && search.find(&["apt-get"]).is_some()
     }
 }
 
@@ -451,9 +638,9 @@ fn readable(raw: &str) -> Option<String> {
 /// Installing is not possible here, the pack is unknown, or a step fails.
 #[tauri::command]
 pub async fn install_language_pack(app: AppHandle, id: String) -> Result<(), String> {
-    if !cfg!(windows) {
+    if !can_install(&Search::now().await) {
         return Err(
-            "Workspace installs languages with winget, on Windows; use your package manager here"
+            "Workspace installs languages with winget on Windows and apt on Ubuntu and Debian; use your package manager here"
                 .to_owned(),
         );
     }
@@ -478,9 +665,8 @@ pub async fn install_language_pack(app: AppHandle, id: String) -> Result<(), Str
         }
         say(format!("Installing {}…", part.name));
         for (program, args) in part.steps {
-            let python = *program == "python";
-            let found = if python {
-                search.find(&["python", "py"])
+            let found = if *program == "python" {
+                search.find(PYTHON)
             } else {
                 search.find(&[program])
             };
@@ -518,6 +704,13 @@ pub async fn install_language_pack(app: AppHandle, id: String) -> Result<(), Str
             let fine = status.success()
                 || (*program == "winget"
                     && matches!(status.code(), Some(-1_978_335_189 | -1_978_335_135)));
+            // pkexec's codes when its password prompt is closed or refused.
+            if *program == "pkexec" && matches!(status.code(), Some(126 | 127)) {
+                return Err(format!(
+                    "{} was not installed: the password prompt was closed",
+                    part.name
+                ));
+            }
             if !fine {
                 return Err(format!(
                     "installing {} failed: {program} exited with {}",
@@ -531,6 +724,24 @@ pub async fn install_language_pack(app: AppHandle, id: String) -> Result<(), Str
         say(format!("{} installed.", part.name));
     }
     Ok(())
+}
+
+/// Linux packages have no setup window to choose languages in: open the
+/// chooser at the first launch, once.
+#[cfg(not(windows))]
+pub fn offer_once(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let marker = dir.join("languages-offered");
+    if marker.exists() || std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if std::fs::write(&marker, "").is_ok() {
+        if let Err(e) = open_chooser(app, false) {
+            tracing::warn!("could not open the language chooser: {e}");
+        }
+    }
 }
 
 /// Set when this run of Workspace is only the installer's chooser.
@@ -583,6 +794,14 @@ mod tests {
                 if *program == "winget" {
                     assert!(args.starts_with(WINGET), "{}: winget flags", part.name);
                     assert!(args.len() > WINGET.len(), "{}: a package id", part.name);
+                }
+                if *program == "pkexec" {
+                    let script = args.last().copied().unwrap_or_default();
+                    assert!(
+                        script.contains("apt-get install -y -q ") && !script.ends_with("-q "),
+                        "{}: apt packages",
+                        part.name
+                    );
                 }
             }
         }

@@ -87,6 +87,8 @@ pub fn run() {
                 return Ok(());
             }
             tray::show_main(app.handle());
+            #[cfg(not(windows))]
+            packs::offer_once(app.handle());
             blueprint::open_from_args(app.handle(), &args, &cwd.to_string_lossy());
             launch::hold(&args, &cwd.to_string_lossy());
             Ok(())
