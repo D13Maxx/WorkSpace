@@ -442,6 +442,34 @@ pub fn search_matches(root: &str, within: &str, query: &str) -> Result<(Vec<Matc
     Ok((found, full))
 }
 
+/// Files whose path (file or folder names) holds `query`, comparing letters and
+/// digits only, so "rubiks cube" finds `Rubik's Cube/solver.py`. At most
+/// `MAX_MATCHES`, relative and with `/`.
+pub fn name_matches(root: &str, query: &str) -> Vec<String> {
+    let squash = |s: &str| -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let needle = squash(query);
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let base = Path::new(root.trim());
+    crate::index::project_files(base)
+        .iter()
+        .map(|p| {
+            p.strip_prefix(base)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .filter(|rel| squash(rel).contains(&needle))
+        .take(MAX_MATCHES)
+        .collect()
+}
+
 /// `search_matches` as the agent reads it: one `path:line: text` per line.
 fn search(root: &str, within: &str, query: &str) -> Result<String, String> {
     let (found, full) = search_matches(root, within, query)?;
@@ -795,6 +823,26 @@ mod tests {
         assert!(
             search_matches(root, "../x", "a").is_err(),
             "stays inside the project"
+        );
+    }
+
+    #[test]
+    fn names_match_ignoring_case_spaces_and_punctuation() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        std::fs::create_dir_all(p.join("Rubik's Cube")).unwrap();
+        std::fs::write(p.join("Rubik's Cube/solver.py"), "x").unwrap();
+        std::fs::write(p.join("notes.txt"), "rubiks cube").unwrap();
+        let root = p.to_str().unwrap();
+        assert_eq!(
+            name_matches(root, "rubiks cube"),
+            ["Rubik's Cube/solver.py"]
+        );
+        assert_eq!(name_matches(root, "SOLVER"), ["Rubik's Cube/solver.py"]);
+        assert!(name_matches(root, "zzz").is_empty());
+        assert!(
+            name_matches(root, " ' ").is_empty(),
+            "no letters, no matches"
         );
     }
 

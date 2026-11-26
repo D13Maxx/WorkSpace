@@ -514,7 +514,7 @@ export const api = {
   projectSymbols: (root: string) => invoke<SymbolDef[]>("project_symbols", { root }),
 
   searchProject: (root: string, query: string) =>
-    invoke<{ matches: SearchMatch[]; truncated: boolean }>("search_project", { root, query }),
+    invoke<{ files: string[]; matches: SearchMatch[]; truncated: boolean }>("search_project", { root, query }),
 
   gitStatus: (root: string) => invoke<GitChange[]>("git_status", { root }),
 

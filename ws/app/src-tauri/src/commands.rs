@@ -1220,17 +1220,25 @@ pub async fn ask_model(
 
 #[derive(Debug, Serialize)]
 pub struct SearchResult {
+    /// Files whose name, or a folder they sit in, matches.
+    files: Vec<String>,
     matches: Vec<ws_tools::workspace::Match>,
     /// The search stopped at its limit; a narrower query would show more.
     truncated: bool,
 }
 
-/// Lines containing `query` anywhere in the project, for the search panel.
+/// Files named like `query`, and lines containing it, for the search panel.
 #[tauri::command]
 pub async fn search_project(root: String, query: String) -> CmdResult<SearchResult> {
     tauri::async_runtime::spawn_blocking(move || {
-        ws_tools::workspace::search_matches(&root, "", query.trim())
-            .map(|(matches, truncated)| SearchResult { matches, truncated })
+        let files = ws_tools::workspace::name_matches(&root, &query);
+        ws_tools::workspace::search_matches(&root, "", query.trim()).map(|(matches, truncated)| {
+            SearchResult {
+                files,
+                matches,
+                truncated,
+            }
+        })
     })
     .await
     .map_err(err)?

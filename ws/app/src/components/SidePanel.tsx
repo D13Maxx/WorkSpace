@@ -38,7 +38,7 @@ export function SidePanel({ root, version, onOpen }: Props) {
 
 function Search({ root, onOpen }: { root: string; onOpen: (f: OpenFile) => void }) {
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<{ query: string; matches: SearchMatch[]; truncated: boolean } | null>(null);
+  const [result, setResult] = useState<{ query: string; files: string[]; matches: SearchMatch[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -77,6 +77,21 @@ function Search({ root, onOpen }: { root: string; onOpen: (f: OpenFile) => void 
       {error && <p className="failure side-note">{error}</p>}
       {result && !busy && (
         <>
+          {result.files.length > 0 && (
+            <>
+              <h4 className="side-heading">Files</h4>
+              <ul className="side-list">
+                {result.files.map((path) => (
+                  <li key={path}>
+                    <button onClick={() => onOpen({ root, path })} title={path}>
+                      <span className="side-text">{path}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h4 className="side-heading">Lines</h4>
+            </>
+          )}
           <p className="muted side-note">
             {result.matches.length === 0
               ? `No lines contain "${result.query}".`
