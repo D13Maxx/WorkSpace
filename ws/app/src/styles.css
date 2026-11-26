@@ -2426,6 +2426,27 @@ body.resizing-v {
   pointer-events: none;
 }
 
+/* Changes panel: branch, Push and Pull, the branch's PR and CI. */
+.git-branch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.git-branch select {
+  min-width: 0;
+  flex: 1;
+  margin-right: 6px;
+}
+.git-branch .side-row button + button {
+  margin-left: 4px;
+}
+.git-hub {
+  margin: 0;
+}
+
 /* Changes panel: commit box, stage and unstage per file. */
 .git-commit {
   display: flex;

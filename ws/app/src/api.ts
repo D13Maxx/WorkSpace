@@ -350,6 +350,23 @@ export interface SearchMatch {
 }
 
 /** A file that differs from the last commit. `status` is M, A, D, R or ?. */
+export interface Branches {
+  /** Empty with no branch checked out. */
+  current: string;
+  all: string[];
+  /** Like origin/main; null before the first push. */
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface BranchOnGithub {
+  /** owner/repo; null when origin is not on GitHub. */
+  repo: string | null;
+  pull: { number: number; title: string; url: string; state: string } | null;
+  checks: { passed: number; failed: number; running: number } | null;
+}
+
 export interface GitChange {
   path: string;
   status: string;
@@ -533,6 +550,20 @@ export const api = {
   gitUnstage: (root: string, path: string) => invoke<void>("git_unstage", { root, path }),
 
   gitCommit: (root: string, message: string) => invoke<string>("git_commit", { root, message }),
+  gitBranches: (root: string) => invoke<Branches>("git_branches", { root }),
+  gitSwitch: (root: string, name: string, create: boolean) => invoke<void>("git_switch", { root, name, create }),
+  gitPush: (root: string) => invoke<void>("git_push", { root }),
+  gitPull: (root: string) => invoke<void>("git_pull", { root }),
+  /** Clone `url` (or owner/repo) into a new folder under `parent`; returns that folder. */
+  gitClone: (url: string, parent: string) => invoke<string>("git_clone", { url, parent }),
+  githubAccount: () => invoke<{ login: string } | null>("github_account"),
+  /** With no token, uses the GitHub sign-in git already has. */
+  githubSignIn: (token: string | null) => invoke<{ login: string }>("github_sign_in", { token }),
+  githubSignOut: () => invoke<void>("github_sign_out"),
+  githubBranch: (root: string) => invoke<BranchOnGithub>("github_branch", { root }),
+  openGithub: (url: string) => invoke<void>("open_github", { url }),
+  githubAgentTools: () => invoke<{ enabled: boolean; installed: boolean }>("github_agent_tools"),
+  setGithubAgentTools: (enabled: boolean) => invoke<void>("set_github_agent_tools", { enabled }),
   /** A helper's own copy of the project: what it changed (null once merged or discarded). */
   workerChanges: (w: WorkerCopy) => invoke<ChangedFile[] | null>("worker_changes", { ...w }),
   workerDiff: (w: WorkerCopy) => invoke<string>("worker_diff", { ...w }),

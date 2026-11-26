@@ -2,7 +2,7 @@
 // under the file tree; a result opens in the middle pane.
 
 import { useEffect, useState } from "react";
-import { api, type GitChange, type SearchMatch } from "../api";
+import { api, type BranchOnGithub, type Branches, type GitChange, type SearchMatch } from "../api";
 import type { OpenFile } from "./Explorer";
 import { gitChanged } from "../git";
 
@@ -185,6 +185,7 @@ function Changes({ root, version, onOpen }: { root: string; version: number; onO
 
   return (
     <div className="side-body">
+      <BranchBar root={root} version={version} nonce={nonce} busy={busy} act={act} />
       <div className="git-commit">
         <textarea
           value={message}
@@ -243,6 +244,127 @@ function Changes({ root, version, onOpen }: { root: string; version: number; onO
           {staged.length > 0 && <h4 className="side-heading">Changes</h4>}
           <ul className="side-list">{unstaged.map((c) => row(c, "stage"))}</ul>
         </>
+      )}
+    </div>
+  );
+}
+
+/** The branch, Push and Pull, and on GitHub the branch's pull request and CI. */
+function BranchBar({
+  root,
+  version,
+  nonce,
+  busy,
+  act,
+}: {
+  root: string;
+  /** Files changed on disk: look at git again. */
+  version: number;
+  /** Refresh or a git step: look at GitHub again too. */
+  nonce: number;
+  busy: boolean;
+  act: (step: () => Promise<unknown>, after?: (result: unknown) => void) => void;
+}) {
+  const [branches, setBranches] = useState<Branches | null>(null);
+  const [hub, setHub] = useState<BranchOnGithub | null>(null);
+  const [naming, setNaming] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .gitBranches(root)
+      .then((b) => live && setBranches(b))
+      .catch(() => live && setBranches(null));
+    return () => {
+      live = false;
+    };
+  }, [root, version, nonce]);
+
+  // Not on every file change: without a sign-in GitHub allows 60 requests an hour.
+  useEffect(() => {
+    let live = true;
+    api
+      .githubBranch(root)
+      .then((h) => live && setHub(h))
+      .catch(() => live && setHub(null));
+    return () => {
+      live = false;
+    };
+  }, [root, nonce]);
+
+  if (!branches) return null;
+  const { current, upstream, ahead, behind } = branches;
+  const ci = hub?.checks;
+  const compare = hub?.repo && upstream && !hub.pull && current ? `https://github.com/${hub.repo}/compare/${encodeURIComponent(current)}?expand=1` : null;
+  return (
+    <div className="git-branch">
+      <div className="side-row">
+        <select
+          value={current}
+          disabled={busy}
+          aria-label="Branch"
+          title="Switch branch (git keeps your uncommitted changes, or refuses if they would be lost)"
+          onChange={(e) => {
+            if (e.target.value === "~new") setNaming("");
+            else act(() => api.gitSwitch(root, e.target.value, false));
+          }}
+        >
+          {!current && <option value="">(no branch)</option>}
+          {branches.all.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+          <option value={"~new"}>New branch…</option>
+        </select>
+        <span>
+          <button disabled={busy || !upstream} onClick={() => act(() => api.gitPull(root))} title={upstream ? `Bring in new commits from ${upstream}` : "Push first: the branch is not on the remote yet"}>
+            Pull{behind ? ` ↓${behind}` : ""}
+          </button>
+          <button disabled={busy || !current} onClick={() => act(() => api.gitPush(root))} title={upstream ? `Send your commits to ${upstream}` : "Put this branch on origin"}>
+            Push{ahead ? ` ↑${ahead}` : ""}
+          </button>
+        </span>
+      </div>
+      {naming !== null && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const name = naming.trim();
+            if (name) act(() => api.gitSwitch(root, name, true), () => setNaming(null));
+          }}
+        >
+          <input
+            autoFocus
+            value={naming}
+            onChange={(e) => setNaming(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setNaming(null)}
+            placeholder="New branch name, then Enter"
+            aria-label="New branch name"
+            spellCheck={false}
+          />
+        </form>
+      )}
+      {hub?.repo && (
+        <p className="muted side-note git-hub">
+          {hub.pull ? (
+            <button className="linklike" onClick={() => void api.openGithub(hub.pull!.url)} title={hub.pull.title}>
+              PR #{hub.pull.number} ({hub.pull.state})
+            </button>
+          ) : compare ? (
+            <button className="linklike" onClick={() => void api.openGithub(compare)} title="Open GitHub to make a pull request for this branch">
+              Open a PR
+            </button>
+          ) : (
+            <span>{hub.repo}</span>
+          )}
+          {ci && (
+            <span className={ci.failed ? "failure" : ci.running ? "" : "ok"}>
+              {" · CI: "}
+              {[ci.failed && `${ci.failed} failed`, ci.running && `${ci.running} running`, ci.passed && `${ci.passed} passed`].filter(Boolean).join(", ")}
+            </span>
+          )}
+        </p>
       )}
     </div>
   );

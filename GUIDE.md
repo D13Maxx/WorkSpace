@@ -224,6 +224,31 @@ file" works). Writes show as diffs with Undo. Commands ask first, unless
 **Settings → Approval rules** lists them; changes made by commands cannot be
 undone from the chat.
 
+## Git and GitHub
+
+**Changes** (under the file tree) shows what changed since the last commit:
+stage with **+**, unstage with **−**, write a message and **Commit**. At its
+top is the branch bar:
+
+- **Branch** switches branches, or makes a new one (**New branch…**). git
+  refuses to switch when that would lose uncommitted changes.
+- **Push** sends your commits (↑ how many); the first push puts the branch
+  on `origin`. **Pull** brings in new commits (↓ how many), only when no merge
+  is needed. Both use git's own sign-in, the same one a terminal uses.
+- For a repo on GitHub it shows the branch's pull request, or **Open a PR**
+  (opens GitHub's page to make one), and the CI of the commit you are on.
+
+**Clone** (the branch icon above the file tree) takes `owner/repo` or a
+repo's address, asks where to put it, and opens the new folder.
+
+**Settings → GitHub** signs Workspace in, with the GitHub login git already
+has (Git Credential Manager may show its own sign-in window) or a pasted
+token. The token is kept in the system keychain. Signed in, PR and CI status
+works for private repos too, and there is no 60-an-hour limit. **Give the agent GitHub tools** starts
+GitHub's own tool server ([github-mcp-server](https://github.com/github/github-mcp-server),
+put it on PATH) with that token at the next start, so the agent can read and
+write issues and pull requests and check CI; its tools ask before running.
+
 ## Workshop: draw a system, simulate it, have the agent build it
 
 The Workshop is where blueprints (`.blueprint` files) are drawn. The **New

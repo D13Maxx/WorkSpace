@@ -11,6 +11,7 @@ mod awake;
 mod blueprint;
 mod bridge;
 mod commands;
+mod github;
 mod graph;
 mod graph_builder;
 mod launch;
@@ -159,6 +160,18 @@ pub fn run() {
             commands::git_stage,
             commands::git_unstage,
             commands::git_commit,
+            github::git_branches,
+            github::git_switch,
+            github::git_push,
+            github::git_pull,
+            github::git_clone,
+            github::github_account,
+            github::github_sign_in,
+            github::github_sign_out,
+            github::github_branch,
+            github::open_github,
+            github::github_agent_tools,
+            github::set_github_agent_tools,
             commands::worker_changes,
             commands::worker_diff,
             commands::worker_merge,

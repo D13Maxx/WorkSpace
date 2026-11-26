@@ -394,7 +394,7 @@ impl LateTools {
     }
 
     async fn connect(&self) {
-        let config = match std::fs::read_to_string(&self.config_path) {
+        let mut config = match std::fs::read_to_string(&self.config_path) {
             Ok(text) => match McpConfig::parse(&text) {
                 Ok(c) => c,
                 Err(e) => {
@@ -407,8 +407,19 @@ impl LateTools {
                     return;
                 }
             },
-            Err(_) => return, // no file: no tool servers configured
+            Err(_) => McpConfig::default(), // no file: only what Settings turned on
         };
+        if let Some(dir) = self.config_path.parent() {
+            if let Some(server) = crate::github::agent_server(dir) {
+                config
+                    .mcp_servers
+                    .entry("github".to_owned())
+                    .or_insert(server);
+            }
+        }
+        if config.mcp_servers.is_empty() {
+            return;
+        }
         let (host, status) = McpTools::connect(&config).await;
         let _ = self.tools.set(CodeMode::new(host));
         self.set_status(status);

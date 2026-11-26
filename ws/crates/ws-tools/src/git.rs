@@ -284,6 +284,206 @@ pub fn commit(root: &str, message: &str) -> Result<String, String> {
         .to_owned())
 }
 
+/// Network steps never wait on a hidden terminal prompt; git's credential
+/// helper (its own sign-in window) still runs.
+const NO_PROMPT: &[(&str, &str)] = &[("GIT_TERMINAL_PROMPT", "0")];
+
+/// The branch checked out and where it stands against its upstream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Branches {
+    /// Empty when no branch is checked out (a detached HEAD).
+    pub current: String,
+    /// Every local branch, in name order.
+    pub all: Vec<String>,
+    /// Like `origin/main`; None before the branch is first pushed.
+    pub upstream: Option<String>,
+    /// Commits here that the upstream lacks, and the other way round.
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+/// The local branches and the current one's standing.
+///
+/// # Errors
+/// `root` is not in a git repository, or git cannot run.
+pub fn branches(root: &str) -> Result<Branches, String> {
+    let current = git(root, &["branch", "--show-current"])?.trim().to_owned();
+    let all = git(
+        root,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?
+    .lines()
+    .map(str::to_owned)
+    .collect();
+    let upstream = git(root, &["rev-parse", "--abbrev-ref", "@{upstream}"])
+        .ok()
+        .map(|u| u.trim().to_owned());
+    let (mut behind, mut ahead) = (0, 0);
+    if upstream.is_some() {
+        let counts = git(
+            root,
+            &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
+        )?;
+        let mut n = counts.split_whitespace().map(|c| c.parse().unwrap_or(0));
+        behind = n.next().unwrap_or(0);
+        ahead = n.next().unwrap_or(0);
+    }
+    Ok(Branches {
+        current,
+        all,
+        upstream,
+        ahead,
+        behind,
+    })
+}
+
+/// A name git accepts for a branch, and one that cannot pass as an option.
+fn branch_name(root: &str, name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || name.starts_with('-') {
+        return Err(format!("\"{name}\" is not a branch name"));
+    }
+    git(root, &["check-ref-format", "--branch", name])
+        .map(|n| n.trim().to_owned())
+        .map_err(|_| format!("\"{name}\" is not a branch name"))
+}
+
+/// Check out `name`, making it first from the current commit when `create`.
+/// git refuses when uncommitted changes would be overwritten.
+///
+/// # Errors
+/// The name is invalid, or git refuses; git's words say why.
+pub fn switch(root: &str, name: &str, create: bool) -> Result<(), String> {
+    let name = branch_name(root, name)?;
+    let args: &[&str] = if create {
+        &["switch", "-c", &name]
+    } else {
+        &["switch", &name]
+    };
+    git(root, args).map(drop)
+}
+
+/// Push the current branch, setting its upstream on `origin` the first time.
+///
+/// # Errors
+/// No branch is checked out, there is no `origin`, sign-in failed, or the
+/// remote has commits this branch lacks (pull first).
+pub fn push(root: &str) -> Result<(), String> {
+    let b = branches(root)?;
+    if b.current.is_empty() {
+        return Err("no branch is checked out".to_owned());
+    }
+    let args: &[&str] = if b.upstream.is_some() {
+        &["push", "-q"]
+    } else {
+        &["push", "-q", "-u", "origin", "HEAD"]
+    };
+    run(root, args, None, NO_PROMPT).map(drop)
+}
+
+/// Bring in the upstream's new commits, only when that needs no merge.
+///
+/// # Errors
+/// No upstream, sign-in failed, or both sides have new commits.
+pub fn pull(root: &str) -> Result<(), String> {
+    run(root, &["pull", "-q", "--ff-only"], None, NO_PROMPT).map(drop)
+}
+
+/// The address to clone: a URL as given, or `owner/repo` for GitHub.
+///
+/// # Errors
+/// Neither form.
+pub fn clone_url(input: &str) -> Result<String, String> {
+    let s = input.trim().trim_end_matches('/');
+    let ok_part = |p: &str| {
+        !p.is_empty()
+            && !p.starts_with('.')
+            && p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if ["https://", "ssh://", "file://", "git@"]
+        .iter()
+        .any(|p| s.starts_with(p))
+    {
+        return Ok(s.to_owned());
+    }
+    match s.split_once('/') {
+        Some((owner, repo)) if ok_part(owner) && ok_part(repo) => {
+            Ok(format!("https://github.com/{owner}/{repo}.git"))
+        }
+        _ => Err(format!(
+            "\"{s}\" is not a repo address: paste its https:// URL or write owner/repo"
+        )),
+    }
+}
+
+/// Clone `input` (see `clone_url`) into a new folder under `parent`, named
+/// after the repo; returns that folder.
+///
+/// # Errors
+/// The address is not valid, the folder already exists, or git fails.
+pub fn clone(input: &str, parent: &str) -> Result<String, String> {
+    let url = clone_url(input)?;
+    let name = url
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(".git")
+        .to_owned();
+    if name.is_empty() || name.starts_with('.') {
+        return Err(format!("cannot tell the repo's name from {url}"));
+    }
+    let dest = std::path::Path::new(parent.trim()).join(&name);
+    if dest.exists() {
+        return Err(format!("{} already exists", dest.display()));
+    }
+    run(parent, &["clone", "-q", "--", &url, &name], None, NO_PROMPT)?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// The password git's credential helper holds for `https://github.com` (for
+/// Git Credential Manager, a GitHub token); it may show the helper's own
+/// sign-in window first. None when there is no helper or no sign-in.
+pub fn github_credential() -> Option<String> {
+    let dir = std::env::temp_dir();
+    let out = run(
+        dir.to_str()?,
+        &["credential", "fill"],
+        Some(b"protocol=https\nhost=github.com\n\n"),
+        NO_PROMPT,
+    )
+    .ok()?;
+    out.lines()
+        .find_map(|l| l.strip_prefix("password="))
+        .map(str::to_owned)
+        .filter(|p| !p.is_empty())
+}
+
+/// The commit checked out, in full.
+///
+/// # Errors
+/// No commits yet, or git cannot run.
+pub fn head(root: &str) -> Result<String, String> {
+    Ok(git(root, &["rev-parse", "HEAD"])?.trim().to_owned())
+}
+
+/// `owner/repo` of `origin` when it is on GitHub.
+pub fn github_repo(root: &str) -> Option<String> {
+    let url = git(root, &["remote", "get-url", "origin"]).ok()?;
+    github_repo_of(url.trim())
+}
+
+fn github_repo_of(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("git@github.com:"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))?;
+    let rest = rest.trim_end_matches('/').trim_end_matches(".git");
+    let (owner, repo) = rest.split_once('/')?;
+    (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+        .then(|| format!("{owner}/{repo}"))
+}
+
 /// Who last changed one line, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlameLine {
@@ -372,6 +572,85 @@ mod tests {
             git(root, args).unwrap();
         }
         Some(dir)
+    }
+
+    #[test]
+    fn push_pull_switch_and_clone_against_a_local_remote() {
+        let Some(dir) = repo() else { return };
+        let root = dir.path().to_str().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        let bare = remote.path().join("r.git");
+        let bare_s = bare.to_str().unwrap();
+        git(
+            remote.path().to_str().unwrap(),
+            &["init", "-q", "--bare", bare_s],
+        )
+        .unwrap();
+        git(root, &["remote", "add", "origin", bare_s]).unwrap();
+
+        let b = branches(root).unwrap();
+        assert_eq!(b.upstream, None, "not pushed yet");
+        push(root).unwrap();
+        let b = branches(root).unwrap();
+        assert!(b.upstream.is_some_and(|u| u.starts_with("origin/")));
+        assert_eq!((b.ahead, b.behind), (0, 0));
+
+        // A second copy pushes a commit; the first is then behind, and pulls it.
+        let other = tempfile::tempdir().unwrap();
+        let url = format!("file:///{}", bare_s.replace('\\', "/"));
+        let copy = clone(&url, other.path().to_str().unwrap()).unwrap();
+        for args in [
+            &["config", "user.email", "t@t"][..],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            git(&copy, args).unwrap();
+        }
+        std::fs::write(std::path::Path::new(&copy).join("b.txt"), "b\n").unwrap();
+        stage(&copy, "b.txt").unwrap();
+        commit(&copy, "second").unwrap();
+        push(&copy).unwrap();
+        git(root, &["fetch", "-q"]).unwrap();
+        assert_eq!(branches(root).unwrap().behind, 1);
+        pull(root).unwrap();
+        assert!(dir.path().join("b.txt").exists());
+        assert!(
+            clone(&url, other.path().to_str().unwrap()).is_err(),
+            "the folder is there already"
+        );
+
+        switch(root, "feature", true).unwrap();
+        assert_eq!(branches(root).unwrap().current, "feature");
+        assert!(branches(root).unwrap().all.contains(&"feature".to_owned()));
+        assert!(switch(root, "-f", false).is_err(), "not an option");
+        assert!(switch(root, "a b", true).is_err());
+    }
+
+    #[test]
+    fn clone_addresses_and_github_repos() {
+        assert_eq!(
+            clone_url("D13Maxx/WorkSpace").unwrap(),
+            "https://github.com/D13Maxx/WorkSpace.git"
+        );
+        assert_eq!(
+            clone_url("https://github.com/a/b/").unwrap(),
+            "https://github.com/a/b"
+        );
+        assert!(
+            clone_url("-x/y").is_ok_and(|u| u.contains("-x")),
+            "only as an argument after --"
+        );
+        assert!(clone_url("../etc").is_err());
+        assert!(clone_url("nope").is_err());
+        for url in [
+            "https://github.com/a/b.git",
+            "https://github.com/a/b",
+            "git@github.com:a/b.git",
+            "ssh://git@github.com/a/b",
+        ] {
+            assert_eq!(github_repo_of(url).as_deref(), Some("a/b"), "{url}");
+        }
+        assert_eq!(github_repo_of("https://gitlab.com/a/b"), None);
     }
 
     #[test]

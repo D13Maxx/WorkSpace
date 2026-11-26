@@ -553,6 +553,123 @@ function SkillsSection() {
 }
 
 /** Tool servers come from mcp.json, in the same shape as Claude Code's. */
+function GithubSection() {
+  const [login, setLogin] = useState<string | null | undefined>(undefined);
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [tools, setTools] = useState<{ enabled: boolean; installed: boolean } | null>(null);
+
+  useEffect(() => {
+    api
+      .githubAccount()
+      .then((a) => setLogin(a?.login ?? null))
+      .catch((e) => {
+        setLogin(null);
+        setMessage(String(e));
+      });
+    api
+      .githubAgentTools()
+      .then(setTools)
+      .catch(() => setTools(null));
+  }, []);
+
+  const signIn = async (pasted: string | null) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const a = await api.githubSignIn(pasted);
+      setLogin(a.login);
+      setToken("");
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3>GitHub</h3>
+      <p className="muted">
+        Push, Pull, branches and Clone use git's own sign-in and work without this. Signing in here
+        shows each branch's pull request and CI in the Changes panel, and lets the agent use GitHub.
+        The token is kept in the system keychain.
+      </p>
+      {login === undefined ? null : login ? (
+        <div className="key-head">
+          <span>
+            Signed in as <strong>{login}</strong>
+          </span>
+          <button
+            onClick={() =>
+              void api
+                .githubSignOut()
+                .then(() => setLogin(null))
+                .catch((e) => setMessage(String(e)))
+            }
+          >
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="row">
+            <button className="primary" disabled={busy} onClick={() => void signIn(null)} title="Uses the GitHub sign-in git keeps (Git Credential Manager); it may open its own sign-in window">
+              {busy ? "Signing in…" : "Sign in with git's GitHub login"}
+            </button>
+          </div>
+          <div className="row">
+            <input
+              type="password"
+              value={token}
+              placeholder="…or paste a GitHub token"
+              onChange={(e) => setToken(e.target.value)}
+              aria-label="GitHub token"
+            />
+            <button disabled={busy || !token.trim()} onClick={() => void signIn(token)}>
+              Save
+            </button>
+          </div>
+        </>
+      )}
+      {tools && (
+        <label className="row" title="GitHub's own tool server: issues, pull requests, CI and code search for the agent">
+          <input
+            type="checkbox"
+            checked={tools.enabled}
+            disabled={!tools.installed && !tools.enabled}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              void api
+                .setGithubAgentTools(enabled)
+                .then(() => {
+                  setTools({ ...tools, enabled });
+                  setMessage("The agent's GitHub tools change at the next start of Workspace.");
+                })
+                .catch((err) => setMessage(String(err)));
+            }}
+          />
+          <span>
+            Give the agent GitHub tools (issues, pull requests, CI)
+            {!tools.installed && (
+              <span className="muted">
+                {" "}
+                — needs <code>github-mcp-server</code> on PATH: download it from{" "}
+                <button className="linklike" onClick={() => void api.openGithub("https://github.com/github/github-mcp-server/releases")}>
+                  its releases
+                </button>
+              </span>
+            )}
+            {tools.installed && !login && <span className="muted"> — sign in above first</span>}
+          </span>
+        </label>
+      )}
+      {message && <p className="muted">{message}</p>}
+    </section>
+  );
+}
+
 function McpSection() {
   const [status, setStatus] = useState<McpStatus | null>(null);
   useEffect(() => {
@@ -733,6 +850,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
           onModelsChanged();
         }}
       />
+      <GithubSection />
       <SkillsSection />
       <McpSection />
       <LocalModelSection onChanged={onModelsChanged} />

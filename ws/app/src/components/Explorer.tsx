@@ -66,7 +66,8 @@ interface Place {
   dir: string;
 }
 // Three linked nodes.
-const GRAPH = "M4 4.5a1.5 1.5 0 1 1 0 .01zM12 3.5a1.5 1.5 0 1 1 0 .01zM8 12a1.5 1.5 0 1 1 0 .01zM5.3 5.3l2 5M10.6 4.4l-2 6M5.5 4.3h5";
+const CLONE = "M4.5 2.5v8M4.5 10.5a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 1 0 0-3.6M11.5 5.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 1 0 0 3.6M11.5 5.5c0 3-7 2-7 5";
+const GRAPH ="M4 4.5a1.5 1.5 0 1 1 0 .01zM12 3.5a1.5 1.5 0 1 1 0 .01zM8 12a1.5 1.5 0 1 1 0 .01zM5.3 5.3l2 5M10.6 4.4l-2 6M5.5 4.3h5";
 
 /** The last part of a path, as a folder's name. */
 export function baseName(path: string): string {
@@ -254,6 +255,21 @@ export function Explorer({
   };
   // What is being created, and its name as typed, while that box is open.
   const [creating, setCreating] = useState<null | "file" | "folder">(null);
+  // The clone form: null when closed; `busy` while git downloads.
+  const [cloning, setCloning] = useState<null | { url: string; busy: boolean }>(null);
+  const clone = async (url: string) => {
+    const parent = await pickFolder(undefined, "Where should the cloned folder go?");
+    if (!parent) return;
+    setCloning({ url, busy: true });
+    setError(null);
+    try {
+      onAddFolder(await api.gitClone(url, parent));
+      setCloning(null);
+    } catch (e) {
+      setError(String(e));
+      setCloning({ url, busy: false });
+    }
+  };
   const [name, setName] = useState("");
   const [created, setCreated] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +417,14 @@ export function Explorer({
         </button>
         <button
           className="icon-button"
+          onClick={() => setCloning((c) => (c ? null : { url: "", busy: false }))}
+          title="Clone a repo from GitHub (or any git address)"
+          aria-label="Clone a repo"
+        >
+          <Icon d={CLONE} />
+        </button>
+        <button
+          className="icon-button"
           onClick={() => void startCreate("file")}
           title="New file (asks where)"
           aria-label="New file"
@@ -470,6 +494,30 @@ export function Explorer({
             }}
             spellCheck={false}
             aria-label={`New ${creating} name`}
+          />
+        </form>
+      )}
+      {cloning && (
+        <form
+          className="explorer-new"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (cloning.url.trim() && !cloning.busy) void clone(cloning.url.trim());
+          }}
+        >
+          <label className="muted">{cloning.busy ? "Cloning… (big repos take a while)" : "Clone: owner/repo or its address, then Enter"}</label>
+          <input
+            autoFocus
+            type="text"
+            value={cloning.url}
+            disabled={cloning.busy}
+            placeholder="D13Maxx/WorkSpace"
+            onChange={(e) => setCloning({ url: e.target.value, busy: false })}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setCloning(null);
+            }}
+            spellCheck={false}
+            aria-label="Repo to clone"
           />
         </form>
       )}
