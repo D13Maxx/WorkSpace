@@ -54,6 +54,11 @@ carries on with the saved plan.
   remembers its earlier tasks in the run, so the lead sends a fix back to
   the copy that wrote the code.
 
+- **Every worker at a glance.** A line at the top of the Agents view shows
+  each worker's state: **Working**, **Blocked** (waiting for your approval,
+  or to reach its model), **Idle** (finished its task while the team runs,
+  free for another), **Done** or **Failed**, with its model. Click a name to
+  open its pane.
 - **Team chat.** The lead's briefs, the workers' notes, questions and reports
   appear in the chat as they happen. Every worker reads every note, so they
   can share what they found. You can write to the team while it works.
@@ -61,7 +66,10 @@ carries on with the saved plan.
   in the chat and waits for your answer; if Workspace is in the tray, its
   window comes back to ask.
 - **Cheaper workers.** **Settings → Worker model** picks the model workers
-  start on; the model you chat with stays the lead. **Worker fallbacks** lists
+  start on; the model you chat with stays the lead. Under it, **By role**
+  gives a role its own model, such as a strong one for the reviewer and a
+  cheap one for the explorer; roles left on *Same as the worker model* use
+  the worker model. **Worker fallbacks** lists
   models a worker switches to when its own fails (overloaded, down, out of
   credit). A provider's rate limit is waited out rather than failing the
   worker.

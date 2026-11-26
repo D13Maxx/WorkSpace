@@ -2771,3 +2771,64 @@ body.resizing-v {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Settings: a model per team role, name then picker. */
+.role-models {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+}
+.role-models label {
+  display: contents;
+}
+.role-models select {
+  min-width: 0;
+}
+.settings-panel h4 {
+  font-size: 12px;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+/* The agent view's board: one line per worker, herdr-style. */
+.agent-board {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.agent-board li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.agent-board .board-model,
+.agent-board .board-why {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16rem;
+}
+.agent-status.board-working {
+  color: var(--text);
+}
+.agent-status.board-blocked {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.agent-status.board-done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.agent-status.board-failed {
+  color: var(--danger);
+  border-color: var(--danger);
+}

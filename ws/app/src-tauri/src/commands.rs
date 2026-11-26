@@ -474,6 +474,48 @@ pub fn set_worker_model(state: State<'_, AppState>, model: Option<ModelRef>) -> 
     Ok(())
 }
 
+/// A team role and the model it starts on; none means the worker model.
+#[derive(Debug, Serialize)]
+pub struct RoleModel {
+    role: &'static str,
+    description: &'static str,
+    model: Option<ModelRef>,
+}
+
+/// Every team role, with its saved model.
+#[tauri::command]
+pub fn role_models(state: State<'_, AppState>) -> Vec<RoleModel> {
+    let saved = ws_core::load_role_models(&state.data_dir);
+    ws_core::roles()
+        .map(|(role, description)| RoleModel {
+            role,
+            description,
+            model: saved.get(role).cloned(),
+        })
+        .collect()
+}
+
+/// Save `role`'s model (none: back to the worker model) and use it from its
+/// next task on.
+#[tauri::command]
+pub fn set_role_model(
+    state: State<'_, AppState>,
+    role: String,
+    model: Option<ModelRef>,
+) -> CmdResult<()> {
+    if !ws_core::roles().any(|(r, _)| r == role) {
+        return Err(format!("there is no team role called {role}"));
+    }
+    let mut saved = ws_core::load_role_models(&state.data_dir);
+    match model {
+        Some(m) => saved.insert(role, m),
+        None => saved.remove(&role),
+    };
+    ws_core::save_role_models(&state.data_dir, &saved).map_err(err)?;
+    state.orchestrator.set_role_models(saved);
+    Ok(())
+}
+
 /// Regenerate an assistant message as a new sibling.
 #[tauri::command]
 pub async fn regenerate(

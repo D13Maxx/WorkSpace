@@ -108,6 +108,8 @@ pub fn run() {
             commands::set_worker_fallbacks,
             commands::worker_model,
             commands::set_worker_model,
+            commands::role_models,
+            commands::set_role_model,
             commands::list_backends,
             commands::save_compat_provider,
             commands::list_compat_providers,

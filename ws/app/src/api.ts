@@ -176,6 +176,12 @@ export interface ModelChoice {
   model_id: string;
 }
 
+export interface RoleModel {
+  role: string;
+  description: string;
+  model: ModelChoice | null;
+}
+
 export interface ModelOption {
   backend: string;
   model_id: string;
@@ -422,6 +428,11 @@ export const api = {
   workerModel: () => invoke<ModelChoice | null>("worker_model"),
 
   setWorkerModel: (model: ModelChoice | null) => invoke<void>("set_worker_model", { model }),
+
+  /** Each team role and the model it starts on; null means the worker model. */
+  roleModels: () => invoke<RoleModel[]>("role_models"),
+
+  setRoleModel: (role: string, model: ModelChoice | null) => invoke<void>("set_role_model", { role, model }),
 
   chatEncryption: () => invoke<ChatEncryption>("chat_encryption"),
 

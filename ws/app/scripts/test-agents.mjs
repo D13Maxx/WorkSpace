@@ -1,7 +1,7 @@
 // Checks the agent view's worker statuses: `node scripts/test-agents.mjs`.
 import assert from "node:assert/strict";
 
-const { latestWorkers, teamChat } = await import("../src/agents.ts");
+const { board, latestWorkers, teamChat } = await import("../src/agents.ts");
 
 const msg = (role, extra = {}) => ({ role, tool_calls: [], tool_results: [], ...extra });
 const dispatch = (id, agent) => ({ call_id: id, name: "dispatch_agent", args: JSON.stringify({ agent, prompt: `job ${id}` }) });
@@ -121,4 +121,30 @@ const asked = teamChat(
 );
 assert.deepEqual(asked.slice(1).map((m) => [m.from, m.to]), [["Lead", "You"], ["You", "Lead"], ["You", "everyone"]]);
 
+
+// The board: one row per worker name, from its latest task.
+{
+  const wk = (dispatch, agent, status, model = "m1") => ({ dispatch, agent, status, model, brief: "", steps: 0, entries: [], waitingOn: null, copy: null });
+  const team = [
+    wk("d1", "implementer", "done"),
+    wk("d2", "tester", "needs-you", "groq/small"),
+    wk("d3", "implementer", "working"),
+    wk("d4", "reviewer", "done"),
+    wk("d5", "explorer", "retrying"),
+  ];
+  const rows = board(team, true);
+  assert.deepEqual(
+    rows.map((r) => [r.agent, r.status, r.dispatch, r.tasks]),
+    [
+      ["implementer", "working", "d3", 2],
+      ["tester", "blocked", "d2", 1],
+      ["reviewer", "idle", "d4", 1],
+      ["explorer", "blocked", "d5", 1],
+    ],
+  );
+  assert.equal(rows[1].why, "waiting for your approval");
+  assert.equal(rows[1].model, "groq/small");
+  // Once the run is over, a finished worker is done, not idle.
+  assert.equal(board(team.map((w) => ({ ...w, status: "done" })), false)[0].status, "done");
+}
 console.log("agent view: ok");

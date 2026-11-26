@@ -225,6 +225,8 @@ pub struct Orchestrator {
     worker_fallbacks: std::sync::RwLock<Vec<ModelRef>>,
     /// What helpers start on, unless their agent names a model; none: the chat's.
     worker_model: std::sync::RwLock<Option<ModelRef>>,
+    /// What each team role starts on, ahead of `worker_model`.
+    role_models: std::sync::RwLock<std::collections::BTreeMap<String, ModelRef>>,
     /// How long to wait before each retry of a step whose connection dropped,
     /// as when the laptop sleeps mid-reply. Empty: never retry.
     reconnect_waits: Vec<Duration>,
@@ -274,6 +276,7 @@ impl Orchestrator {
             channel: Channel::default(),
             worker_fallbacks: std::sync::RwLock::default(),
             worker_model: std::sync::RwLock::default(),
+            role_models: std::sync::RwLock::default(),
             reconnect_waits: Vec::new(),
             team_convs: Mutex::default(),
             rules: std::sync::RwLock::default(),
@@ -394,6 +397,14 @@ impl Orchestrator {
     pub fn set_worker_model(&self, model: Option<ModelRef>) {
         if let Ok(mut m) = self.worker_model.write() {
             *m = model;
+        }
+    }
+
+    /// Set the model each team role starts on; a role left out uses the
+    /// worker model.
+    pub fn set_role_models(&self, models: std::collections::BTreeMap<String, ModelRef>) {
+        if let Ok(mut m) = self.role_models.write() {
+            *m = models;
         }
     }
 
@@ -1619,10 +1630,15 @@ impl Orchestrator {
             Ok(Some(c)) => c.current_model,
             _ => return ToolOutput::error("the conversation is gone"),
         };
-        // Its agent's own model, else the worker model setting, else the chat's.
+        // Its agent's own model, else its role's, else the worker model
+        // setting, else the chat's.
         let first = def
             .model
             .clone()
+            .or_else(|| {
+                let models = self.role_models.read().ok()?;
+                models.get(role?).cloned()
+            })
             .or_else(|| self.worker_model.read().ok().and_then(|m| m.clone()))
             .unwrap_or(chat.clone());
         // That model, then the fallbacks: a helper whose model fails in a

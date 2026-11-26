@@ -272,6 +272,11 @@ async fn main() -> Result<()> {
     }
     // The same list the app's Settings edit; only workers use it.
     orch.set_worker_fallbacks(ws_core::load_worker_fallbacks(&cli.data_dir));
+    // --worker-model puts every worker on it; without it, each role starts on
+    // its model from the app's Settings, if it has one.
+    if cli.worker_model.is_none() {
+        orch.set_role_models(ws_core::load_role_models(&cli.data_dir));
+    }
     let worker_model = match cli.worker_model.as_deref() {
         Some(m) => {
             let (b, m) = m

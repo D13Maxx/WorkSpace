@@ -92,6 +92,43 @@ export function latestWorkers(
   });
 }
 
+/** A worker at a glance: working, blocked on you or its model, idle between tasks, or finished. */
+export type BoardStatus = "working" | "blocked" | "idle" | "done" | "failed" | "stopped";
+
+export interface BoardRow {
+  /** The worker's name: a role's copy, such as "implementer-2". */
+  agent: string;
+  status: BoardStatus;
+  /** Why, in a few words, for blocked and idle. */
+  why: string;
+  model: string;
+  /** Its latest task, whose pane the row opens. */
+  dispatch: string;
+  /** How many tasks it was given this turn. */
+  tasks: number;
+}
+
+/**
+ * One row per worker, from its latest task. A team role keeps its memory
+ * between tasks, so while the team still runs, one that finished its task is
+ * idle (free for the next), not done.
+ */
+export function board(workers: Worker[], busy: boolean): BoardRow[] {
+  const rows = new Map<string, BoardRow>();
+  for (const w of workers) {
+    let status: BoardStatus;
+    let why = "";
+    if (w.status === "needs-you") [status, why] = ["blocked", "waiting for your approval"];
+    else if (w.status === "retrying") [status, why] = ["blocked", "waiting to reach its model"];
+    else if (w.status === "done" && busy) [status, why] = ["idle", "finished its task; free for another"];
+    else status = w.status;
+    const tasks = (rows.get(w.agent)?.tasks ?? 0) + 1;
+    // Later tasks replace earlier ones: workers come oldest first.
+    rows.set(w.agent, { agent: w.agent, status, why, model: w.model, dispatch: w.dispatch, tasks });
+  }
+  return [...rows.values()];
+}
+
 export interface TeamItem {
   id: string;
   at: string;

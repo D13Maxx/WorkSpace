@@ -7,6 +7,7 @@
 //! final reply becomes the tool's result. Understand-Anything's `/understand`
 //! is built on this.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use ws_context::{ModelRef, ToolSpec};
 
@@ -38,6 +39,32 @@ pub fn load_worker_model(data_dir: &Path) -> Option<ModelRef> {
 pub fn save_worker_model(data_dir: &Path, model: Option<&ModelRef>) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(&model).map_err(std::io::Error::other)?;
     std::fs::write(data_dir.join(WORKER_MODEL_FILE), json)
+}
+
+/// The model each team role starts on, ahead of the worker model, shared like it.
+pub const ROLE_MODELS_FILE: &str = "role-models.json";
+
+/// The saved model per role; roles left out use the worker model.
+#[must_use]
+pub fn load_role_models(data_dir: &Path) -> BTreeMap<String, ModelRef> {
+    let path = data_dir.join(ROLE_MODELS_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, path = %path.display(), "role models unreadable; using the worker model");
+        BTreeMap::new()
+    })
+}
+
+/// # Errors
+/// The file cannot be written.
+pub fn save_role_models(
+    data_dir: &Path,
+    models: &BTreeMap<String, ModelRef>,
+) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(models).map_err(std::io::Error::other)?;
+    std::fs::write(data_dir.join(ROLE_MODELS_FILE), json)
 }
 
 /// The saved fallback list; empty if there is none or it cannot be read.
@@ -234,6 +261,13 @@ const ROLE_NOTE: &str = "You work in a team led by a coordinator, beside other w
 
 /// At most this many copies of one role work at once.
 pub const MAX_ROLE_COPIES: usize = 2;
+
+/// The team's roles, with what each does, in the lead's order.
+pub fn roles() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ROLES
+        .iter()
+        .map(|(name, description, _)| (*name, *description))
+}
 
 /// A team role by name, as an agent.
 #[must_use]
@@ -497,6 +531,18 @@ mine",
         );
         assert_eq!(agents.get("claude-style.md").unwrap().model, None);
         assert_eq!(agents.get("claude-style.md").unwrap().body, "body");
+    }
+
+    #[test]
+    fn role_models_are_saved_and_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_role_models(dir.path()).is_empty());
+        let models = BTreeMap::from([("tester".to_owned(), ModelRef::new("groq", "small"))]);
+        save_role_models(dir.path(), &models).unwrap();
+        assert_eq!(load_role_models(dir.path()), models);
+        save_role_models(dir.path(), &BTreeMap::new()).unwrap();
+        assert!(load_role_models(dir.path()).is_empty());
+        assert_eq!(roles().count(), 6);
     }
 
     #[test]

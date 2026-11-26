@@ -9,6 +9,7 @@ import {
   type ModelChoice,
   type ModelOption,
   type McpStatus,
+  type RoleModel,
   type SkillList,
   type ModelProfile,
 } from "../api";
@@ -375,8 +376,53 @@ function WorkerModelSection({ models }: { models: ModelOption[] }) {
         {!known && model && <option value={key(model)}>{key(model)} (not available now)</option>}
         <ModelGroups models={models} />
       </select>
+      <h4>By role</h4>
+      <p className="muted">A team role can start on a model of its own instead, such as a strong model for the reviewer and a cheap one for the explorer.</p>
+      <RoleModels models={models} />
       {error && <p className="failure">{error}</p>}
     </section>
+  );
+}
+
+/** One model choice per team role; unset ones use the worker model. */
+function RoleModels({ models }: { models: ModelOption[] }) {
+  const [roles, setRoles] = useState<RoleModel[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
+
+  useEffect(() => {
+    api
+      .roleModels()
+      .then(setRoles)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const save = (role: string, value: string) => {
+    const m = models.find((o) => key(o) === value);
+    const next = m ? { backend: m.backend, model_id: m.model_id } : null;
+    setRoles((rs) => rs.map((r) => (r.role === role ? { ...r, model: next } : r)));
+    api.setRoleModel(role, next).then(() => setError(null), (e) => setError(String(e)));
+  };
+
+  return (
+    <>
+      <div className="role-models">
+        {roles.map((r) => {
+          const known = r.model === null || models.some((o) => key(o) === key(r.model!));
+          return (
+            <label key={r.role} title={r.description}>
+              <span>{r.role}</span>
+              <select value={r.model ? key(r.model) : ""} onChange={(e) => save(r.role, e.target.value)} aria-label={`Model for the ${r.role}`}>
+                <option value="">Same as the worker model</option>
+                {!known && r.model && <option value={key(r.model)}>{key(r.model)} (not available now)</option>}
+                <ModelGroups models={models} />
+              </select>
+            </label>
+          );
+        })}
+      </div>
+      {error && <p className="failure">{error}</p>}
+    </>
   );
 }
 

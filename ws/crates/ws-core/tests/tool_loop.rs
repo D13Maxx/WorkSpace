@@ -1482,6 +1482,39 @@ async fn team_only_tools_reach_the_lead_and_workers_and_never_a_plain_chat() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_role_with_its_own_model_starts_on_it_and_the_rest_use_the_worker_model() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch
+        .set_worker_model(Some(ModelRef::new("fake", "fake-2")));
+    h.orch.set_role_models(std::collections::BTreeMap::from([(
+        "tester".to_owned(),
+        ModelRef::new("fake", "fake-3"),
+    )]));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    lead(dispatch("d1", "implementer"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(dispatch("d2", "tester"));
+    lead(Scripted::calls("w2", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    h.backend
+        .script_for("fake-2", Scripted::Text(vec!["built it".to_owned()]));
+    h.backend
+        .script_for("fake-3", Scripted::Text(vec!["tests pass".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    let system = |r: &ws_context::BackendRequest| r.view.system.clone().unwrap_or_default();
+    let implementer = to_model(&h, "fake-2");
+    let tester = to_model(&h, "fake-3");
+    assert_eq!((implementer.len(), tester.len()), (1, 1));
+    assert!(system(&implementer[0]).starts_with("You are one of the team's implementers"));
+    assert!(
+        system(&tester[0]).starts_with("You are the team's tester"),
+        "the tester is on its own model"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_team_role_remembers_its_earlier_task_in_the_run() {
     let h = harness_with(Vec::new(), worker_agents());
     h.orch

@@ -782,6 +782,7 @@ export default function App() {
         {agentsOpen && (
           <AgentView
             workers={workers}
+            busy={busy}
             team={team}
             questions={questions}
             onReply={reply}

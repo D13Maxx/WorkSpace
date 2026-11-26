@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { workerLabels, type TeamItem, type Worker, type WorkerStatus } from "../agents";
+import { board, workerLabels, type BoardStatus, type TeamItem, type Worker, type WorkerStatus } from "../agents";
 import { api, ask, type ChangedFile, type WorkerCopy } from "../api";
 import { Step } from "./HelperPanel";
 import { ToolArgs } from "./ToolArgs";
@@ -13,9 +13,42 @@ const LABEL: Record<WorkerStatus, string> = {
   stopped: "Stopped",
 };
 
+const BOARD: Record<BoardStatus, string> = {
+  working: "Working",
+  blocked: "Blocked",
+  idle: "Idle",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+
+/** Every worker's state at a glance; a row opens its pane. */
+function Board({ workers, busy, onOpen }: { workers: Worker[]; busy: boolean; onOpen: (dispatch: string) => void }) {
+  return (
+    <ul className="agent-board" aria-label="Workers">
+      {board(workers, busy).map((r) => (
+        <li key={r.agent}>
+          <button className="linklike" onClick={() => onOpen(r.dispatch)} title={`Open ${r.agent}'s pane`}>
+            {r.agent}
+          </button>
+          <span className={`agent-status board-${r.status}`} title={r.why || undefined}>
+            {BOARD[r.status]}
+          </span>
+          {r.why && <span className="muted board-why">{r.why}</span>}
+          <span className="muted board-model">
+            {r.model}
+            {r.tasks > 1 ? ` · ${r.tasks} tasks` : ""}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The latest turn's team: its chat, or its workers side by side, each with its live log. */
 export function AgentView({
   workers,
+  busy,
   team,
   questions,
   onReply,
@@ -25,6 +58,8 @@ export function AgentView({
   onClose,
 }: {
   workers: Worker[];
+  /** The team's turn is still running. */
+  busy: boolean;
   team: TeamItem[];
   /** The lead's questions waiting on the user. */
   questions: { callId: string; text: string }[];
@@ -71,6 +106,7 @@ export function AgentView({
           </button>
         </span>
       </div>
+      {workers.length > 0 && <Board workers={workers} busy={busy} onOpen={openPane} />}
       {workers.length === 0 ? (
         <div className="empty">
           <p>No agents yet. When the chat hands work to helpers, each one shows here as it runs.</p>
