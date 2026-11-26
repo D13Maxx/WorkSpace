@@ -390,7 +390,8 @@ pub fn search_matches(root: &str, within: &str, query: &str) -> Result<(Vec<Matc
         if path.is_dir() {
             let skip = path
                 .file_name()
-                .is_some_and(|n| matches!(n.to_str(), Some(".git" | "node_modules" | "target")));
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| crate::index::SKIP_DIRS.contains(&n));
             if !skip {
                 if let Ok(entries) = std::fs::read_dir(&path) {
                     // Links and junctions are skipped: they can lead out of the
@@ -409,15 +410,19 @@ pub fn search_matches(root: &str, within: &str, query: &str) -> Result<(Vec<Matc
             continue;
         }
         let big = std::fs::metadata(&path).map_or(true, |m| m.len() > MAX_SEARCH_BYTES);
-        let Ok(bytes) = (if big {
-            Err(())
-        } else {
-            std::fs::read(&path).map_err(drop)
-        }) else {
+        if big {
+            continue;
+        }
+        let Ok(mut file) = std::fs::File::open(&path) else {
             continue;
         };
-        // Binary files have NULs early on.
-        if bytes.iter().take(8192).any(|b| *b == 0) {
+        // Binary files have NULs early on: look there before reading the rest.
+        let mut bytes = Vec::new();
+        if std::io::Read::read_to_end(&mut std::io::Read::take(&mut file, 8192), &mut bytes)
+            .is_err()
+            || bytes.contains(&0)
+            || std::io::Read::read_to_end(&mut file, &mut bytes).is_err()
+        {
             continue;
         }
         let rel = path
@@ -778,6 +783,8 @@ mod tests {
         std::fs::create_dir_all(p.join("src")).unwrap();
         std::fs::create_dir_all(p.join("node_modules/x")).unwrap();
         std::fs::create_dir_all(p.join(".git")).unwrap();
+        std::fs::create_dir_all(p.join(".venv/lib")).unwrap();
+        std::fs::write(p.join(".venv/lib/c.py"), "# todo skipped").unwrap();
         std::fs::write(
             p.join("src/a.rs"),
             "fn main() {}

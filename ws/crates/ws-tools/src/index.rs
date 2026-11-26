@@ -14,7 +14,7 @@ use std::time::SystemTime;
 
 /// Folders no one wants indexed or searched: version control, dependencies,
 /// build output and virtual environments.
-const SKIP_DIRS: &[&str] = &[
+pub(crate) const SKIP_DIRS: &[&str] = &[
     ".git",
     "node_modules",
     "target",
