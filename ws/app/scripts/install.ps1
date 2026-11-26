@@ -29,7 +29,9 @@ try {
     Pop-Location
 }
 
-$built = Join-Path $app '..\target\release\ws-app.exe'
+# Where cargo put it: CARGO_TARGET_DIR moves the build, and an old exe may still sit in target.
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $app '..\target' }
+$built = Join-Path $targetDir 'release\ws-app.exe'
 if (-not (Test-Path $built)) { throw "the build finished but $built is missing" }
 
 New-Item -ItemType Directory -Force $dest | Out-Null
