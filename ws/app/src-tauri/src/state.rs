@@ -100,9 +100,9 @@ pub struct AppState {
     pub local: Arc<LocalBackend>,
     /// MCP tool servers (Serena and friends), from `mcp.json`.
     pub mcp: Arc<LateTools>,
-    /// `SKILL.md` packs found under `skills/` in the app data folder.
-    pub skills: Arc<ws_core::Skills>,
-    pub skills_dir: std::path::PathBuf,
+    /// `SKILL.md` packs found under `skills/` in the app data folder, the
+    /// pipeline's and the built-in ones; rebuilt when Settings changes them.
+    pub skills: Arc<LiveSkills>,
     /// The app data folder, where the worker fallback list lives.
     pub data_dir: std::path::PathBuf,
     /// The Understand-Anything viewer process, while its window is open.
@@ -168,12 +168,7 @@ impl AppState {
         if pipeline.is_none() {
             tracing::warn!("Understand-Anything pipeline not found; /understand is unavailable");
         }
-        let skills = ws_core::Skills::load(&skills_dir);
-        let skills = match &pipeline {
-            Some(dir) => skills.and_load(&dir.join("skills")),
-            None => skills,
-        };
-        let skills = Arc::new(skills.with_builtin(BUILTIN_SKILLS));
+        let skills = Arc::new(LiveSkills::new(skills_dir, pipeline.clone()));
         let agents = Arc::new(
             pipeline
                 .as_ref()
@@ -231,7 +226,6 @@ impl AppState {
             profiles,
             local,
             skills,
-            skills_dir,
             viewer: std::sync::Mutex::new(None),
             workspace,
             runner: crate::run::Runner::default(),
@@ -381,7 +375,7 @@ fn load_compat_configs(store: &Arc<Mutex<Store>>) -> Vec<CompatConfig> {
 #[derive(Debug)]
 pub struct LateTools {
     pub config_path: std::path::PathBuf,
-    tools: std::sync::OnceLock<CodeMode>,
+    tools: std::sync::RwLock<Option<CodeMode>>,
     status: Mutex<Vec<ServerStatus>>,
 }
 
@@ -389,9 +383,27 @@ impl LateTools {
     fn new(config_path: std::path::PathBuf) -> Self {
         Self {
             config_path,
-            tools: std::sync::OnceLock::new(),
+            tools: std::sync::RwLock::new(None),
             status: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Stop the running servers and start what `mcp.json` (and Settings) now
+    /// list. A call already running finishes on the old ones.
+    pub async fn reconnect(&self) {
+        self.set_tools(None);
+        self.set_status(Vec::new());
+        self.connect().await;
+    }
+
+    fn set_tools(&self, tools: Option<CodeMode>) {
+        if let Ok(mut t) = self.tools.write() {
+            *t = tools;
+        }
+    }
+
+    fn current(&self) -> Option<CodeMode> {
+        self.tools.read().ok().and_then(|t| t.clone())
     }
 
     async fn connect(&self) {
@@ -422,7 +434,7 @@ impl LateTools {
             return;
         }
         let (host, status) = McpTools::connect(&config).await;
-        let _ = self.tools.set(CodeMode::new(host));
+        self.set_tools(Some(CodeMode::new(host)));
         self.set_status(status);
     }
 
@@ -440,30 +452,81 @@ impl LateTools {
 #[async_trait::async_trait]
 impl ws_core::ToolHost for LateTools {
     fn specs(&self) -> Vec<ws_context::ToolSpec> {
-        self.tools
-            .get()
-            .map(ws_core::ToolHost::specs)
+        self.current()
+            .map(|t| ws_core::ToolHost::specs(&t))
             .unwrap_or_default()
     }
 
     fn needs_approval(&self, name: &str) -> bool {
-        self.tools.get().is_none_or(|t| t.needs_approval(name))
+        self.current().is_none_or(|t| t.needs_approval(name))
     }
 
     fn needs_approval_for(&self, name: &str, args: &serde_json::Value) -> bool {
-        self.tools
-            .get()
+        self.current()
             .is_none_or(|t| t.needs_approval_for(name, args))
     }
 
     fn file_for(&self, name: &str, args: &serde_json::Value) -> Option<std::path::PathBuf> {
-        self.tools.get().and_then(|t| t.file_for(name, args))
+        self.current().and_then(|t| t.file_for(name, args))
     }
 
     async fn call(&self, name: &str, args: serde_json::Value) -> ws_core::ToolOutput {
-        match self.tools.get() {
+        match self.current() {
             Some(t) => t.call(name, args).await,
             None => ws_core::ToolOutput::error("tool servers are still starting"),
         }
+    }
+}
+
+/// The skills the agent sees: the user's folder, the pipeline's and the
+/// built-in ones. Settings rebuilds them when a skill is added or removed.
+#[derive(Debug)]
+pub struct LiveSkills {
+    pub dir: std::path::PathBuf,
+    pipeline: Option<std::path::PathBuf>,
+    now: std::sync::RwLock<Arc<ws_core::Skills>>,
+}
+
+impl LiveSkills {
+    fn new(dir: std::path::PathBuf, pipeline: Option<std::path::PathBuf>) -> Self {
+        let live = Self {
+            dir,
+            pipeline,
+            now: std::sync::RwLock::default(),
+        };
+        live.reload();
+        live
+    }
+
+    /// Look in the folders again.
+    pub fn reload(&self) {
+        let skills = ws_core::Skills::load(&self.dir);
+        let skills = match &self.pipeline {
+            Some(p) => skills.and_load(&p.join("skills")),
+            None => skills,
+        };
+        if let Ok(mut now) = self.now.write() {
+            *now = Arc::new(skills.with_builtin(BUILTIN_SKILLS));
+        }
+    }
+
+    pub fn current(&self) -> Arc<ws_core::Skills> {
+        self.now.read().map(|s| s.clone()).unwrap_or_default()
+    }
+}
+
+#[async_trait::async_trait]
+impl ws_core::ToolHost for LiveSkills {
+    fn specs(&self) -> Vec<ws_context::ToolSpec> {
+        ws_core::ToolHost::specs(&*self.current())
+    }
+
+    fn needs_approval(&self, name: &str) -> bool {
+        ws_core::ToolHost::needs_approval(&*self.current(), name)
+    }
+
+    async fn call(&self, name: &str, args: serde_json::Value) -> ws_core::ToolOutput {
+        let skills = self.current();
+        ws_core::ToolHost::call(&*skills, name, args).await
     }
 }

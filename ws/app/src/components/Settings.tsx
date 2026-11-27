@@ -8,13 +8,12 @@ import {
   type CompatProvider,
   type ModelChoice,
   type ModelOption,
-  type McpStatus,
   type RoleModel,
-  type SkillList,
   type ModelProfile,
 } from "../api";
 import { LocalModelSection } from "./LocalModel";
 import { Languages } from "./Languages";
+import { McpSection, SkillsSection } from "./Addons";
 import { setVimEnabled, vimEnabled } from "../vim";
 
 interface Props {
@@ -571,40 +570,6 @@ function ModelGroups({ models, suffix }: { models: ModelOption[]; suffix?: (m: M
   );
 }
 
-/** User-configured OpenAI-compatible endpoints. */
-/** Skills are SKILL.md folders, the same format Claude Code uses. */
-function SkillsSection() {
-  const [list, setList] = useState<SkillList | null>(null);
-  useEffect(() => {
-    api
-      .listSkills()
-      .then(setList)
-      .catch(() => setList(null));
-  }, []);
-  if (!list) return null;
-
-  return (
-    <section>
-      <h3>Skills</h3>
-      <p className="muted">
-        Ponytail and the Understand-Anything graph skills are built in. Add your own skill folders
-        to <code>{list.dir}</code> and restart; one with a built-in&apos;s name replaces it. Type{" "}
-        <code>/name</code> in a message to run one; Claude can also load them itself.
-      </p>
-      {list.skills.length === 0 ? (
-        <p className="muted">No skills found.</p>
-      ) : (
-        list.skills.map((s) => (
-          <div key={s.name} className="skill-row">
-            <code>/{s.name}</code> <span className="muted">{s.description}</span>
-          </div>
-        ))
-      )}
-    </section>
-  );
-}
-
-/** Tool servers come from mcp.json, in the same shape as Claude Code's. */
 function GithubSection() {
   const [login, setLogin] = useState<string | null | undefined>(undefined);
   const [token, setToken] = useState("");
@@ -722,45 +687,7 @@ function GithubSection() {
   );
 }
 
-function McpSection() {
-  const [status, setStatus] = useState<McpStatus | null>(null);
-  useEffect(() => {
-    api
-      .mcpStatus()
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
-  if (!status) return null;
-
-  return (
-    <section>
-      <h3>Tool servers (MCP)</h3>
-      <p className="muted">
-        Configured in <code>{status.config_path}</code> using the same <code>mcpServers</code>{" "}
-        format as Claude Code. Changes apply on the next launch. Models reach these tools in Code
-        Mode: they search them and call them by writing short scripts, so many servers cost no more
-        context than one. Every tool asks before running unless you list it in that server's{" "}
-        <code>autoApprove</code>; tools that run commands always ask, and a script that uses one asks
-        once, showing the script.
-      </p>
-      {status.servers.length === 0 ? (
-        <p className="muted">No tool servers configured.</p>
-      ) : (
-        status.servers.map((s) => (
-          <div key={s.id} className="key-head">
-            <strong>{s.id}</strong>
-            {s.error ? (
-              <span className="failure">{s.error}</span>
-            ) : (
-              <span className="ok">{s.tools} tools</span>
-            )}
-          </div>
-        ))
-      )}
-    </section>
-  );
-}
-
+/** User-configured OpenAI-compatible endpoints. */
 function CompatSection({ onChanged }: { onChanged: () => void }) {
   const [providers, setProviders] = useState<CompatProvider[]>([]);
   const [id, setId] = useState("");

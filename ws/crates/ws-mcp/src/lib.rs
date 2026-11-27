@@ -51,6 +51,98 @@ impl McpConfig {
     }
 }
 
+/// A server id Settings accepts: what tool names are prefixed with.
+fn valid_id(id: &str) -> Result<(), String> {
+    let ok = !id.is_empty()
+        && id.len() <= 40
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "\"{id}\" is not a server name: use letters, digits, - _ or ."
+        ))
+    }
+}
+
+/// One server's settings, checked as Workspace will start it.
+fn valid_server(id: &str, server: &serde_json::Value) -> Result<(), String> {
+    valid_id(id)?;
+    serde_json::from_value::<ServerConfig>(server.clone())
+        .map(drop)
+        .map_err(|e| {
+            if server.get("command").is_none() {
+                format!(
+                    "{id} has no command: Workspace starts each server itself, so it needs one (servers reached by URL are not supported)"
+                )
+            } else {
+                format!("{id}: {e}")
+            }
+        })
+}
+
+/// The servers in text pasted from a tool's README: `{"mcpServers": {...}}`
+/// or just the map of servers. Each is checked.
+///
+/// # Errors
+/// Not JSON, not that shape, or a server Workspace cannot start.
+pub fn pasted_servers(text: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text.trim()).map_err(|e| format!("not valid JSON: {e}"))?;
+    let map = match value.get("mcpServers") {
+        Some(inner) => inner.clone(),
+        None => value,
+    };
+    let serde_json::Value::Object(servers) = map else {
+        return Err("expected {\"mcpServers\": {...}} or a map of servers".to_owned());
+    };
+    if servers.is_empty() {
+        return Err("there are no servers in it".to_owned());
+    }
+    for (id, server) in &servers {
+        valid_server(id, server)?;
+    }
+    Ok(servers)
+}
+
+/// `mcp.json`'s new text: `id` set to `server`, or removed when None, with
+/// every other server and field kept as it was.
+///
+/// # Errors
+/// The file is not valid JSON, or the server is not one Workspace can start.
+pub fn edit_config(
+    file: Option<&str>,
+    id: &str,
+    server: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let mut root: serde_json::Value = match file.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|e| format!("mcp.json is not valid JSON, so it was left alone: {e}"))?,
+        None => serde_json::json!({}),
+    };
+    let Some(obj) = root.as_object_mut() else {
+        return Err("mcp.json is not a JSON object, so it was left alone".to_owned());
+    };
+    let servers = obj
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+    let Some(servers) = servers.as_object_mut() else {
+        return Err("mcpServers in mcp.json is not an object".to_owned());
+    };
+    match server {
+        Some(server) => {
+            valid_server(id, &server)?;
+            servers.insert(id.to_owned(), server);
+        }
+        None => {
+            servers.remove(id);
+        }
+    }
+    serde_json::to_string_pretty(&root).map_err(|e| e.to_string())
+}
+
 /// One offered tool: which server has it, and what to call it there.
 #[derive(Debug, Clone)]
 struct Offered {
@@ -130,7 +222,8 @@ impl McpTools {
     async fn add(&mut self, id: &str, cfg: &ServerConfig) -> Result<usize, String> {
         let spawn = |program: &str| {
             let mut cmd = tokio::process::Command::new(program);
-            cmd.args(&cfg.args).envs(&cfg.env);
+            // Restarting from Settings drops the old servers: they must exit.
+            cmd.args(&cfg.args).envs(&cfg.env).kill_on_drop(true);
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // no console window
             TokioChildProcess::new(cmd)
@@ -275,6 +368,52 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn pasted_servers_take_either_shape_and_are_checked() {
+        let both = [
+            r#"{"mcpServers": {"serena": {"command": "uvx", "args": ["serena"]}}}"#,
+            r#"{"serena": {"command": "uvx", "args": ["serena"]}}"#,
+        ];
+        for text in both {
+            let got = pasted_servers(text).unwrap();
+            assert_eq!(got.keys().collect::<Vec<_>>(), ["serena"], "{text}");
+        }
+        assert!(pasted_servers("nope").is_err());
+        assert!(pasted_servers("{}").is_err(), "no servers");
+        let remote = pasted_servers(r#"{"x": {"type": "http", "url": "https://a"}}"#).unwrap_err();
+        assert!(remote.contains("no command"), "{remote}");
+        assert!(
+            pasted_servers(r#"{"a b": {"command": "x"}}"#).is_err(),
+            "bad name"
+        );
+    }
+
+    #[test]
+    fn editing_one_server_keeps_the_rest_of_the_file() {
+        let file = r#"{"mcpServers": {"keep": {"command": "k", "extra": 1}}, "other": true}"#;
+        let added =
+            edit_config(Some(file), "new", Some(serde_json::json!({"command": "n"}))).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&added).unwrap();
+        assert_eq!(v["other"], true);
+        assert_eq!(v["mcpServers"]["keep"]["extra"], 1);
+        assert_eq!(v["mcpServers"]["new"]["command"], "n");
+        assert!(McpConfig::parse(&added).is_ok(), "still a valid config");
+
+        let removed = edit_config(Some(&added), "keep", None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&removed).unwrap();
+        assert!(v["mcpServers"].get("keep").is_none());
+
+        assert!(edit_config(None, "first", Some(serde_json::json!({"command": "f"}))).is_ok());
+        assert!(
+            edit_config(Some("{broken"), "x", None).is_err(),
+            "a broken file is not overwritten"
+        );
+        assert!(
+            edit_config(None, "x", Some(serde_json::json!({"args": []}))).is_err(),
+            "needs a command"
+        );
+    }
 
     #[test]
     fn the_config_reads_claude_codes_mcp_json_shape() {

@@ -205,6 +205,40 @@ pub(crate) fn parse(text: &str) -> Option<(Option<String>, String, String)> {
 }
 
 /// One frontmatter value of `text`, if it has frontmatter and the key.
+/// A new skill's `SKILL.md`, written in Settings: its name (what `/name`
+/// runs), a one-line description (how the model picks it) and instructions.
+///
+/// # Errors
+/// The name is not lowercase letters, digits and dashes, or a part is empty.
+pub fn skill_file(name: &str, description: &str, instructions: &str) -> Result<String, String> {
+    let name = name.trim();
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !ok {
+        return Err(format!(
+            "\"{name}\" is not a skill name: use lowercase letters, digits and dashes, like code-review"
+        ));
+    }
+    // One line, in a block so quotes, colons or a leading > read as text.
+    let description = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    if description.is_empty() {
+        return Err(
+            "say in a line what the skill is for: the model uses it to pick the skill".to_owned(),
+        );
+    }
+    let instructions = instructions.trim();
+    if instructions.is_empty() {
+        return Err("write the instructions the skill gives".to_owned());
+    }
+    Ok(format!(
+        "---\nname: {name}\ndescription: >\n  {description}\n---\n\n{instructions}\n"
+    ))
+}
+
 pub(crate) fn frontmatter_field(text: &str, key: &str) -> Option<String> {
     let mut lines = text.trim_start_matches('\u{feff}').lines();
     if lines.next()?.trim_end() != "---" {
@@ -281,6 +315,31 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn a_skill_written_in_settings_reads_back_as_written() {
+        let text = skill_file(
+            "code-review",
+            "Review a change: \"bugs\" first,\n then style",
+            "Read the diff.\nList bugs.",
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("code-review")).unwrap();
+        std::fs::write(dir.path().join("code-review/SKILL.md"), text).unwrap();
+        let skills = Skills::load(dir.path());
+        let skill = skills.get("code-review").unwrap();
+        assert_eq!(
+            skill.description,
+            "Review a change: \"bugs\" first, then style"
+        );
+        assert_eq!(skill.body.trim(), "Read the diff.\nList bugs.");
+        for bad in ["", "Code Review", "-x", "a/b", "../up"] {
+            assert!(skill_file(bad, "d", "i").is_err(), "{bad:?}");
+        }
+        assert!(skill_file("ok", " ", "i").is_err(), "needs a description");
+        assert!(skill_file("ok", "d", " ").is_err(), "needs instructions");
+    }
 
     /// Ponytail's real frontmatter shape: a folded description and extras.
     const PONYTAIL: &str = "---\nname: ponytail\ndescription: >\n  Lazy senior dev mode: the smallest\n  change that works.\nargument-hint: \"[lite|full|ultra]\"\nlicense: MIT\n---\n\n# Ponytail\n\nBe lazy.\n";

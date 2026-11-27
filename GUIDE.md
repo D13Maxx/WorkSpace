@@ -378,9 +378,14 @@ can read or change it too.
 
 ## Connect tool servers (Serena)
 
-Models can call tools from any MCP server. List them in `mcp.json` in the app
-data folder (Settings → Tool servers shows the exact path), in the same
-`mcpServers` format Claude Code uses. For [Serena](https://github.com/oraios/serena):
+Models can call tools from any MCP server. Add one in **Settings → Tool
+servers**: **Add server** is a form (name, command, arguments, environment,
+auto-approved tools), and **Paste config** takes the `mcpServers` JSON a
+tool's README gives. Each server shows its tool count or why it did not start,
+with **Edit** and **Remove**. A change restarts the servers at once; **Restart
+servers** does it by hand. Both write `mcp.json` in the app data folder,
+keeping anything in it the form does not show, in the same `mcpServers` format
+Claude Code uses, so you can also edit the file. For [Serena](https://github.com/oraios/serena):
 
 ```json
 {
@@ -394,7 +399,9 @@ data folder (Settings → Tool servers shows the exact path), in the same
 ```
 
 Install Serena first with `uv tool install -p 3.13 serena-agent`. Servers start
-in the background at launch; changes to `mcp.json` apply on the next launch.
+in the background at launch; a change made to `mcp.json` by hand applies at
+the next launch or **Restart servers**. Only servers Workspace starts itself
+(a `command`) are supported, not ones reached by URL.
 
 **Code Mode.** Models do not see each server's tools one by one: a large
 server such as Playwright would fill their context before the task starts.
@@ -439,8 +446,18 @@ into Workspace, with nothing to install:
   `/understand-onboard`.
 
 They live in `ws/app/src-tauri/skills` (MIT, licences alongside) and are
-compiled into the app. Add your own anywhere under the `skills` folder in the
-app data folder (a whole cloned repo is fine) and restart; one with a built-in's name replaces it. Settings → Skills lists them.
+compiled into the app. Add your own in **Settings → Skills**:
+
+- **New skill** writes one: a name (what you type after `/`), a line on what
+  it is for (the model reads it to decide when to use it) and the
+  instructions.
+- **Add from GitHub** clones a repo (`owner/repo` or its address) into the
+  `skills` folder in the app data folder; every `SKILL.md` in it is found.
+- **Remove** moves one of yours to the Recycle Bin; built-in ones stay.
+- **Reload** picks up skill folders you copied in by hand.
+
+Added skills work straight away, no restart. One with a built-in's name
+replaces it.
 
 - Type `/name request` to run one. Its instructions travel with your message,
   so this works with every model, local ones included.

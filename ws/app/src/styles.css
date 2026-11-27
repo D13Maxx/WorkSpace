@@ -3130,6 +3130,60 @@ body.resizing-v {
 }
 
 /* Settings: a model per team role, name then picker. */
+/* Settings > Skills and Tool servers: actions, a form, and one row per item. */
+.addon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.addon-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.addon-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.addon-form label .muted {
+  font-weight: 400;
+}
+.addon-form textarea {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.87rem;
+  resize: vertical;
+}
+.addon-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.addon-row > div {
+  min-width: 0;
+}
+.addon-row p {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.addon-row-actions,
+.confirm-pair {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+
 /* Settings > Team mode: one card for the lead, the workers' defaults, and
    each role, with its model and its fallbacks. */
 .team-card {

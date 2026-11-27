@@ -417,6 +417,7 @@ pub async fn send_message(
         // `/name request` runs a skill: its instructions travel with the message.
         state
             .skills
+            .current()
             .expand(&text)
             .unwrap_or_else(|| vec![Part::text(text)])
     };
@@ -1161,36 +1162,7 @@ pub fn mcp_status(state: State<'_, AppState>) -> McpStatusDto {
     }
 }
 
-// ---- skills -------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub struct SkillDto {
-    pub name: String,
-    pub description: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SkillsDto {
-    /// Where to put skill folders, e.g. a clone of the Ponytail repo.
-    pub dir: String,
-    pub skills: Vec<SkillDto>,
-}
-
-#[tauri::command]
-pub fn list_skills(state: State<'_, AppState>) -> SkillsDto {
-    SkillsDto {
-        dir: state.skills_dir.display().to_string(),
-        skills: state
-            .skills
-            .list()
-            .iter()
-            .map(|s| SkillDto {
-                name: s.name.clone(),
-                description: s.description.clone(),
-            })
-            .collect(),
-    }
-}
+// Skills: listed, added and removed in addons.rs.
 
 // ---- knowledge graph (Understand-Anything) ----------------------------------
 

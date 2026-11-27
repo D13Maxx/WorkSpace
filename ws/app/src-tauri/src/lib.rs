@@ -7,6 +7,7 @@
 //! Streaming uses a Tauri IPC channel per turn rather than global events, so
 //! two conversations streaming at once cannot interleave into one another.
 
+mod addons;
 mod awake;
 mod blueprint;
 mod bridge;
@@ -140,7 +141,16 @@ pub fn run() {
             commands::approval_rules,
             commands::set_approval_rules,
             commands::mcp_status,
-            commands::list_skills,
+            addons::list_skills,
+            addons::create_skill,
+            addons::add_skill_repo,
+            addons::remove_skill,
+            addons::reload_skills,
+            addons::mcp_servers,
+            addons::save_mcp_server,
+            addons::remove_mcp_server,
+            addons::add_mcp_servers,
+            addons::restart_mcp,
             commands::open_graph,
             commands::build_graph,
             commands::has_graph,

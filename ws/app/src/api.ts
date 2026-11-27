@@ -80,7 +80,17 @@ export interface FileEntry {
 
 export interface SkillList {
   dir: string;
-  skills: { name: string; description: string }[];
+  /** `own`: in the user's skills folder, so it can be removed. */
+  skills: { name: string; description: string; own: boolean }[];
+}
+
+/** One server as `mcp.json` has it; fields Workspace does not edit are kept. */
+export interface McpServer {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  autoApprove?: string[];
+  [other: string]: unknown;
 }
 
 export interface McpStatus {
@@ -520,6 +530,19 @@ export const api = {
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
 
   listSkills: () => invoke<SkillList>("list_skills"),
+  createSkill: (name: string, description: string, instructions: string) =>
+    invoke<SkillList>("create_skill", { name, description, instructions }),
+  /** owner/repo or an address; cloned into the skills folder. */
+  addSkillRepo: (url: string) => invoke<SkillList>("add_skill_repo", { url }),
+  removeSkill: (name: string) => invoke<SkillList>("remove_skill", { name }),
+  reloadSkills: () => invoke<SkillList>("reload_skills"),
+  mcpServers: () => invoke<Record<string, McpServer>>("mcp_servers"),
+  /** `was`: the old name when renaming. */
+  saveMcpServer: (id: string, server: McpServer, was: string | null) => invoke<void>("save_mcp_server", { id, server, was }),
+  removeMcpServer: (id: string) => invoke<void>("remove_mcp_server", { id }),
+  /** Config pasted from a README; returns the names added. */
+  addMcpServers: (text: string) => invoke<string[]>("add_mcp_servers", { text }),
+  restartMcp: () => invoke<McpStatus["servers"]>("restart_mcp"),
 
   undoEdit: (callId: string) => invoke<void>("undo_edit", { callId }),
 
