@@ -65,14 +65,15 @@ carries on with the saved plan.
 - **Asked only when it matters.** When the lead needs a decision it asks you
   in the chat and waits for your answer; if Workspace is in the tray, its
   window comes back to ask.
-- **Cheaper workers.** **Settings → Worker models** picks the model workers
-  start on; the model you chat with stays the lead. Under it, **By role**
-  gives a role its own model, such as a strong one for the reviewer and a
-  cheap one for the explorer; roles left on *Same as the worker model* use
-  the worker model. **Worker fallbacks** lists
-  models a worker switches to when its own fails (overloaded, down, out of
-  credit). A provider's rate limit is waited out rather than failing the
-  worker.
+- **Team mode settings.** **Settings → Team mode** sets up the team. The
+  lead is always the model picked in the chat and never switches. **Every
+  worker** sets the model workers start on and the shared fallbacks: models a
+  worker moves to, in order, when its own fails (overloaded, down, out of
+  credit). Each role (explorer, implementer, tester, debugger, reviewer,
+  docs-writer) can have its own model, such as a strong one for the reviewer
+  and a cheap one for the explorer, and its own fallbacks; a role without
+  them uses the worker model and the shared list. A provider's rate limit is
+  waited out rather than failing the worker.
 - **Fewer approval prompts.** **Settings → Approval rules** lets agents edit
   files inside the project, and run commands you list (`cargo test` also covers
   `cargo test -p core`), without asking. Everything else still asks, and a

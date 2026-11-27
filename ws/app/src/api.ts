@@ -180,6 +180,8 @@ export interface RoleModel {
   role: string;
   description: string;
   model: ModelChoice | null;
+  /** The role's own fallbacks; empty means the shared list. */
+  fallbacks: ModelChoice[];
 }
 
 export interface ModelOption {
@@ -450,6 +452,8 @@ export const api = {
   roleModels: () => invoke<RoleModel[]>("role_models"),
 
   setRoleModel: (role: string, model: ModelChoice | null) => invoke<void>("set_role_model", { role, model }),
+  /** Empty: back to the shared fallbacks. */
+  setRoleFallbacks: (role: string, models: ModelChoice[]) => invoke<void>("set_role_fallbacks", { role, models }),
 
   chatEncryption: () => invoke<ChatEncryption>("chat_encryption"),
 

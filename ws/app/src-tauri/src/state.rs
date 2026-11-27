@@ -219,6 +219,7 @@ impl AppState {
         }
 
         orchestrator.set_worker_fallbacks(ws_core::load_worker_fallbacks(&dir));
+        orchestrator.set_role_fallbacks(ws_core::load_role_fallbacks(&dir));
         orchestrator.set_worker_model(ws_core::load_worker_model(&dir));
         orchestrator.set_role_models(ws_core::load_role_models(&dir));
         orchestrator.set_rules(ws_core::rules::load_rules(&dir));

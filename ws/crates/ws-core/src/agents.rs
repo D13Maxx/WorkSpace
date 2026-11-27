@@ -67,6 +67,32 @@ pub fn save_role_models(
     std::fs::write(data_dir.join(ROLE_MODELS_FILE), json)
 }
 
+/// Each team role's own fallbacks, ahead of the shared list, shared like it.
+pub const ROLE_FALLBACKS_FILE: &str = "role-fallbacks.json";
+
+/// The saved fallbacks per role; roles left out use the shared list.
+#[must_use]
+pub fn load_role_fallbacks(data_dir: &Path) -> BTreeMap<String, Vec<ModelRef>> {
+    let path = data_dir.join(ROLE_FALLBACKS_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, path = %path.display(), "role fallbacks unreadable; using the shared list");
+        BTreeMap::new()
+    })
+}
+
+/// # Errors
+/// The file cannot be written.
+pub fn save_role_fallbacks(
+    data_dir: &Path,
+    fallbacks: &BTreeMap<String, Vec<ModelRef>>,
+) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(fallbacks).map_err(std::io::Error::other)?;
+    std::fs::write(data_dir.join(ROLE_FALLBACKS_FILE), json)
+}
+
 /// The saved fallback list; empty if there is none or it cannot be read.
 #[must_use]
 pub fn load_worker_fallbacks(data_dir: &Path) -> Vec<ModelRef> {
@@ -649,6 +675,20 @@ add tests"
             "Task:
 Continue the plan."
         ));
+    }
+
+    #[test]
+    fn role_fallbacks_round_trip_and_a_broken_file_means_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_role_fallbacks(dir.path()).is_empty());
+        let saved = BTreeMap::from([(
+            "tester".to_owned(),
+            vec![ModelRef::new("a", "b"), ModelRef::new("c", "d")],
+        )]);
+        save_role_fallbacks(dir.path(), &saved).unwrap();
+        assert_eq!(load_role_fallbacks(dir.path()), saved);
+        std::fs::write(dir.path().join(ROLE_FALLBACKS_FILE), "{").unwrap();
+        assert!(load_role_fallbacks(dir.path()).is_empty());
     }
 
     #[test]

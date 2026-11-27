@@ -3130,17 +3130,44 @@ body.resizing-v {
 }
 
 /* Settings: a model per team role, name then picker. */
-.role-models {
+/* Settings > Team mode: one card for the lead, the workers' defaults, and
+   each role, with its model and its fallbacks. */
+.team-card {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.team-lead {
+  border-left: 3px solid var(--accent);
+}
+.team-card p {
+  margin: 4px 0 0;
+}
+.team-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.team-head .team-role {
+  text-transform: capitalize;
+}
+.team-field {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.35rem 0.75rem;
-  align-items: center;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 8px;
 }
-.role-models label {
-  display: contents;
+.team-field > span {
+  padding-top: 7px;
+  color: var(--muted);
+  font-size: 0.87rem;
 }
-.role-models select {
-  min-width: 0;
+.team-empty {
+  margin: 6px 0 6px;
 }
 
 /* The agent view's board: one line per worker, herdr-style. */

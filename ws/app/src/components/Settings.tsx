@@ -344,85 +344,207 @@ function EncryptionSection() {
 }
 
 /** What workers start on, so a big model can lead and cheaper ones do the parts. */
-function WorkerModelSection({ models }: { models: ModelOption[] }) {
-  const [model, setModel] = useState<ModelChoice | null>(null);
+/** The team: the lead is the chat's model; every worker starts on the worker
+ *  model (or its role's) and moves down its fallbacks (its role's, or the
+ *  shared list) when that model fails. */
+function TeamSection({ models }: { models: ModelOption[] }) {
+  const [worker, setWorker] = useState<ModelChoice | null>(null);
+  const [shared, setShared] = useState<ModelChoice[]>([]);
+  const [roles, setRoles] = useState<RoleModel[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
+  const done = () => setError(null);
+  const failed = (e: unknown) => setError(String(e));
 
   useEffect(() => {
-    api
-      .workerModel()
-      .then(setModel)
-      .catch((e) => setError(String(e)));
+    Promise.all([api.workerModel(), api.workerFallbacks(), api.roleModels()])
+      .then(([w, f, r]) => {
+        setWorker(w);
+        setShared(f);
+        setRoles(r);
+      })
+      .catch(failed);
   }, []);
 
-  const save = (value: string) => {
-    const m = models.find((o) => key(o) === value);
-    const next = m ? { backend: m.backend, model_id: m.model_id } : null;
-    setModel(next);
-    api.setWorkerModel(next).then(() => setError(null), (e) => setError(String(e)));
-  };
-  const known = model === null || models.some((o) => key(o) === key(model));
+  const setRole = (role: string, change: Partial<RoleModel>) =>
+    setRoles((rs) => rs.map((r) => (r.role === role ? { ...r, ...change } : r)));
 
   return (
     <section>
-      <h3>Worker model</h3>
+      <h3>Team mode</h3>
       <p className="muted">
-        The model workers start on when the chat hands them parts of a task. The model you chat
-        with stays the lead. An agent file can name its own with <code>model: backend/model</code>.
+        With <strong>Coordinate</strong> ticked, the chat leads a team: it plans, hands parts to
+        workers in six roles, and checks their work. Each worker starts on its model; if that model
+        fails after the provider&apos;s own retries (overloaded, down, out of credit), it carries on
+        with its fallbacks in order. Models that cannot use tools are skipped. An agent file&apos;s
+        own <code>model:</code> still comes first.
       </p>
-      <select value={model ? key(model) : ""} onChange={(e) => save(e.target.value)} aria-label="Worker model">
-        <option value="">Same as the chat</option>
-        {!known && model && <option value={key(model)}>{key(model)} (not available now)</option>}
-        <ModelGroups models={models} />
-      </select>
-      <h4>By role</h4>
-      <p className="muted">A team role can start on a model of its own instead, such as a strong model for the reviewer and a cheap one for the explorer.</p>
-      <RoleModels models={models} />
+
+      <div className="team-card team-lead">
+        <div className="team-head">
+          <strong>Lead</strong>
+          <span className="muted">the chat&apos;s model</span>
+        </div>
+        <p className="muted">Always the model picked in the chat. It never switches to a fallback.</p>
+      </div>
+
+      <div className="team-card">
+        <div className="team-head">
+          <strong>Every worker</strong>
+          <span className="muted">unless its role has its own</span>
+        </div>
+        <ModelPick
+          models={models}
+          value={worker}
+          none="Same as the chat"
+          label="Worker model"
+          onChange={(m) => {
+            setWorker(m);
+            api.setWorkerModel(m).then(done, failed);
+          }}
+        />
+        <FallbackList
+          models={models}
+          list={shared}
+          label="Shared fallbacks"
+          empty="None: a worker whose model fails stops."
+          onChange={(next) => {
+            setShared(next);
+            api.setWorkerFallbacks(next).then(done, failed);
+          }}
+        />
+      </div>
+
+      <h4>Roles</h4>
+      {roles.map((r) => (
+        <div key={r.role} className="team-card">
+          <div className="team-head">
+            <strong className="team-role">{r.role}</strong>
+            <span className="muted">{r.description}</span>
+          </div>
+          <ModelPick
+            models={models}
+            value={r.model}
+            none="The worker model"
+            label={`Model for the ${r.role}`}
+            onChange={(m) => {
+              setRole(r.role, { model: m });
+              api.setRoleModel(r.role, m).then(done, failed);
+            }}
+          />
+          <FallbackList
+            models={models}
+            list={r.fallbacks}
+            label={`Fallbacks for the ${r.role}`}
+            empty="Uses the shared fallbacks."
+            onChange={(next) => {
+              setRole(r.role, { fallbacks: next });
+              api.setRoleFallbacks(r.role, next).then(done, failed);
+            }}
+          />
+        </div>
+      ))}
       {error && <p className="failure">{error}</p>}
     </section>
   );
 }
 
-/** One model choice per team role; unset ones use the worker model. */
-function RoleModels({ models }: { models: ModelOption[] }) {
-  const [roles, setRoles] = useState<RoleModel[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
+const modelKey = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
 
-  useEffect(() => {
-    api
-      .roleModels()
-      .then(setRoles)
-      .catch((e) => setError(String(e)));
-  }, []);
-
-  const save = (role: string, value: string) => {
-    const m = models.find((o) => key(o) === value);
-    const next = m ? { backend: m.backend, model_id: m.model_id } : null;
-    setRoles((rs) => rs.map((r) => (r.role === role ? { ...r, model: next } : r)));
-    api.setRoleModel(role, next).then(() => setError(null), (e) => setError(String(e)));
-  };
-
+/** A model picker; `none` names what an empty choice means. */
+function ModelPick({
+  models,
+  value,
+  none,
+  label,
+  onChange,
+}: {
+  models: ModelOption[];
+  value: ModelChoice | null;
+  none: string;
+  label: string;
+  onChange: (m: ModelChoice | null) => void;
+}) {
+  const known = value === null || models.some((o) => modelKey(o) === modelKey(value));
   return (
-    <>
-      <div className="role-models">
-        {roles.map((r) => {
-          const known = r.model === null || models.some((o) => key(o) === key(r.model!));
-          return (
-            <label key={r.role} title={r.description}>
-              <span>{r.role}</span>
-              <select value={r.model ? key(r.model) : ""} onChange={(e) => save(r.role, e.target.value)} aria-label={`Model for the ${r.role}`}>
-                <option value="">Same as the worker model</option>
-                {!known && r.model && <option value={key(r.model)}>{key(r.model)} (not available now)</option>}
-                <ModelGroups models={models} />
-              </select>
-            </label>
-          );
-        })}
+    <div className="team-field">
+      <span>Model</span>
+      <select
+        value={value ? modelKey(value) : ""}
+        aria-label={label}
+        onChange={(e) => {
+          const m = models.find((o) => modelKey(o) === e.target.value);
+          onChange(m ? { backend: m.backend, model_id: m.model_id } : null);
+        }}
+      >
+        <option value="">{none}</option>
+        {!known && value && <option value={modelKey(value)}>{modelKey(value)} (not available now)</option>}
+        <ModelGroups models={models} />
+      </select>
+    </div>
+  );
+}
+
+/** An ordered list of fallback models: reorder, remove, add. */
+function FallbackList({
+  models,
+  list,
+  label,
+  empty,
+  onChange,
+}: {
+  models: ModelOption[];
+  list: ModelChoice[];
+  label: string;
+  empty: string;
+  onChange: (next: ModelChoice[]) => void;
+}) {
+  const move = (i: number, by: number) => {
+    const next = [...list];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    onChange(next);
+  };
+  const name = (m: ModelChoice) => {
+    const known = models.find((o) => modelKey(o) === modelKey(m));
+    return known ? `${m.backend} / ${known.display_name}` : `${modelKey(m)} (not available now)`;
+  };
+  const addable = models.filter((m) => !list.some((l) => modelKey(l) === modelKey(m)));
+  return (
+    <div className="team-field">
+      <span>Fallbacks</span>
+      <div>
+        {list.length === 0 ? (
+          <p className="muted team-empty">{empty}</p>
+        ) : (
+          <ol className="fallback-list" aria-label={label}>
+            {list.map((m, i) => (
+              <li key={modelKey(m)}>
+                <span>{name(m)}</span>
+                <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${modelKey(m)} up`}>
+                  ↑
+                </button>
+                <button onClick={() => move(i, 1)} disabled={i === list.length - 1} aria-label={`Move ${modelKey(m)} down`}>
+                  ↓
+                </button>
+                <button onClick={() => onChange(list.filter((_, j) => j !== i))} aria-label={`Remove ${modelKey(m)}`}>
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+        <select
+          value=""
+          onChange={(e) => {
+            const m = addable.find((o) => modelKey(o) === e.target.value);
+            if (m) onChange([...list, { backend: m.backend, model_id: m.model_id }]);
+          }}
+          aria-label={`Add to ${label.toLowerCase()}`}
+        >
+          <option value="">{list.length ? "Add another fallback…" : "Add a fallback…"}</option>
+          <ModelGroups models={addable} />
+        </select>
       </div>
-      {error && <p className="failure">{error}</p>}
-    </>
+    </div>
   );
 }
 
@@ -446,76 +568,6 @@ function ModelGroups({ models, suffix }: { models: ModelOption[]; suffix?: (m: M
         </optgroup>
       ))}
     </>
-  );
-}
-
-/** Where a worker goes when its model fails: an ordered list, workers only. */
-function FallbackSection({ models }: { models: ModelOption[] }) {
-  const [list, setList] = useState<ModelChoice[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const key = (m: ModelChoice) => `${m.backend}/${m.model_id}`;
-
-  useEffect(() => {
-    api
-      .workerFallbacks()
-      .then(setList)
-      .catch((e) => setError(String(e)));
-  }, []);
-
-  const save = (next: ModelChoice[]) => {
-    setList(next);
-    api.setWorkerFallbacks(next).then(() => setError(null), (e) => setError(String(e)));
-  };
-  const move = (i: number, by: number) => {
-    const next = [...list];
-    [next[i], next[i + by]] = [next[i + by], next[i]];
-    save(next);
-  };
-  const name = (m: ModelChoice) => {
-    const known = models.find((o) => key(o) === key(m));
-    return known ? `${m.backend} / ${known.display_name}` : `${key(m)} (not available now)`;
-  };
-  const addable = models.filter((m) => !list.some((l) => key(l) === key(m)));
-
-  return (
-    <section>
-      <h3>Worker fallbacks</h3>
-      <p className="muted">
-        When a worker's model fails (overloaded, down, out of credit) after the provider's own
-        retries, the worker carries on with the first model here that works, then the next. The
-        model you chat with never switches. Models that cannot use tools are skipped.
-      </p>
-      {list.length > 0 && (
-        <ol className="fallback-list">
-          {list.map((m, i) => (
-            <li key={key(m)}>
-              <span>{name(m)}</span>
-              <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${key(m)} up`}>
-                ↑
-              </button>
-              <button onClick={() => move(i, 1)} disabled={i === list.length - 1} aria-label={`Move ${key(m)} down`}>
-                ↓
-              </button>
-              <button onClick={() => save(list.filter((_, j) => j !== i))} aria-label={`Remove ${key(m)}`}>
-                ✕
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
-      <select
-        value=""
-        onChange={(e) => {
-          const m = addable.find((o) => key(o) === e.target.value);
-          if (m) save([...list, { backend: m.backend, model_id: m.model_id }]);
-        }}
-        aria-label="Add a fallback model"
-      >
-        <option value="">{list.length ? "Add another fallback…" : "Add a fallback model…"}</option>
-        <ModelGroups models={addable} />
-      </select>
-      {error && <p className="failure">{error}</p>}
-    </section>
   );
 }
 
@@ -816,7 +868,7 @@ function CompatSection({ onChanged }: { onChanged: () => void }) {
 const GROUPS = [
   { id: "general", label: "General", about: "How the editor behaves and which languages run." },
   { id: "models", label: "Models", about: "Where the models come from and what each can do." },
-  { id: "agents", label: "Agents", about: "How helpers work: their models, what they may do, their skills." },
+  { id: "agents", label: "Agents", about: "The team: its lead and workers, what they may do, their skills." },
   { id: "connections", label: "Connections", about: "GitHub and other tool servers." },
   { id: "privacy", label: "Privacy", about: "How your chats are kept." },
 ] as const;
@@ -875,8 +927,7 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
     { id: "compat", group: "models", label: "OpenAI-compatible endpoints", about: "llama.cpp, vLLM, gateways", body: () => <CompatSection onChanged={refreshBackends} /> },
     { id: "local", group: "models", label: "Local model", about: "Run a model on this PC", body: () => <LocalModelSection onChanged={onModelsChanged} /> },
     { id: "profiles", group: "models", label: "Model profiles", about: "Context size, output and vision per model", body: () => <ProfileSection models={models} onSaved={onModelsChanged} /> },
-    { id: "worker", group: "agents", label: "Worker models", about: "The model helpers use, by role", body: () => <WorkerModelSection models={models} /> },
-    { id: "fallbacks", group: "agents", label: "Worker fallbacks", about: "Models to try when one fails", body: () => <FallbackSection models={models} /> },
+    { id: "team", group: "agents", label: "Team mode", about: "The lead, and each worker's model and fallbacks", body: () => <TeamSection models={models} /> },
     { id: "approvals", group: "agents", label: "Approval rules", about: "What agents may do without asking", body: () => <ApprovalRulesSection /> },
     { id: "skills", group: "agents", label: "Skills", about: "/commands the agent can run", body: () => <SkillsSection /> },
     { id: "github", group: "connections", label: "GitHub", about: "Sign in, PRs, CI and agent tools", body: () => <GithubSection /> },

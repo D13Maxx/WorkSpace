@@ -1515,6 +1515,43 @@ async fn a_role_with_its_own_model_starts_on_it_and_the_rest_use_the_worker_mode
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_role_with_its_own_fallbacks_moves_down_them_not_the_shared_list() {
+    let h = harness_with(Vec::new(), worker_agents());
+    h.orch.set_role_models(std::collections::BTreeMap::from([(
+        "tester".to_owned(),
+        ModelRef::new("fake", "fake-3"),
+    )]));
+    h.orch
+        .set_worker_fallbacks(vec![ModelRef::new("fake", "fake-2")]);
+    h.orch
+        .set_role_fallbacks(std::collections::BTreeMap::from([(
+            "tester".to_owned(),
+            vec![ModelRef::new("fake", "fake-4")],
+        )]));
+    let lead = |s| h.backend.script_for("fake-1", s);
+    lead(dispatch("d1", "tester"));
+    lead(Scripted::calls("w1", "wait_for_team", "{}"));
+    lead(Scripted::Text(vec!["done".to_owned()]));
+    h.backend.script_for(
+        "fake-3",
+        Scripted::RefusesToStart {
+            error: ws_context::BackendError::Http {
+                backend: "fake".into(),
+                status: 529,
+                message: "overloaded".to_owned(),
+            },
+        },
+    );
+    h.backend
+        .script_for("fake-4", Scripted::Text(vec!["tests pass".to_owned()]));
+    let conv = h.conversation();
+    run_team(&h, conv).await;
+
+    assert_eq!(to_model(&h, "fake-4").len(), 1, "the tester's own fallback");
+    assert!(to_model(&h, "fake-2").is_empty(), "not the shared list");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_team_role_remembers_its_earlier_task_in_the_run() {
     let h = harness_with(Vec::new(), worker_agents());
     h.orch

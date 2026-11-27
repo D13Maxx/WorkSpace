@@ -474,25 +474,51 @@ pub fn set_worker_model(state: State<'_, AppState>, model: Option<ModelRef>) -> 
     Ok(())
 }
 
-/// A team role and the model it starts on; none means the worker model.
+/// A team role, the model it starts on (none: the worker model) and its own
+/// fallbacks (empty: the shared list).
 #[derive(Debug, Serialize)]
 pub struct RoleModel {
     role: &'static str,
     description: &'static str,
     model: Option<ModelRef>,
+    fallbacks: Vec<ModelRef>,
 }
 
-/// Every team role, with its saved model.
+/// Every team role, with its saved model and fallbacks.
 #[tauri::command]
 pub fn role_models(state: State<'_, AppState>) -> Vec<RoleModel> {
     let saved = ws_core::load_role_models(&state.data_dir);
+    let fallbacks = ws_core::load_role_fallbacks(&state.data_dir);
     ws_core::roles()
         .map(|(role, description)| RoleModel {
             role,
             description,
             model: saved.get(role).cloned(),
+            fallbacks: fallbacks.get(role).cloned().unwrap_or_default(),
         })
         .collect()
+}
+
+/// Save `role`'s own fallbacks (empty: back to the shared list) and use them
+/// from its next task on.
+#[tauri::command]
+pub fn set_role_fallbacks(
+    state: State<'_, AppState>,
+    role: String,
+    models: Vec<ModelRef>,
+) -> CmdResult<()> {
+    if !ws_core::roles().any(|(r, _)| r == role) {
+        return Err(format!("there is no team role called {role}"));
+    }
+    let mut saved = ws_core::load_role_fallbacks(&state.data_dir);
+    if models.is_empty() {
+        saved.remove(&role);
+    } else {
+        saved.insert(role, models);
+    }
+    ws_core::save_role_fallbacks(&state.data_dir, &saved).map_err(err)?;
+    state.orchestrator.set_role_fallbacks(saved);
+    Ok(())
 }
 
 /// Save `role`'s model (none: back to the worker model) and use it from its
