@@ -1263,7 +1263,7 @@ body.resizing {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--accent);
 }
 .settings-nav button {
   width: 100%;
@@ -1331,6 +1331,7 @@ body.resizing {
 .settings-card h3 {
   margin: 0 0 2px;
   font-size: 1.05rem;
+  color: var(--accent);
 }
 .settings-card p {
   margin: 0 0 10px;
