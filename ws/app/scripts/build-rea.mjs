@@ -9,6 +9,9 @@
 // Installed with --ignore-scripts, so no package code runs here, and without
 // optional dependencies: frida (live process instrumentation) is a native
 // add-on that downloads its own binary when installed, so it is left out.
+// Also without node_modules/.bin links: on Linux they are symlinks into the
+// temporary install folder, left dangling once it is deleted, and Tauri fails
+// on them. Workspace starts REA with `node`, so nothing needs them.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,7 +30,7 @@ const prefix = fs.mkdtempSync(path.join(os.tmpdir(), "rea-"));
 execFileSync(
   npm,
   ["install", REA, "--prefix", prefix, "--omit=dev", "--omit=optional", "--ignore-scripts",
-   "--no-audit", "--no-fund", "--engine-strict=false"],
+   "--no-bin-links", "--no-audit", "--no-fund", "--engine-strict=false"],
   { stdio: "inherit", shell: process.platform === "win32" },
 );
 const pkg = path.join(prefix, "node_modules", "rea-agents");
