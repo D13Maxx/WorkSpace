@@ -1,12 +1,14 @@
-/* Dark by default. The visual design pass is still to come, so this aims
-   for legible and calm rather than styled: one dark ground, two raised
-   surfaces, and a single accent. */
+/* Dark: one ground, two raised surfaces, a single accent. Soft borders,
+   rounded corners and quiet hovers; colour is kept for what needs you. */
 :root {
   --bg: #0f1115;
   --panel: #161920;
   --raised: #1c202a;
   --border: #272c38;
   --border-strong: #333a49;
+  --hover: #232835;
+  --focus-ring: 0 0 0 3px rgba(107, 155, 255, 0.2);
+  --radius: 8px;
   --text: #e6e9ef;
   --muted: #8b94a6;
   --accent: #6b9bff;
@@ -27,7 +29,7 @@ body,
   margin: 0;
 }
 body {
-  font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -35,17 +37,17 @@ body {
 
 button {
   font: inherit;
-  padding: 6px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   background: var(--raised);
   color: var(--text);
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 button:hover:not(:disabled) {
-  background: var(--panel);
-  border-color: var(--accent);
+  background: var(--hover);
+  border-color: var(--border-strong);
 }
 button:focus-visible {
   outline: 2px solid var(--accent);
@@ -76,9 +78,9 @@ input,
 textarea,
 select {
   font: inherit;
-  padding: 7px 9px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--bg);
   color: var(--text);
   width: 100%;
@@ -105,6 +107,28 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+/* Thin scrollbars that sit back until used. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
 }
 
 .app {
@@ -174,7 +198,7 @@ select:focus {
 }
 .conversation .model {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .row-actions {
   display: flex;
@@ -213,7 +237,7 @@ select:focus {
   background: var(--panel);
 }
 .thread-header h1 {
-  font-size: 15px;
+  font-size: 16px;
   margin: 0;
   flex: 1;
   font-weight: 600;
@@ -257,7 +281,7 @@ select:focus {
 }
 .message .who {
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   flex: 1;
   letter-spacing: 0.02em;
@@ -272,7 +296,7 @@ select:focus {
 }
 .message .actions button {
   padding: 2px 7px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .message .actions button:hover {
@@ -287,7 +311,7 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .branches button {
@@ -308,18 +332,18 @@ select:focus {
 .reasoning summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .reasoning pre {
   white-space: pre-wrap;
   color: var(--muted);
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: 14px;
   font-family: inherit;
 }
 .failure {
   color: var(--danger);
-  font-size: 13px;
+  font-size: 14px;
   margin: 8px 0 0;
 }
 .caret {
@@ -340,7 +364,7 @@ select:focus {
 .error-banner {
   padding: 9px 18px;
   border-top: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 14px;
   background: var(--panel);
 }
 .status-banner {
@@ -376,7 +400,7 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
@@ -415,7 +439,7 @@ select:focus {
   margin-bottom: 4px;
 }
 .inspector h2 {
-  font-size: 14px;
+  font-size: 15px;
   margin: 0;
   flex: 1;
   font-weight: 600;
@@ -428,7 +452,7 @@ select:focus {
 }
 .inspector dt {
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 12px;
   letter-spacing: 0.02em;
@@ -450,7 +474,7 @@ select:focus {
 }
 .muted {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* Scrollbars, so they do not glare against the dark ground. */
@@ -481,14 +505,14 @@ select:focus {
   align-items: baseline;
   gap: 8px;
   margin-bottom: 5px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .key-head .ok {
   color: var(--ok);
-  font-size: 12px;
+  font-size: 13px;
 }
 .key-head .muted {
-  font-size: 12px;
+  font-size: 13px;
 }
 .profile-form {
   display: flex;
@@ -500,7 +524,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .profile-form label.checkbox {
@@ -508,7 +532,7 @@ select:focus {
   align-items: center;
   gap: 7px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
 }
 .warn-block {
   border: 1px solid var(--danger);
@@ -516,12 +540,12 @@ select:focus {
   color: var(--text);
   border-radius: 7px;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 13px;
   margin: 0;
 }
 .ok {
   color: var(--ok);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* ---- prefill progress --------------------------- */
@@ -530,7 +554,7 @@ select:focus {
   padding: 0.6rem 1rem;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .prefill-labels {
@@ -582,7 +606,7 @@ select:focus {
   flex: 1;
   min-width: 0;
   font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .local-inspected,
@@ -606,7 +630,7 @@ select:focus {
   grid-template-columns: max-content 1fr;
   gap: 0.3rem 1rem;
   margin: 0 0 0.6rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .local-facts > div {
@@ -626,7 +650,7 @@ select:focus {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.6rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--muted);
 }
 
@@ -638,7 +662,7 @@ select:focus {
 
 .tool-call {
   margin-top: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   overflow-wrap: anywhere;
 }
 
@@ -646,7 +670,7 @@ select:focus {
 .approval pre {
   max-height: 16rem;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: pre-wrap;
 }
 
@@ -660,14 +684,14 @@ select:focus {
 
 .skill-use summary {
   font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--accent);
 }
 
 .skill-use pre {
   max-height: 16rem;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: pre-wrap;
 }
 
@@ -676,7 +700,7 @@ select:focus {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.35rem 0.6rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .helper-panel > summary {
   cursor: pointer;
@@ -688,7 +712,7 @@ select:focus {
   margin: 0.2rem 0 0;
   max-height: 14rem;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -734,7 +758,7 @@ select:focus {
 
 .skill-row {
   margin-bottom: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 /* ---- explorer and file viewer -------------------------------------- */
@@ -768,7 +792,7 @@ select:focus {
   border-radius: 0;
   background: transparent;
   padding: 2px 6px;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -792,7 +816,7 @@ select:focus {
 
 .tree-note {
   padding: 4px 12px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .file-viewer {
@@ -817,13 +841,13 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 
 .tool-args {
   margin: 0 0 0.6rem;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .tool-args dt {
@@ -851,7 +875,7 @@ select:focus {
   gap: 8px;
   padding: 4px 8px;
   background: var(--raised);
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .file-edit.undone .diff {
@@ -863,7 +887,7 @@ select:focus {
   padding: 6px 0;
   max-height: 24rem;
   overflow: auto;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   line-height: 1.4;
 }
 
@@ -957,7 +981,7 @@ select:focus {
   height: 15px;
   padding: 0 3px;
   border-radius: 8px;
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 15px;
   text-align: center;
@@ -986,7 +1010,7 @@ select:focus {
 .left-title {
   margin: 0;
   padding: 10px 2px 4px;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1066,7 +1090,7 @@ body.resizing {
 }
 
 .unsaved {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 
@@ -1087,7 +1111,7 @@ body.resizing {
   padding: 4px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .run-panel header .actions {
@@ -1173,7 +1197,7 @@ body.resizing {
 }
 .settings-nav-group h4 {
   margin: 14px 10px 4px;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1271,7 +1295,7 @@ body.resizing {
   background: var(--raised);
 }
 .settings-link .muted {
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 @media (max-width: 700px) {
   .settings-body {
@@ -1299,7 +1323,7 @@ body.resizing {
 
 .explorer-title {
   flex: 1;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1329,7 +1353,7 @@ body.resizing {
   flex-direction: column;
   gap: 4px;
   padding: 0 10px 8px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .explorer-new input {
@@ -1355,7 +1379,7 @@ body.resizing {
 
 .root-row .root-close {
   visibility: hidden;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
 }
 
 .root-row:hover .root-close,
@@ -1384,7 +1408,7 @@ body.resizing {
 .graph-dialog h2 {
   flex: 1;
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .graph-dialog header button {
@@ -1395,7 +1419,7 @@ body.resizing {
 
 .graph-folder {
   margin: 4px 0 14px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1430,13 +1454,13 @@ body.resizing {
 
 .graph-choice h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .graph-choice p {
   flex: 1;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .graph-choice button {
@@ -1485,7 +1509,7 @@ body.resizing {
 
 .tree-rename input {
   width: 100%;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   padding: 2px 6px;
 }
 
@@ -1495,7 +1519,7 @@ body.resizing {
   gap: 6px;
   margin: 2px 8px 6px;
   padding: 8px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   border: 1px solid var(--danger);
   border-radius: 6px;
   background: var(--danger-dim);
@@ -1525,7 +1549,7 @@ button.danger {
   overflow-y: auto;
   padding: 8px 10px 16px;
   background: var(--panel);
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .bp-palette {
@@ -1558,7 +1582,7 @@ button.danger {
 .bp-palette h3,
 .bp-details h3 {
   margin: 10px 0 4px;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1567,14 +1591,14 @@ button.danger {
 
 .bp-details h3 {
   margin-top: 4px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   text-transform: none;
   letter-spacing: 0;
 }
 
 .bp-note {
   margin: 0 0 4px;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 
 .bp-item {
@@ -1594,7 +1618,7 @@ button.danger {
   border: 1px solid transparent;
   background: none;
   text-align: left;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1665,7 +1689,7 @@ button.danger {
   border-radius: 7px;
   background: var(--raised);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
@@ -1688,7 +1712,7 @@ button.danger {
 
 .bp-part-type {
   padding: 4px 8px 0;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--part);
@@ -1707,7 +1731,7 @@ button.danger {
   padding: 5px 8px 6px;
   border-top: 1px solid var(--border);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .bp-meter {
@@ -1739,7 +1763,7 @@ button.danger {
   border-radius: 6px;
   background: var(--raised);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-  font-size: 12px;
+  font-size: 13px;
   pointer-events: none;
 }
 
@@ -1751,7 +1775,7 @@ button.danger {
 
 .bp-field span {
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 
 .bp-field input,
@@ -1792,7 +1816,7 @@ button.danger {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .bp-results-bar {
@@ -1892,7 +1916,7 @@ button.danger {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .bp-inventory-head {
@@ -1903,7 +1927,7 @@ button.danger {
 
 .bp-inventory h3 {
   margin: 10px 0 4px;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1917,7 +1941,7 @@ button.danger {
 .bp-search {
   width: 100%;
   padding: 5px 8px;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 
 .bp-inventory-list {
@@ -1945,7 +1969,7 @@ button.danger {
   border: none;
   background: none;
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 600;
   text-align: left;
   white-space: nowrap;
@@ -1964,7 +1988,7 @@ button.danger {
 .bp-group-rename input {
   width: 100%;
   padding: 2px 6px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 /* Named ports on a part, VectorShift style: labelled where the wires attach. */
@@ -1980,7 +2004,7 @@ button.danger {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   pointer-events: none;
 }
 
@@ -1996,7 +2020,7 @@ button.danger {
 .bp-details h4 {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2019,7 +2043,7 @@ button.danger {
 .bp-builder legend,
 .bp-list legend {
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 
 .bp-builder textarea {
@@ -2091,7 +2115,7 @@ button.danger {
   max-height: 180px;
   overflow: auto;
   white-space: pre-wrap;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 
 .bp-sandbox .row {
@@ -2221,7 +2245,7 @@ button.danger {
   border-radius: 0;
   background: transparent;
   padding: 6px 8px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 .tab-name {
   overflow: hidden;
@@ -2249,7 +2273,7 @@ button.danger {
 }
 .side-note {
   margin: 4px 0;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
 }
 .side-row {
   display: flex;
@@ -2270,7 +2294,7 @@ button.danger {
   border: 0;
   background: transparent;
   padding: 3px 4px;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
 }
 .side-list button:hover {
   background: var(--raised);
@@ -2345,12 +2369,12 @@ button.danger {
   color: var(--danger);
 }
 .server-note {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
 }
 .debug-note {
   margin: 4px 12px;
   white-space: pre-wrap;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 .debug-body {
   flex: 1;
@@ -2365,7 +2389,7 @@ button.danger {
 }
 .debug-col h3 {
   margin: 2px 0 4px;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
@@ -2429,7 +2453,7 @@ button.danger {
 }
 .finder-hint {
   margin: 0 12px 8px;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .finder-results {
   list-style: none;
@@ -2457,7 +2481,7 @@ button.danger {
   flex: 1;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2531,7 +2555,7 @@ button.danger {
 }
 .group-actions button {
   padding: 2px 6px;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1;
 }
 
@@ -2569,7 +2593,7 @@ body.resizing-v {
   padding: 2px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .terminal-tabs {
   display: flex;
@@ -2590,7 +2614,7 @@ body.resizing-v {
   padding: 2px 6px;
   border: none;
   background: transparent;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
 }
 .terminal-panel header .actions {
   display: flex;
@@ -2673,11 +2697,11 @@ body.resizing-v {
 }
 .git-commit textarea {
   resize: vertical;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .side-heading {
   margin: 8px 0 2px;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
   color: var(--muted);
@@ -2756,10 +2780,10 @@ body.resizing-v {
 }
 .agent-meta {
   margin-left: auto;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 .agent-status {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   padding: 0 0.45rem;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
@@ -2808,7 +2832,7 @@ body.resizing-v {
 .agent-copy {
   margin: 0;
   padding: 0.25rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   border-top: 1px solid var(--border);
 }
 .agent-changes {
@@ -2833,7 +2857,7 @@ body.resizing-v {
 .agent-diff {
   max-height: 16rem;
   overflow: auto;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   white-space: pre;
   background: var(--bg);
   padding: 0.5rem;
@@ -2995,11 +3019,11 @@ body.resizing-v {
   list-style: none;
   padding: 0;
   margin: 5px 0 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .language-line {
   font-family: var(--mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -3029,7 +3053,7 @@ body.resizing-v {
   flex-wrap: wrap;
   gap: 0.3rem 1.25rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .agent-board li {
   display: flex;
@@ -3039,7 +3063,7 @@ body.resizing-v {
 }
 .agent-board .board-model,
 .agent-board .board-why {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
