@@ -634,7 +634,7 @@ function GithubSection() {
         </>
       )}
       {tools && (
-        <label className="row" title="GitHub's own tool server: issues, pull requests, CI and code search for the agent">
+        <label className="checkbox row" title="GitHub's own tool server: issues, pull requests, CI and code search for the agent">
           <input
             type="checkbox"
             checked={tools.enabled}
@@ -813,8 +813,18 @@ function CompatSection({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+const PAGES = [
+  { id: "general", label: "General", about: "Editor and language packs" },
+  { id: "models", label: "Models", about: "API keys, endpoints, the local model and model profiles" },
+  { id: "agents", label: "Agents", about: "Worker models, fallbacks, approval rules and skills" },
+  { id: "connections", label: "Connections", about: "GitHub and tool servers" },
+  { id: "privacy", label: "Privacy", about: "Chat encryption" },
+] as const;
+type Page = (typeof PAGES)[number]["id"];
+
 export function Settings({ onClose, models, onModelsChanged }: Props) {
   const [backends, setBackends] = useState<BackendInfo[]>([]);
+  const [page, setPage] = useState<Page>("general");
 
   const refreshBackends = useCallback(() => {
     api
@@ -842,28 +852,62 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
         </button>
       </header>
 
-      <EditorSection />
-      <KeySection
-        backends={backends}
-        onChanged={() => {
-          refreshBackends();
-          onModelsChanged();
-        }}
-      />
-      <GithubSection />
-      <SkillsSection />
-      <McpSection />
-      <LocalModelSection onChanged={onModelsChanged} />
-      <ProfileSection models={models} onSaved={onModelsChanged} />
-      <section>
-        <h3>Languages</h3>
-        <Languages />
-      </section>
-      <ApprovalRulesSection />
-      <EncryptionSection />
-      <WorkerModelSection models={models} />
-      <FallbackSection models={models} />
-      <CompatSection onChanged={refreshBackends} />
+      <div className="settings-body">
+        <nav className="settings-nav" role="tablist" aria-label="Settings categories" aria-orientation="vertical">
+          {PAGES.map((p) => (
+            <button
+              key={p.id}
+              role="tab"
+              aria-selected={page === p.id}
+              className={page === p.id ? "selected" : ""}
+              onClick={() => setPage(p.id)}
+              title={p.about}
+            >
+              {p.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-page" role="tabpanel">
+          {page === "general" && (
+            <>
+              <EditorSection />
+              <section>
+                <h3>Languages</h3>
+                <Languages />
+              </section>
+            </>
+          )}
+          {page === "models" && (
+            <>
+              <KeySection
+                backends={backends}
+                onChanged={() => {
+                  refreshBackends();
+                  onModelsChanged();
+                }}
+              />
+              <CompatSection onChanged={refreshBackends} />
+              <LocalModelSection onChanged={onModelsChanged} />
+              <ProfileSection models={models} onSaved={onModelsChanged} />
+            </>
+          )}
+          {page === "agents" && (
+            <>
+              <WorkerModelSection models={models} />
+              <FallbackSection models={models} />
+              <ApprovalRulesSection />
+              <SkillsSection />
+            </>
+          )}
+          {page === "connections" && (
+            <>
+              <GithubSection />
+              <McpSection />
+            </>
+          )}
+          {page === "privacy" && <EncryptionSection />}
+        </div>
+      </div>
     </aside>
     </div>
   );

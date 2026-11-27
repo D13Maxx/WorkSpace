@@ -83,6 +83,19 @@ select {
   color: var(--text);
   width: 100%;
 }
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+/* A checkbox (or radio) beside its words, wherever it appears. */
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
 input::placeholder,
 textarea::placeholder {
   color: var(--muted);
@@ -518,9 +531,6 @@ select:focus {
   gap: 7px;
   color: var(--text);
   font-size: 13px;
-}
-.profile-form label.checkbox input {
-  width: auto;
 }
 .warn-block {
   border: 1px solid var(--danger);
@@ -1053,6 +1063,74 @@ body.resizing {
   border-radius: 10px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   padding: 18px 22px;
+}
+
+/* Settings: categories on the left, the chosen one's sections on the right.
+   A fixed height, so switching category does not resize the window. */
+.modal-backdrop .settings-panel {
+  width: min(880px, 100%);
+  height: min(86vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.settings-panel > header {
+  padding: 14px 18px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.settings-nav {
+  flex: 0 0 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.settings-nav button {
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+.settings-nav button:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+.settings-nav button.selected {
+  color: var(--text);
+  background: var(--raised);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.settings-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 4px 22px 22px;
+}
+.settings-page > section:first-child {
+  border-top: none;
+}
+@media (max-width: 620px) {
+  .settings-body {
+    flex-direction: column;
+  }
+  .settings-nav {
+    flex: none;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 /* ---- explorer: icon bar and folder roots --------------------------------- */
