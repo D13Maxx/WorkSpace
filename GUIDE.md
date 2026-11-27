@@ -65,7 +65,7 @@ carries on with the saved plan.
 - **Asked only when it matters.** When the lead needs a decision it asks you
   in the chat and waits for your answer; if Workspace is in the tray, its
   window comes back to ask.
-- **Cheaper workers.** **Settings → Worker model** picks the model workers
+- **Cheaper workers.** **Settings → Worker models** picks the model workers
   start on; the model you chat with stays the lead. Under it, **By role**
   gives a role its own model, such as a strong one for the reviewer and a
   cheap one for the explorer; roles left on *Same as the worker model* use
@@ -198,11 +198,26 @@ restart Workspace.
   Windows, bash on Linux) in the current folder, inside the output panel, for anything else: `pip install`,
   `npm install`, `cargo add`, virtual environments.
 
+## The window
+
+- **Top bar:** the folder in use, its git branch (click it for Changes) and a
+  search box that opens the finder (Ctrl+P).
+- **Icon strip** down the left edge: **Files**, **Search** and **Changes** each
+  fill the left pane; click the open one to hide the pane. Changes shows how
+  many files changed. **Agents** appears once a team has run, with how many
+  need you. **Settings** is at the bottom. Which view was open, or that the
+  pane was hidden, is remembered.
+- **Settings** opens over the whole window on an overview of its categories
+  (General, Models, Agents, Connections, Privacy); every topic, such as API
+  keys or GitHub, is a page of its own, and the list on the left jumps to any.
+
 ## Files and folders
 
 Hover a file or folder on the left for rename (pencil) and delete (bin).
-Delete asks first and moves it to the Recycle Bin (the Trash on Linux). New file and New folder
-ask where, in the folder picker, then for a name.
+Delete asks first and moves it to the Recycle Bin (the Trash on Linux). The
+**+** above the tree opens a file, makes a new file, folder or blueprint, a
+knowledge graph, or a terminal; New file and New folder ask where, in the
+folder picker, then for a name.
 
 ## Code and Markdown files
 
@@ -226,7 +241,7 @@ undone from the chat.
 
 ## Git and GitHub
 
-**Changes** (under the file tree) shows what changed since the last commit:
+**Changes** (in the icon strip) shows what changed since the last commit:
 stage with **+**, unstage with **−**, write a message and **Commit**. At its
 top is the branch bar:
 
@@ -238,7 +253,7 @@ top is the branch bar:
 - For a repo on GitHub it shows the branch's pull request, or **Open a PR**
   (opens GitHub's page to make one), and the CI of the commit you are on.
 
-**Clone** (the branch icon above the file tree) takes `owner/repo` or a
+**Clone** (the branch icon above the file tree, next to Open folder) takes `owner/repo` or a
 repo's address, asks where to put it, and opens the new folder.
 
 **Settings → GitHub** signs Workspace in, with the GitHub login git already

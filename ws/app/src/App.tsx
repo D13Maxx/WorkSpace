@@ -177,7 +177,12 @@ export default function App() {
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
-  const [leftView, setLeftView] = useState<LeftView | null>("files");
+  // Remembered, "none" meaning the left pane was hidden.
+  const [leftView, setLeftView] = useState<LeftView | null>(() => {
+    const v = readPref("ws.leftView");
+    return v === "none" ? null : v === "search" || v === "changes" ? v : "files";
+  });
+  useEffect(() => writePref("ws.leftView", leftView ?? "none"), [leftView]);
   const [changeCount, setChangeCount] = useState(0);
   const [branch, setBranch] = useState("");
   // For the strip's Changes badge and the top bar's branch.
