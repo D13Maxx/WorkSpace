@@ -16,6 +16,7 @@ import { GraphDialog } from "./components/GraphDialog";
 import { FileViewer, moveDrafts } from "./components/FileViewer";
 import { Changes, Search } from "./components/SidePanel";
 import { ActivityBar, type LeftView } from "./components/ActivityBar";
+import { TopBar } from "./components/TopBar";
 import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
@@ -178,14 +179,23 @@ export default function App() {
   const [fileVersion, setFileVersion] = useState(0);
   const [leftView, setLeftView] = useState<LeftView | null>("files");
   const [changeCount, setChangeCount] = useState(0);
+  const [branch, setBranch] = useState("");
+  // For the strip's Changes badge and the top bar's branch.
   useEffect(() => {
     let live = true;
-    if (!project) setChangeCount(0);
-    else
+    if (!project) {
+      setChangeCount(0);
+      setBranch("");
+    } else {
       api
         .gitStatus(project)
         .then((c) => live && setChangeCount(c.length))
         .catch(() => live && setChangeCount(0));
+      api
+        .gitBranches(project)
+        .then((b) => live && setBranch(b.current))
+        .catch(() => live && setBranch(""));
+    }
     return () => {
       live = false;
     };
@@ -727,6 +737,8 @@ export default function App() {
   );
 
   return (
+    <div className="app-shell">
+    <TopBar project={project} branch={branch} onBranch={() => setLeftView("changes")} onFind={() => setFinder("")} />
     <div className="app">
       <ActivityBar
         view={leftView}
@@ -1141,6 +1153,7 @@ export default function App() {
           onModelsChanged={refreshModels}
         />
       )}
+    </div>
     </div>
   );
 }

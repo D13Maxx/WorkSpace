@@ -131,9 +131,71 @@ select:focus {
   background-color: var(--muted);
 }
 
-.app {
+.app-shell {
   display: flex;
+  flex-direction: column;
   height: 100%;
+}
+.app {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---- top bar: folder, branch, and the finder's box ---- */
+.top-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.87rem;
+}
+.top-project {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.top-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.top-find {
+  flex: 0 1 460px;
+  min-width: 0;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 4px 12px;
+  color: var(--muted);
+  background: var(--panel);
+}
+.top-find span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-find kbd,
+.top-bar kbd {
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  color: var(--muted);
 }
 
 /* ---- sidebar ---- */
