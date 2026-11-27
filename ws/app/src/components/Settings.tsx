@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   api,
   ask,
@@ -813,18 +813,19 @@ function CompatSection({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-const PAGES = [
-  { id: "general", label: "General", about: "Editor and language packs" },
-  { id: "models", label: "Models", about: "API keys, endpoints, the local model and model profiles" },
-  { id: "agents", label: "Agents", about: "Worker models, fallbacks, approval rules and skills" },
-  { id: "connections", label: "Connections", about: "GitHub and tool servers" },
-  { id: "privacy", label: "Privacy", about: "Chat encryption" },
+const GROUPS = [
+  { id: "general", label: "General", about: "How the editor behaves and which languages run." },
+  { id: "models", label: "Models", about: "Where the models come from and what each can do." },
+  { id: "agents", label: "Agents", about: "How helpers work: their models, what they may do, their skills." },
+  { id: "connections", label: "Connections", about: "GitHub and other tool servers." },
+  { id: "privacy", label: "Privacy", about: "How your chats are kept." },
 ] as const;
-type Page = (typeof PAGES)[number]["id"];
+type Group = (typeof GROUPS)[number]["id"];
 
 export function Settings({ onClose, models, onModelsChanged }: Props) {
   const [backends, setBackends] = useState<BackendInfo[]>([]);
-  const [page, setPage] = useState<Page>("general");
+  // Null: the overview.
+  const [page, setPage] = useState<string | null>(null);
 
   const refreshBackends = useCallback(() => {
     api
@@ -841,74 +842,117 @@ export function Settings({ onClose, models, onModelsChanged }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Every topic is a page of its own, listed under its category.
+  const topics: { id: string; group: Group; label: string; about: string; body: () => ReactNode }[] = [
+    { id: "editor", group: "general", label: "Editor", about: "Vim keys", body: () => <EditorSection /> },
+    {
+      id: "languages",
+      group: "general",
+      label: "Languages",
+      about: "Packs that run and debug each language",
+      body: () => (
+        <section>
+          <h3>Languages</h3>
+          <Languages />
+        </section>
+      ),
+    },
+    {
+      id: "keys",
+      group: "models",
+      label: "API keys",
+      about: "Keys for Anthropic, OpenAI, Gemini…",
+      body: () => (
+        <KeySection
+          backends={backends}
+          onChanged={() => {
+            refreshBackends();
+            onModelsChanged();
+          }}
+        />
+      ),
+    },
+    { id: "compat", group: "models", label: "OpenAI-compatible endpoints", about: "llama.cpp, vLLM, gateways", body: () => <CompatSection onChanged={refreshBackends} /> },
+    { id: "local", group: "models", label: "Local model", about: "Run a model on this PC", body: () => <LocalModelSection onChanged={onModelsChanged} /> },
+    { id: "profiles", group: "models", label: "Model profiles", about: "Context size, output and vision per model", body: () => <ProfileSection models={models} onSaved={onModelsChanged} /> },
+    { id: "worker", group: "agents", label: "Worker models", about: "The model helpers use, by role", body: () => <WorkerModelSection models={models} /> },
+    { id: "fallbacks", group: "agents", label: "Worker fallbacks", about: "Models to try when one fails", body: () => <FallbackSection models={models} /> },
+    { id: "approvals", group: "agents", label: "Approval rules", about: "What agents may do without asking", body: () => <ApprovalRulesSection /> },
+    { id: "skills", group: "agents", label: "Skills", about: "/commands the agent can run", body: () => <SkillsSection /> },
+    { id: "github", group: "connections", label: "GitHub", about: "Sign in, PRs, CI and agent tools", body: () => <GithubSection /> },
+    { id: "mcp", group: "connections", label: "Tool servers (MCP)", about: "Serena and other tool servers", body: () => <McpSection /> },
+    { id: "encryption", group: "privacy", label: "Chat encryption", about: "Encrypt the chats on disk", body: () => <EncryptionSection /> },
+  ];
+  const open = topics.find((t) => t.id === page);
+  const nav = (
+    <nav className="settings-nav" aria-label="Settings pages">
+      <button className={open ? "" : "selected"} onClick={() => setPage(null)} aria-current={open ? undefined : "page"}>
+        Overview
+      </button>
+      {GROUPS.map((g) => (
+        <div key={g.id} className="settings-nav-group">
+          <h4>{g.label}</h4>
+          {topics
+            .filter((t) => t.group === g.id)
+            .map((t) => (
+              <button key={t.id} className={page === t.id ? "selected" : ""} aria-current={page === t.id ? "page" : undefined} onClick={() => setPage(t.id)}>
+                {t.label}
+              </button>
+            ))}
+        </div>
+      ))}
+    </nav>
+  );
+
   return (
-    // A click on the dimmed backdrop closes it; one inside does not.
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-    <aside className="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
-      <header>
-        <h2>Settings</h2>
-        <button onClick={onClose} aria-label="Close settings">
+    <div className="settings-screen" role="dialog" aria-modal="true" aria-label="Settings">
+      <header className="settings-top">
+        <button className="linklike" onClick={() => setPage(null)} disabled={!open}>
+          Settings
+        </button>
+        {open && (
+          <span className="muted">
+            {" "}
+            › {GROUPS.find((g) => g.id === open.group)?.label} › {open.label}
+          </span>
+        )}
+        <span className="activity-spacer" />
+        <button onClick={onClose} aria-label="Close settings" title="Close (Esc)">
           ✕
         </button>
       </header>
-
       <div className="settings-body">
-        <nav className="settings-nav" role="tablist" aria-label="Settings categories" aria-orientation="vertical">
-          {PAGES.map((p) => (
-            <button
-              key={p.id}
-              role="tab"
-              aria-selected={page === p.id}
-              className={page === p.id ? "selected" : ""}
-              onClick={() => setPage(p.id)}
-              title={p.about}
-            >
-              {p.label}
-            </button>
-          ))}
-        </nav>
-        <div className="settings-page" role="tabpanel">
-          {page === "general" && (
-            <>
-              <EditorSection />
-              <section>
-                <h3>Languages</h3>
-                <Languages />
-              </section>
-            </>
+        {nav}
+        <div className="settings-page">
+          {open ? (
+            <div className="settings-content">{open.body()}</div>
+          ) : (
+            <div className="settings-content">
+              <h2 className="settings-title">Settings</h2>
+              <div className="settings-cards">
+                {GROUPS.map((g) => (
+                  <div key={g.id} className="settings-card">
+                    <h3>{g.label}</h3>
+                    <p className="muted">{g.about}</p>
+                    <ul>
+                      {topics
+                        .filter((t) => t.group === g.id)
+                        .map((t) => (
+                          <li key={t.id}>
+                            <button className="settings-link" onClick={() => setPage(t.id)}>
+                              <span>{t.label}</span>
+                              <span className="muted">{t.about}</span>
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          {page === "models" && (
-            <>
-              <KeySection
-                backends={backends}
-                onChanged={() => {
-                  refreshBackends();
-                  onModelsChanged();
-                }}
-              />
-              <CompatSection onChanged={refreshBackends} />
-              <LocalModelSection onChanged={onModelsChanged} />
-              <ProfileSection models={models} onSaved={onModelsChanged} />
-            </>
-          )}
-          {page === "agents" && (
-            <>
-              <WorkerModelSection models={models} />
-              <FallbackSection models={models} />
-              <ApprovalRulesSection />
-              <SkillsSection />
-            </>
-          )}
-          {page === "connections" && (
-            <>
-              <GithubSection />
-              <McpSection />
-            </>
-          )}
-          {page === "privacy" && <EncryptionSection />}
         </div>
       </div>
-    </aside>
     </div>
   );
 }
