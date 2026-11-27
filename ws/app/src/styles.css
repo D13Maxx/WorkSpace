@@ -1348,6 +1348,43 @@ body.resizing {
   border-color: var(--border);
 }
 
+/* The tree header's + menu. */
+.explorer-menu-wrap {
+  position: relative;
+}
+.explorer-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 15;
+  min-width: 230px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.explorer-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+.explorer-menu button:hover:not(:disabled),
+.explorer-menu button:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.explorer-menu svg {
+  color: var(--muted);
+  flex: none;
+}
 .explorer-new {
   display: flex;
   flex-direction: column;

@@ -2,7 +2,7 @@
 //
 // Folders load when opened, so a huge repository costs only what is looked at.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, pickFile, pickFolder, type FileEntry } from "../api";
 import { opensHere } from "./FileViewer";
 
@@ -35,12 +35,69 @@ interface Props {
   version: number;
 }
 
+/** The + menu of the tree's header: everything but Open folder and Clone. */
+function NewMenu({ items }: { items: { label: string; icon: string; run: () => void; disabled?: boolean }[] }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    box.current?.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus();
+    const away = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [open]);
+  return (
+    <div
+      className="explorer-menu-wrap"
+      ref={box}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOpen(false);
+        if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+        const all = [...(box.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)") ?? [])];
+        const at = all.indexOf(document.activeElement as HTMLButtonElement);
+        all[(at + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+        e.preventDefault();
+      }}
+    >
+      <button
+        className="icon-button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="New file, folder, blueprint, terminal…"
+        aria-label="More: new file, folder, blueprint, terminal"
+      >
+        <Icon d={PLUS} />
+      </button>
+      {open && (
+        <div className="explorer-menu" role="menu">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              role="menuitem"
+              disabled={it.disabled}
+              onClick={() => {
+                setOpen(false);
+                it.run();
+              }}
+            >
+              <Icon d={it.icon} />
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const Icon = ({ d }: { d: string }) => (
   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
     <path d={d} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
   </svg>
 );
 const FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13z";
+const PLUS = "M8 3v10M3 8h10";
 const FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3";
 const NEW_FILE = "M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M8 7.5v5M5.5 10h5";
 const NEW_FOLDER = "M1.5 3.5h4l1.5 1.5h7.5v8h-13zM8 6.8v4.4M5.8 9h4.4";
@@ -412,9 +469,6 @@ export function Explorer({
         >
           <Icon d={FOLDER} />
         </button>
-        <button className="icon-button" onClick={() => void openPicked()} title="Open a file" aria-label="Open a file">
-          <Icon d={FILE} />
-        </button>
         <button
           className="icon-button"
           onClick={() => setCloning((c) => (c ? null : { url: "", busy: false }))}
@@ -423,50 +477,23 @@ export function Explorer({
         >
           <Icon d={CLONE} />
         </button>
-        <button
-          className="icon-button"
-          onClick={() => void startCreate("file")}
-          title="New file (asks where)"
-          aria-label="New file"
-        >
-          <Icon d={NEW_FILE} />
-        </button>
-        <button
-          className="icon-button"
-          onClick={() => void startCreate("folder")}
-          title="New folder (asks where)"
-          aria-label="New folder"
-        >
-          <Icon d={NEW_FOLDER} />
-        </button>
-        <button
-          className="icon-button"
-          onClick={onNewBlueprint}
-          title="New blueprint: draw a system in the Workshop, simulate it, have the agent build it (saved only when you save it)"
-          aria-label="New blueprint"
-        >
-          <Icon d={BLUEPRINT} />
-        </button>
-        <button
-          className="icon-button"
-          onClick={async () => {
-            const folder = await pickFolder();
-            if (folder) onGraph(folder);
-          }}
-          title="Knowledge graph of a folder"
-          aria-label="Knowledge graph"
-        >
-          <Icon d={GRAPH} />
-        </button>
-        <button
-          className="icon-button"
-          onClick={onTerminal}
-          disabled={!onTerminal}
-          title={onTerminal ? "Terminal (pip, npm, cargo…)" : "Open a folder first"}
-          aria-label="Terminal"
-        >
-          <Icon d={TERMINAL} />
-        </button>
+        <NewMenu
+          items={[
+            { label: "Open a file…", icon: FILE, run: () => void openPicked() },
+            { label: "New file…", icon: NEW_FILE, run: () => void startCreate("file") },
+            { label: "New folder…", icon: NEW_FOLDER, run: () => void startCreate("folder") },
+            { label: "New blueprint", icon: BLUEPRINT, run: onNewBlueprint },
+            {
+              label: "Knowledge graph of a folder…",
+              icon: GRAPH,
+              run: () =>
+                void pickFolder().then((folder) => {
+                  if (folder) onGraph(folder);
+                }),
+            },
+            { label: "Terminal", icon: TERMINAL, run: () => onTerminal?.(), disabled: !onTerminal },
+          ]}
+        />
       </div>
 
       {creating && place && (
