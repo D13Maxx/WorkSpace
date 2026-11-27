@@ -14,7 +14,8 @@ import { PrefillProgress } from "./components/PrefillProgress";
 import { Explorer, baseName, type OpenFile } from "./components/Explorer";
 import { GraphDialog } from "./components/GraphDialog";
 import { FileViewer, moveDrafts } from "./components/FileViewer";
-import { SidePanel } from "./components/SidePanel";
+import { Changes, Search } from "./components/SidePanel";
+import { ActivityBar, type LeftView } from "./components/ActivityBar";
 import { TabBar, tabKey } from "./components/TabBar";
 import { RunPanel, type RunTask } from "./components/RunPanel";
 import { DebugPanel } from "./components/DebugPanel";
@@ -175,6 +176,20 @@ export default function App() {
   const [graphFor, setGraphFor] = useState<string | null>(null);
   // Bumped when the agent or a run may have changed files, so views reload.
   const [fileVersion, setFileVersion] = useState(0);
+  const [leftView, setLeftView] = useState<LeftView | null>("files");
+  const [changeCount, setChangeCount] = useState(0);
+  useEffect(() => {
+    let live = true;
+    if (!project) setChangeCount(0);
+    else
+      api
+        .gitStatus(project)
+        .then((c) => live && setChangeCount(c.length))
+        .catch(() => live && setChangeCount(0));
+    return () => {
+      live = false;
+    };
+  }, [project, fileVersion]);
   // What the output panel is running: a file, a terminal or a pip install.
   const [run, setRun] = useState<{ task: RunTask; key: number } | null>(null);
   const startTask = (task: RunTask) => setRun((r) => ({ task, key: (r?.key ?? 0) + 1 }));
@@ -713,8 +728,19 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Left: the open folder. */}
-      <div className="pane-left" style={{ width: sideWidth, flexBasis: sideWidth }}>
+      <ActivityBar
+        view={leftView}
+        onView={setLeftView}
+        changes={changeCount}
+        agentsOpen={agentsOpen}
+        onAgents={workers.length > 0 ? () => setAgentsOpen((o) => !o) : null}
+        needYou={needYou}
+        onSettings={() => setShowSettings(true)}
+      />
+      {/* Left: the open folder, search or changes. Hidden, not unmounted, so
+          the tree keeps what was expanded. */}
+      <div className="pane-left" hidden={!leftView} style={{ width: sideWidth, flexBasis: sideWidth }}>
+        <div className="left-view" hidden={leftView !== "files"}>
         <Explorer
           folders={folders}
           onAddFolder={addFolder}
@@ -742,15 +768,29 @@ export default function App() {
           open={openFile}
           version={fileVersion}
         />
-        <SidePanel root={project} version={fileVersion} onOpen={openAny} />
-        <button className="settings" onClick={() => setShowSettings(true)}>
-          Settings
-        </button>
+        </div>
+        {leftView === "search" && (
+          <div className="left-view side-view">
+            <h2 className="left-title">Search</h2>
+            {project ? <Search root={project} onOpen={openAny} /> : <p className="muted side-note">Open a folder first.</p>}
+          </div>
+        )}
+        {leftView === "changes" && (
+          <div className="left-view side-view">
+            <h2 className="left-title">Changes</h2>
+            {project ? (
+              <Changes root={project} version={fileVersion} onOpen={openAny} onCount={setChangeCount} />
+            ) : (
+              <p className="muted side-note">Open a folder first.</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Middle: the file being viewed. */}
       <div
         className="splitter"
+        hidden={!leftView}
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize the side panel"
@@ -930,16 +970,6 @@ export default function App() {
           {/* The chat list has its own New button. */}
           {!showChats && (
             <button onClick={() => void onNewConversation()}>New chat</button>
-          )}
-          {!showChats && workers.length > 0 && (
-            <button
-              className={needYou ? "agents-btn needs-you" : "agents-btn"}
-              onClick={() => setAgentsOpen((o) => !o)}
-              aria-pressed={agentsOpen}
-              title={needYou ? `${needYou} waiting for you` : "See each agent's work side by side"}
-            >
-              Agents ({workers.length}){needYou ? ` · ${needYou} need you` : ""}
-            </button>
           )}
         </div>
         {showChats ? (

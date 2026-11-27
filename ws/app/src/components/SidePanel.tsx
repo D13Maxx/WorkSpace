@@ -1,42 +1,12 @@
-// Search across the project, and what changed since the last commit. Both sit
-// under the file tree; a result opens in the middle pane.
+// Search across the project, and what changed since the last commit: two of
+// the left pane's views. A result opens in the middle pane.
 
 import { useEffect, useState } from "react";
 import { api, type BranchOnGithub, type Branches, type GitChange, type SearchMatch } from "../api";
 import type { OpenFile } from "./Explorer";
 import { gitChanged } from "../git";
 
-type View = "search" | "changes";
-
-interface Props {
-  /** The folder searched and diffed; empty with none open. */
-  root: string;
-  /** Bumped when files may have changed on disk. */
-  version: number;
-  onOpen: (file: OpenFile) => void;
-}
-
-export function SidePanel({ root, version, onOpen }: Props) {
-  const [view, setView] = useState<View | null>(null);
-  const toggle = (v: View) => setView((cur) => (cur === v ? null : v));
-  return (
-    <div className="side-panel">
-      <div className="side-tabs" role="tablist">
-        <button role="tab" aria-selected={view === "search"} className={view === "search" ? "selected" : ""} onClick={() => toggle("search")}>
-          Search
-        </button>
-        <button role="tab" aria-selected={view === "changes"} className={view === "changes" ? "selected" : ""} onClick={() => toggle("changes")}>
-          Changes
-        </button>
-      </div>
-      {view && !root && <p className="muted side-note">Open a folder first.</p>}
-      {view === "search" && root && <Search root={root} onOpen={onOpen} />}
-      {view === "changes" && root && <Changes root={root} version={version} onOpen={onOpen} />}
-    </div>
-  );
-}
-
-function Search({ root, onOpen }: { root: string; onOpen: (f: OpenFile) => void }) {
+export function Search({ root, onOpen }: { root: string; onOpen: (f: OpenFile) => void }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<{ query: string; files: string[]; matches: SearchMatch[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +87,18 @@ function Search({ root, onOpen }: { root: string; onOpen: (f: OpenFile) => void 
 
 const WORDS: Record<string, string> = { M: "modified", A: "added", D: "deleted", R: "renamed", "?": "new" };
 
-function Changes({ root, version, onOpen }: { root: string; version: number; onOpen: (f: OpenFile) => void }) {
+export function Changes({
+  root,
+  version,
+  onOpen,
+  onCount,
+}: {
+  root: string;
+  version: number;
+  onOpen: (f: OpenFile) => void;
+  /** How many files changed, for the icon strip's badge. */
+  onCount?: (n: number) => void;
+}) {
   const [changes, setChanges] = useState<GitChange[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -132,6 +113,7 @@ function Changes({ root, version, onOpen }: { root: string; version: number; onO
       .then((c) => {
         if (!live) return;
         setChanges(c);
+        onCount?.(c.length);
         setError(null);
       })
       .catch((e) => {

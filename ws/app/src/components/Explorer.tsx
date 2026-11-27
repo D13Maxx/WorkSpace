@@ -35,7 +35,7 @@ interface Props {
   version: number;
 }
 
-const Icon = ({ d }: { d: string }) => (
+export const Icon = ({ d }: { d: string }) => (
   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
     <path d={d} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
   </svg>

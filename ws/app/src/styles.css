@@ -195,9 +195,6 @@ select:focus {
   color: var(--text);
   background: var(--border);
 }
-.settings {
-  margin-top: auto;
-}
 
 /* ---- thread ---- */
 .main {
@@ -926,8 +923,93 @@ select:focus {
   min-height: 0;
 }
 
-.pane-left > .settings {
-  margin: 0 10px;
+/* The icon strip at the far left: views on top, Settings at the bottom. */
+.activity-bar {
+  flex: 0 0 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+.activity-item {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+}
+.activity-item svg {
+  width: 19px;
+  height: 19px;
+}
+.activity-item:hover {
+  color: var(--text);
+  background: var(--raised);
+}
+.activity-item.selected {
+  color: var(--text);
+}
+.activity-item.selected::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.activity-badge {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.activity-badge.warn {
+  background: var(--danger);
+}
+.activity-spacer {
+  flex: 1;
+}
+[hidden] {
+  display: none !important;
+}
+/* One view of the left pane: the tree, search or changes. */
+.left-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-view {
+  padding: 0 10px;
+}
+.left-title {
+  margin: 0;
+  padding: 10px 2px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .pane-middle {
@@ -2081,28 +2163,12 @@ button.danger {
   color: var(--accent);
 }
 
-.side-panel {
-  display: flex;
-  flex-direction: column;
-  margin: 0 10px;
-  min-height: 0;
-}
-.side-tabs {
-  display: flex;
-  gap: 6px;
-}
-.side-tabs button {
-  flex: 1;
-  font-size: 0.8rem;
-}
-.side-tabs button.selected {
-  border-color: var(--accent);
-}
 .side-body {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  max-height: 38vh;
+  overflow-y: auto;
   margin-top: 6px;
 }
 .side-body input {
@@ -2665,10 +2731,6 @@ body.resizing-v {
 }
 .agent-approval {
   margin: 0.5rem;
-}
-.agents-btn.needs-you {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 .agent-copy {
   margin: 0;
