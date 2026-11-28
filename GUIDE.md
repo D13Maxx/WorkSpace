@@ -9,12 +9,12 @@ the Linux desktop keyring) and nowhere else — not in the
 database, not in logs, not in exports. The app can tell you whether a key is
 set, but cannot read one back.
 
-1. Launch the app and open **Settings**.
+1. Launch the app and open **Settings → API keys**.
 2. Paste a key next to `anthropic`, `openai` or `gemini` and choose **Save**.
 3. The model list is fetched from each provider that has a key.
 
 To add an OpenAI-compatible endpoint (a local llama.cpp, vLLM, a gateway), use
-**OpenAI-compatible endpoints** in the same panel: give it an id, a display
+**Settings → OpenAI-compatible endpoints**: give it an id, a display
 name and a base URL. It is wired up on the next launch. Reasoning from such a
 server is shown but never replayed -- the protocol has nothing signed to send
 back.
@@ -120,7 +120,7 @@ time and the number of calls are capped. Plain chats never see any of it.
 
 ## Run a local model
 
-Open **Settings**, paste the path to a `.gguf` file under **Local model** and
+Open **Settings → Local model**, paste the path to a `.gguf` file and
 choose **Read file**. That reads the header only -- architecture, quantisation,
 and whether it will fit in memory -- so nothing is committed before you can see
 what the file is. **Load model** then makes it available in the model picker
@@ -468,7 +468,7 @@ replaces it.
 [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) turns
 a codebase into a knowledge graph in the project's `.ua` folder.
 
-The graph button (linked dots) in the left pane's toolbar asks for a folder,
+**Knowledge graph of a folder…** in the **+** menu above the file tree asks for one,
 then offers the choices below, and **Open it** when the folder already has a
 graph.
 

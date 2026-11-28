@@ -36,13 +36,16 @@ npm run tauri build -- --bundles nsis   # or: --bundles deb
 
 On Windows, `powershell -ExecutionPolicy Bypass -File ws/app/scripts/install.ps1`
 builds and installs a copy into `%LOCALAPPDATA%\Programs\Workspace` with a
-desktop shortcut, for working on the app itself.
+desktop shortcut, for working on the app itself. It honours `CARGO_TARGET_DIR`.
+Close Workspace first; a running copy cannot be replaced.
 
 ### Releasing
 
 Push a tag such as `v0.2.0` (after setting the same version in
 `ws/app/src-tauri/tauri.conf.json`). GitHub Actions builds the Windows installer
-and the `.deb` and attaches them to a draft release; check it and publish.
+and the `.deb` and attaches them to a draft release with install instructions;
+add what's new, check both files are there, and publish. If a build fails
+before publishing, delete the draft, fix it, and push the tag again.
 
 ## Test
 
@@ -64,9 +67,16 @@ cargo test -p ws-secrets --features live-tests
 cargo test -p ws-providers --features live-tests
 ```
 
-Test the model and the parts builder with
-`node ws/app/scripts/test-blueprint.mjs` and `node ws/app/scripts/test-builder.mjs`;
-the Markdown preview's sanitizer with `node ws/app/scripts/test-markdown.mjs`.
+The frontend's own tests (the Workshop's model and parts builder, the Markdown
+sanitizer, fuzzy finding, language-server edits, the keymap, debugger stops and
+the agent view's worker statuses) run with:
+
+```bash
+cd ws/app
+npm test
+```
+
+Each is a script in `ws/app/scripts/test-*.mjs` and runs on its own too.
 
 ## The local engine on its own
 
@@ -120,6 +130,7 @@ ws/
     ws-engine-cli/  standalone engine harness
     ws-tools/       the agent's file, search, git and command tools
     ws-mcp/         tool servers (MCP)
+    ws-codemode/    sandboxed JavaScript (QuickJS) that calls tools: Code Mode
     ws-core/        turn orchestration, agent teams, skills
     ws-cli/         the same turns from a terminal
   app/

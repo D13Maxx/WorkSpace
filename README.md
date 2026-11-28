@@ -21,14 +21,19 @@ software visually.
 - **Agent teams.** Tick *Coordinate*: a lead model plans the task and starts
   workers (on a cheaper model if you like) that run side by side, talk in a team
   chat you can watch and join, work in their own git copies, and ask you only
-  when it matters. Ask a team how some app, binary or website does something,
+  when it matters. **Settings → Team mode** gives each worker role its own
+  model and fallbacks. Ask a team how some app, binary or website does something,
   and it switches on the bundled [Reverse Engineer Anything](https://github.com/morluto/rea)
   to inspect it without its source.
+- **Git and GitHub.** Branches, push and pull, the branch's pull request and
+  CI, cloning a repo, and GitHub's own tools for the agent if you want them.
 - **The Workshop.** Draw a system from parts and connectors, simulate its load
   to find bugs and bottlenecks, then have the agent build it and measure the
   real thing.
-- **Tools and skills.** Connect MCP tool servers, use Claude Code-style skills,
-  and turn a codebase into a knowledge graph you can explore and ask about.
+- **Tools and skills.** Add MCP tool servers (with a form, or by pasting a
+  config) and Claude Code-style skills (write one, or add them from GitHub)
+  from Settings, without restarting. Turn a codebase into a knowledge graph you
+  can explore and ask about.
 
 ## Download
 
@@ -49,7 +54,11 @@ sudo apt install ./Workspace_*_amd64.deb
 ### What else to install
 
 Workspace itself needs nothing else to chat, edit files and run agents. Some
-features use tools from your system, found on PATH:
+features use tools from your system, found on PATH. Workspace offers
+*language packs* that install these for you: the Windows installer asks once
+it's done, and on Ubuntu and Debian the first start does (more later in
+**Settings → Languages**); see the [guide](GUIDE.md#language-packs).
+Otherwise:
 
 | To use | Install |
 | --- | --- |
@@ -60,6 +69,7 @@ features use tools from your system, found on PATH:
 | Running C/C++ | gcc/g++ or clang |
 | Language servers | the server for each language, e.g. `rust-analyzer`, `pyright`, `typescript-language-server`, `clangd` |
 | The debugger | `lldb-dap` (from LLVM) |
+| GitHub tools for the agent | [github-mcp-server](https://github.com/github/github-mcp-server) |
 
 On Windows:
 
@@ -77,13 +87,16 @@ Restart Workspace after installing so it sees the new PATH.
 
 ## Getting started
 
-1. Open **Settings** and paste an API key next to `anthropic`, `openai` or
-   `gemini`, or add an OpenAI-compatible endpoint such as OpenRouter
-   (`https://openrouter.ai/api/v1`) or Groq (`https://api.groq.com/openai/v1`).
+1. Open **Settings** (the gear at the bottom of the icon strip on the left).
+   Under **API keys**, paste a key next to `anthropic`, `openai` or
+   `gemini`, or under **OpenAI-compatible endpoints** add one such as
+   OpenRouter (`https://openrouter.ai/api/v1`) or Groq
+   (`https://api.groq.com/openai/v1`).
    You can also load a local `.gguf` model instead.
 2. Pick a model at the top of a chat and start talking.
-3. Open a folder from the left pane to edit its files and let the agent work
-   on them. Edits show as diffs with Undo; commands ask before they run.
+3. Open a folder (or clone a repo) from the buttons above the file tree to
+   edit its files and let the agent work on them. Edits show as diffs with
+   Undo; commands ask before they run.
 4. For a bigger task, tick **Coordinate** under the message box and the model
    runs it as a team.
 
